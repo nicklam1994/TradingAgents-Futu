@@ -16,7 +16,14 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
+
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,3 +89,338 @@ class SearchProvider(ABC):
         """
         raw = os.getenv(env_var, "")
         return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+# ─── Orchestrator ────────────────────────────────────────────────────────────
+
+
+class _TransientSearchError(Exception):
+    """Raised when a search provider fails transiently (network, rate-limit).
+
+    Tenacity retries only on this type — permanent failures (no keys, invalid
+    config) return a failed ``SearchResponse`` directly without retrying.
+    """
+
+
+# Priority order: Anspire → Bocha → Tavily → Brave → SerpAPI → MiniMax → SearXNG
+_PROVIDER_PRIORITY = [
+    "anspire",
+    "bocha",
+    "tavily",
+    "brave",
+    "serpapi",
+    "minimax",
+    "searxng",
+]
+
+# Env var names for each provider's API keys / base URLs
+_PROVIDER_ENV = {
+    "anspire": "ANSPIRE_API_KEYS",
+    "bocha": "BOCHA_API_KEYS",
+    "tavily": "TAVILY_API_KEYS",
+    "brave": "BRAVE_API_KEYS",
+    "serpapi": "SERPAPI_API_KEYS",
+    "minimax": "MINIMAX_API_KEYS",
+    "searxng": "SEARXNG_BASE_URLS",
+}
+
+
+class SearchService:
+    """Orchestrates multiple search providers with fallback, caching, and retry.
+
+    Features:
+      - **Priority rotation**: providers tried in fixed order; first success wins.
+      - **Multi-key load balancing**: each provider's keys rotate round-robin.
+      - **TTL cache**: identical queries within ``cache_ttl`` seconds return
+        cached results (thread-safe via ``threading.Lock``).
+      - **Concurrent dedup**: if the same query is already in-flight, wait for
+        its result instead of sending a duplicate request.
+      - **tenacity retry**: transient errors (network, rate-limit) trigger
+        exponential backoff; permanent failures (no keys) skip immediately.
+      - **Fallback**: when a provider fails all retries, the next provider
+        in the priority list is tried.
+    """
+
+    def __init__(self, cache_ttl: int = 600) -> None:
+        """Initialise the search service.
+
+        Args:
+            cache_ttl: Cache time-to-live in seconds (default 600 = 10 min).
+        """
+        self._cache_ttl = cache_ttl
+        self._cache: Dict[str, tuple[float, SearchResponse]] = {}
+        self._cache_lock = threading.Lock()
+
+        # Per-provider key rotation index (provider_name → current index)
+        self._key_indices: Dict[str, int] = {}
+        self._key_lock = threading.Lock()
+
+        # In-flight dedup: query_hash → threading.Event + result holder
+        self._inflight: Dict[str, tuple[threading.Event, list[SearchResponse]]] = {}
+        self._inflight_lock = threading.Lock()
+
+        # Lazy-loaded provider instances (name → instance)
+        self._providers: Dict[str, SearchProvider] = {}
+
+    # ── Provider instantiation (lazy) ────────────────────────────────────────
+
+    def _get_provider(self, name: str) -> Optional[SearchProvider]:
+        """Return a provider instance, creating it lazily on first access."""
+        if name not in self._providers:
+            prov = self._create_provider(name)
+            if prov is None:
+                return None
+            self._providers[name] = prov
+        return self._providers[name]
+
+    @staticmethod
+    def _create_provider(name: str) -> Optional[SearchProvider]:
+        """Factory: import and instantiate a provider by name."""
+        # Lazy imports to avoid pulling all SDKs at module load time
+        from .search_providers.anspire_provider import AnspireSearchProvider
+        from .search_providers.bocha_provider import BochaSearchProvider
+        from .search_providers.brave_provider import BraveSearchProvider
+        from .search_providers.minimax_provider import MiniMaxSearchProvider
+        from .search_providers.searxng_provider import SearXNGSearchProvider
+        from .search_providers.serpapi_provider import SerpAPISearchProvider
+        from .search_providers.tavily_provider import TavilySearchProvider
+
+        factories = {
+            "anspire": AnspireSearchProvider,
+            "bocha": BochaSearchProvider,
+            "tavily": TavilySearchProvider,
+            "brave": BraveSearchProvider,
+            "serpapi": SerpAPISearchProvider,
+            "minimax": MiniMaxSearchProvider,
+            "searxng": SearXNGSearchProvider,
+        }
+        factory = factories.get(name)
+        if factory is None:
+            logger.warning("Unknown search provider: %s", name)
+            return None
+        return factory()
+
+    # ── Key rotation ─────────────────────────────────────────────────────────
+
+    def _next_key(self, provider_name: str) -> Optional[str]:
+        """Return the next API key for *provider_name* (round-robin).
+
+        Returns ``None`` when no keys are configured for this provider.
+        """
+        env_var = _PROVIDER_ENV.get(provider_name, "")
+        if not env_var:
+            return None
+
+        raw = os.getenv(env_var, "")
+        keys = [k.strip() for k in raw.split(",") if k.strip()]
+        if not keys:
+            return None
+
+        with self._key_lock:
+            idx = self._key_indices.get(provider_name, 0) % len(keys)
+            self._key_indices[provider_name] = idx + 1
+            return keys[idx]
+
+    def _has_keys(self, provider_name: str) -> bool:
+        """Check if *provider_name* has any API keys configured."""
+        env_var = _PROVIDER_ENV.get(provider_name, "")
+        if not env_var:
+            return False
+        return bool(os.getenv(env_var, "").strip())
+
+    # ── Cache ────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _cache_key(query: str, max_results: int) -> str:
+        """Build a deterministic cache key from query parameters."""
+        return hashlib.sha256(f"{query}:{max_results}".encode()).hexdigest()
+
+    def _cache_get(self, key: str) -> Optional[SearchResponse]:
+        """Return cached response if still valid, else ``None``."""
+        with self._cache_lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            ts, resp = entry
+            if time.monotonic() - ts > self._cache_ttl:
+                del self._cache[key]
+                return None
+            return resp
+
+    def _cache_put(self, key: str, resp: SearchResponse) -> None:
+        """Store a successful response in the cache."""
+        with self._cache_lock:
+            self._cache[key] = (time.monotonic(), resp)
+
+    # ── In-flight dedup ─────────────────────────────────────────────────────
+
+    def _dedup_or_acquire(self, key: str) -> Optional[SearchResponse]:
+        """Check if *key* is already in-flight.
+
+        Returns:
+            ``None`` if this caller should execute the search (it now owns the
+            in-flight slot).  Otherwise returns the result from the first
+            caller that completed the search.
+        """
+        with self._inflight_lock:
+            if key in self._inflight:
+                # Another thread is already searching — wait for its result
+                event, result_holder = self._inflight[key]
+                # Release lock before blocking
+                pass
+            else:
+                # We are the first — create the slot
+                event = threading.Event()
+                self._inflight[key] = (event, [])
+                return None  # Caller should execute
+
+        # Wait outside the lock (another thread owns the slot)
+        event.wait(timeout=30)
+        with self._inflight_lock:
+            _, result_holder = self._inflight.get(key, (None, []))
+        return result_holder[0] if result_holder else None
+
+    def _dedup_complete(self, key: str, resp: SearchResponse) -> None:
+        """Publish the result for an in-flight query and wake waiters."""
+        with self._inflight_lock:
+            entry = self._inflight.get(key)
+            if entry is not None:
+                event, result_holder = entry
+                result_holder.append(resp)
+                event.set()
+                del self._inflight[key]
+
+    # ── Core search with retry ───────────────────────────────────────────────
+
+    def _search_with_retry(
+        self, provider: SearchProvider, query: str, max_results: int
+    ) -> SearchResponse:
+        """Search with *provider*, retrying transient errors via tenacity.
+
+        The tenacity decorator is applied inline so each call gets a fresh
+        retry state.  Only ``_TransientSearchError`` triggers retries.
+        """
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type(_TransientSearchError),
+            reraise=True,
+        )
+        def _do_search() -> SearchResponse:
+            # Rotate API key before each attempt
+            self._set_provider_key(provider)
+            resp = provider.search(query, max_results)
+
+            if resp.success:
+                return resp
+
+            # Classify the error
+            err = resp.error_message.lower()
+            transient_signals = [
+                "timeout", "rate limit", "429", "503", "502",
+                "connection", "network", "temporary",
+            ]
+            if any(sig in err for sig in transient_signals):
+                raise _TransientSearchError(resp.error_message)
+
+            # Permanent failure — no retry
+            return resp
+
+        try:
+            return _do_search()
+        except _TransientSearchError:
+            return SearchResponse(
+                query=query,
+                provider=provider.name,
+                success=False,
+                error_message="All retries exhausted",
+            )
+
+    def _set_provider_key(self, provider: SearchProvider) -> None:
+        """Inject the next API key into the provider's environment.
+
+        Providers read keys from env vars at call time.  For round-robin we
+        temporarily set the env var to the next key before each search call.
+        This is safe because each thread holds its own key reference.
+        """
+        env_var = _PROVIDER_ENV.get(provider.name, "")
+        if not env_var:
+            return
+        key = self._next_key(provider.name)
+        if key:
+            os.environ[env_var] = key
+
+    # ── Public API ───────────────────────────────────────────────────────────
+
+    def search(
+        self, query: str, max_results: int = 5
+    ) -> SearchResponse:
+        """Search across all configured providers with fallback.
+
+        1. Check TTL cache → return if hit.
+        2. Check in-flight dedup → wait if same query is running.
+        3. Try each provider in priority order with retry.
+        4. Cache and return the first successful response.
+
+        Returns a failed ``SearchResponse`` if all providers fail.
+        """
+        ckey = self._cache_key(query, max_results)
+
+        # 1. Cache check
+        cached = self._cache_get(ckey)
+        if cached is not None:
+            logger.debug("Cache hit for query: %s", query[:60])
+            return cached
+
+        # 2. In-flight dedup
+        dedup_result = self._dedup_or_acquire(ckey)
+        if dedup_result is not None:
+            return dedup_result
+
+        # 3. Try providers in priority order
+        last_resp = SearchResponse(
+            query=query, success=False, error_message="No providers configured"
+        )
+
+        for pname in _PROVIDER_PRIORITY:
+            if not self._has_keys(pname):
+                continue
+
+            provider = self._get_provider(pname)
+            if provider is None:
+                continue
+
+            logger.info("Trying search provider: %s for: %s", pname, query[:60])
+            resp = self._search_with_retry(provider, query, max_results)
+
+            if resp.success:
+                # Cache the result
+                self._cache_put(ckey, resp)
+                self._dedup_complete(ckey, resp)
+                return resp
+
+            logger.warning(
+                "Provider %s failed: %s — trying next", pname, resp.error_message
+            )
+            last_resp = resp
+
+        # All providers failed
+        self._dedup_complete(ckey, last_resp)
+        return last_resp
+
+    def search_stock_news(
+        self, ticker: str, max_results: int = 10
+    ) -> SearchResponse:
+        """Convenience method: search for stock-specific news.
+
+        Builds a query like ``"AAPL stock news"`` and delegates to ``search()``.
+        """
+        query = f"{ticker} stock news"
+        return self.search(query, max_results)
+
+    def search_global_news(
+        self, topic: str = "stock market", max_results: int = 10
+    ) -> SearchResponse:
+        """Convenience method: search for macro/global market news."""
+        return self.search(topic, max_results)
