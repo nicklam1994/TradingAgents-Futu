@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
         "core_stock_apis": "futu,cn_akshare,cn_baostock,yfinance",
         "technical_indicators": "futu,cn_akshare,cn_baostock,yfinance",
         "fundamental_data": "futu,cn_akshare,cn_baostock,yfinance",
-        "news_data": "cn_akshare,cn_baostock,yfinance",
+        "news_data": "cn_akshare,search_news,yfinance,alpha_vantage",
         "realtime_data": "futu,cn_akshare",
     },
     "tool_vendors": {},
