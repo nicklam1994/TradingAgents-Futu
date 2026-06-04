@@ -119,10 +119,12 @@ class FutuProvider(BaseMarketDataProvider):
                 autype=None,  # 不做复权调整，保持原始价格
             )
             if ret != RET_OK:
-                return ""
+                raise RuntimeError(
+                    f"Futu API request_history_kline failed for {symbol}: {ret}"
+                )
 
             if data is None or data.empty:
-                return ""
+                return ""  # No data available is not an error — return empty
 
             # Normalize column names to match the expected CSV format
             df = data.rename(
@@ -181,7 +183,13 @@ class FutuProvider(BaseMarketDataProvider):
                 ktype=KLType.K_DAY,
                 autype=None,
             )
-            if ret != RET_OK or data is None or data.empty:
+            if ret != RET_OK:
+                raise RuntimeError(
+                    f"Futu API request_history_kline failed for {symbol} "
+                    f"(indicator {indicator}): {ret}"
+                )
+
+            if data is None or data.empty:
                 return f"No data found for {symbol} for indicator {indicator}"
 
             # Prepare DataFrame for stockstats (expects lowercase column names)
@@ -246,7 +254,9 @@ class FutuProvider(BaseMarketDataProvider):
         try:
             ret, data = ctx.get_market_snapshot([code])
             if ret != RET_OK:
-                return f"Failed to get fundamentals for {ticker}: {ret}"
+                raise RuntimeError(
+                    f"Futu API get_market_snapshot failed for {ticker}: {ret}"
+                )
 
             if data is None or data.empty:
                 return f"No fundamental data found for {ticker}"
@@ -343,10 +353,12 @@ class FutuProvider(BaseMarketDataProvider):
         try:
             ret, data = ctx.get_market_snapshot(list(code_map.keys()))
             if ret != RET_OK:
-                return ""
+                raise RuntimeError(
+                    f"Futu API get_market_snapshot failed for quotes: {ret}"
+                )
 
             if data is None or data.empty:
-                return ""
+                return ""  # No data available is not an error — return empty
 
             rows = []
             for _, row in data.iterrows():
