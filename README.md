@@ -1,6 +1,6 @@
-# TradingAgents-Futu：A 股 + 港股 + 美股多智能体自主交易系统
+# TradingAgents-Futu：港股 + 美股多智能体自主交易系统
 
-基于 [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) 二次开发，新增 **Futu OpenD 实时行情**、**模拟交易闭环**、**自主 OODA 循环**和**多市场覆盖**（US/HK/CN）。
+基于 [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) 二次开发，专注 **港股 + 美股**，通过 **Futu OpenD** 接入实时行情与模拟交易，配合 15 Agent 协作分析与自主 OODA 闭环。
 
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
@@ -9,24 +9,24 @@
 
 ---
 
-## 核心特性（相比上游新增）
+## 核心特性
 
-### 🆕 Futu OpenD 接入（US/HK）
+### 🆕 Futu OpenD 实时行情（港股/美股）
 
 | 能力 | 说明 |
 |------|------|
-| **K 线数据** | Futu `request_history_kline`，US/HK 日线最高优先级 |
+| **K 线数据** | Futu `request_history_kline`，日线最高优先级 |
 | **实时行情** | Futu `get_market_snapshot`，PE/PB/市值/振幅/52 周高低 |
 | **技术指标** | K 线 + stockstats（MA/MACD/RSI/Bollinger/ATR） |
 | **模拟交易** | Futu SIMULATE 环境：下单/撤单/持仓/成交查询 |
 | **码制转换** | 自动：`AAPL` → `US.AAPL`，`00700.HK` → `HK.00700` |
-| **Fallback** | Futu 不可用时自动降级到 yfinance/Alpha Vantage |
+| **Fallback** | Futu 不可用时自动降级到 yfinance / Alpha Vantage |
 
 ### 🆕 搜索引擎增强（7 家）
 
 Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax — 多 Key 轮转 + 10min 缓存 + tenacity 重试。
 
-### 🆕 社交舆情（US 市场）
+### 🆕 社交舆情（美股）
 
 Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取情绪分、提及量、趋势。
 
@@ -64,7 +64,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
 │                    数据源层（Provider Registry + Fallback）       │
-│  Futu(US/HK) → Akshare(CN) → yfinance(全球) → Alpha Vantage    │
+│  Futu(港美股) → yfinance(全球) → Alpha Vantage(备用)            │
 │  Search Service (7引擎) + Social Sentiment (Reddit/X/Poly)      │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
@@ -78,24 +78,29 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 ## 快速上手
 
-### 源码安装
+### 前置条件
+
+1. **Futu OpenD**：[下载安装](https://openapi.futunn.com/)，启动后默认监听 `127.0.0.1:11111`
+2. **Futu 账户**：注册并开通模拟交易权限（港股/美股）
+3. **Python 3.10+** + **Node.js 18+**
+
+### 安装
 
 ```bash
 git clone https://github.com/nicklam1994/TradingAgents-Futu.git
 cd TradingAgents-Futu
 
-# 后端（Python 3.10+）
+# 后端
 uv sync
 pip install futu-api tavily-python newspaper3k
 
-# 前端（Node.js 18+）
+# 前端
 cd frontend
-npm install
-npm run build
+npm install && npm run build
 cd ..
 ```
 
-### 环境变量
+### 配置
 
 ```bash
 cp .env.example .env
@@ -110,7 +115,7 @@ TA_BASE_URL=https://api.openai.com/v1
 TA_LLM_QUICK=gpt-4o-mini
 TA_LLM_DEEP=gpt-4o
 
-# Futu OpenD（US/HK 数据源）
+# Futu OpenD
 FUTU_OPEND_HOST=127.0.0.1
 FUTU_OPEND_PORT=11111
 
@@ -124,10 +129,7 @@ SOCIAL_SENTIMENT_API_KEY=your-adanos-key
 ### 启动
 
 ```bash
-# 启动 Futu OpenD（需单独安装）
-# 下载: https://openapi.futunn.com/
-
-# 启动后端
+# 确保 Futu OpenD 已运行
 uv run python -m uvicorn api.main:app --port 8000
 ```
 
@@ -169,14 +171,15 @@ uv run python -m uvicorn api.main:app --port 8000
 | 暂停任务 | `POST /v1/autonomous/{id}/pause` |
 | 停止任务 | `POST /v1/autonomous/{id}/stop` |
 
+认证：在前端"设置 / API Token"生成密钥，通过 `Authorization: Bearer <TOKEN>` 传入。
+
 ---
 
 ## 数据源覆盖
 
-| 市场 | 行情数据 | 新闻 | 基本面 | 舆情 |
-|------|---------|------|--------|------|
-| **A 股** | akshare / baostock | akshare 东方财富 | akshare 新浪/同花顺 | 雪球热搜 |
-| **港股** | Futu OpenD | yfinance / 搜索引擎 | Futu Snapshot | 搜索引擎 |
+| 市场 | 行情 | 新闻 | 基本面 | 舆情 |
+|------|------|------|--------|------|
+| **港股** | Futu OpenD | yfinance / 7 家搜索 | Futu Snapshot | 搜索引擎 |
 | **美股** | Futu OpenD / yfinance | yfinance / Alpha Vantage / 7 家搜索 | yfinance / Alpha Vantage | Reddit / X / Polymarket |
 
 ---
@@ -192,9 +195,9 @@ tradingagents/
 │   ├── risk_mgmt/             # 激进/稳健/中性风控辩论
 │   ├── trader/                # Trader + SimExecutor + ExitStrategy
 │   └── utils/                 # 记忆、校准、工具
-├── orchestrator/              # 🆕 自主编排层
+├── orchestrator/              # 🆕 自主编排层（OODA 循环）
 ├── dataflows/                 # 数据源（Provider Registry）
-│   ├── providers/             # Futu / Akshare / yfinance / Alpha Vantage
+│   ├── providers/             # Futu / yfinance / Alpha Vantage
 │   ├── search_service.py      # 🆕 7 引擎搜索
 │   ├── social_sentiment.py    # 🆕 Reddit/X/Polymarket
 │   └── quant_metrics.py       # 🆕 量化绩效指标
@@ -221,17 +224,17 @@ frontend/                      # React + Vite 前端
 | **LLM** | OpenAI / Anthropic / Gemini / DeepSeek / Moonshot |
 | **后端** | FastAPI + SQLite + SQLAlchemy |
 | **前端** | React + TypeScript + Vite + Tailwind |
-| **数据源** | Futu OpenD + akshare + yfinance + Alpha Vantage |
+| **行情/交易** | Futu OpenD（港股 + 美股模拟交易） |
+| **全球数据** | yfinance + Alpha Vantage |
 | **搜索引擎** | Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax |
 | **记忆** | BM25 词法检索（无需 embedding API） |
-| **交易** | Futu OpenD SIMULATE 环境 |
 
 ---
 
 ## 特别鸣谢
 
 - [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) — 核心架构灵感
-- [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) — A 股适配
+- [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) — A 股适配基础
 
 ## 许可说明
 
