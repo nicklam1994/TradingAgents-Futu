@@ -1,128 +1,92 @@
-# TradingAgents-AShare：A股智能投研多智能体系统
+# TradingAgents-Futu：A 股 + 港股 + 美股多智能体自主交易系统
 
-本项目是基于多智能体协作的 A 股深度分析系统，模拟顶级投研机构的决策闭环，通过 14 名专业 Agent 的多空辩论与风控博弈，为投资者提供结构化的交易建议。
-
-[在线体验](https://app.510168.xyz) | [Releases](https://github.com/KylinMountain/TradingAgents-AShare/releases) | [OpenClaw 技能](https://clawhub.ai/kylinmountain/tradingagents-analysis)
+基于 [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) 二次开发，新增 **Futu OpenD 实时行情**、**模拟交易闭环**、**自主 OODA 循环**和**多市场覆盖**（US/HK/CN）。
 
 <div align="center">
   <img src="assets/web/analysis.png" width="100%" alt="智能分析"/>
-  <p><em>14 名智能体实时协作，左侧对话驱动，右侧可视化全流程</em></p>
+  <p><em>15 名智能体实时协作 + Futu OpenD 模拟交易 + 自主选股→分析→回测→下单→反思闭环</em></p>
 </div>
 
-> TradingAgents-AShare 已正式上线 OpenClaw！您只需通过 `tradingagents-analysis` 技能，即可让您的 AI助手具备专业的 A 股深度投研能力。
+---
 
-## 功能特性
+## 核心特性（相比上游新增）
 
-### 辩论对战可视化
+### 🆕 Futu OpenD 接入（US/HK）
 
-点击 Agent 卡片即可打开辩论 Drawer，实时观看多空对抗与风控三方辩论。垂直时间线按 Round 分组，Token 级流式呈现每位 Agent 的发言，裁决卡片独立高亮展示。
+| 能力 | 说明 |
+|------|------|
+| **K 线数据** | Futu `request_history_kline`，US/HK 日线最高优先级 |
+| **实时行情** | Futu `get_market_snapshot`，PE/PB/市值/振幅/52 周高低 |
+| **技术指标** | K 线 + stockstats（MA/MACD/RSI/Bollinger/ATR） |
+| **模拟交易** | Futu SIMULATE 环境：下单/撤单/持仓/成交查询 |
+| **码制转换** | 自动：`AAPL` → `US.AAPL`，`00700.HK` → `HK.00700` |
+| **Fallback** | Futu 不可用时自动降级到 yfinance/Alpha Vantage |
 
-<div align="center">
-  <img src="assets/web/debate_drawer.png" width="80%" alt="辩论对战可视化"/>
-</div>
+### 🆕 搜索引擎增强（7 家）
 
-### 意图驱动的自然语言交互
+Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax — 多 Key 轮转 + 10min 缓存 + tenacity 重试。
 
-直接输入"调研茅台短线"即可自动识别标的、解析投资周期，支持短线与中线双周期分析，无需填写表单。
+### 🆕 社交舆情（US 市场）
 
-### 自选股与定时分析
+Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取情绪分、提及量、趋势。
 
-数据库持久化自选列表，支持批量加入股票、自定义周期与触发时间，并可在前端批量更新、删除或手动测试定时任务。定时分析会自动复用持仓上下文，连续失败自动停用，无需人工干预。
+### 🆕 自主交易闭环（OODA 循环）
 
-<div align="center">
-  <img src="assets/web/timer_analysis.png" width="80%" alt="定时分析"/>
-</div>
-
-### 持仓追踪与跟踪看板
-
-支持导入持仓数据，自动记录持仓、成本价与仓位占比，并可一键将持仓标的补齐到定时分析列表。控制台会展示跟踪看板摘要，完整看板页支持查看实时价格、当日区间、持仓盈亏与上一交易日报告区间，方便盘中快速跟踪。
-
-### 结构化研报管理
-
-分析结果结构化存储，支持按标的、日期检索历史研报，决策卡片一目了然地展示方向、置信度、目标价与止损价。
-
-<div align="center">
-  <table style="width: 100%">
-    <tr>
-      <td width="50%"><img src="assets/web/reports.png" alt="历史报告"/><br><em>研报历史</em></td>
-      <td width="50%"><img src="assets/web/detail.png" alt="研报详情"/><br><em>深度详情</em></td>
-    </tr>
-  </table>
-</div>
-
-### 多模型厂商支持
-
-OpenAI、Anthropic、Google Gemini、DeepSeek、Moonshot、智谱、硅基流动等，用户可在前端自由切换模型厂商与具体模型；保存配置后会自动执行模型 warmup，也可以在设置页手动发送“你好”查看模型原始返回，便于排查接入问题。
-
-<div align="center">
-  <img src="assets/web/settings.png" width="80%" alt="定时分析"/>
-</div>
-
-## 核心架构
-
-TradingAgents 模拟真实交易机构的部门协作，将复杂任务拆解为专业的智能体角色：
-
-<p align="center">
-  <img src="assets/schema.png" style="width: 100%; height: auto;">
-</p>
-
-*图中仅展示核心节点，完整流程包含 14 名智能体。
-
-### 分析师团队
-基本面、情绪、新闻、技术、宏观、主力资金 6 大维度同步作业，对市场数据进行深度提取与初步评估。
-
-<p align="center">
-  <img src="assets/analyst.png" width="90%">
-</p>
-
-### 研究员团队
-多头与空头研究员针对分析师结论开展 Claim 驱动的结构化辩论（红蓝对抗），研究总监综合裁决形成投资计划。
-
-<p align="center">
-  <img src="assets/researcher.png" width="80%">
-</p>
-
-### 决策与风控
-交易员将研究结论转化为可执行方案，激进/稳健/中性三方风控辩论审查，组合经理最终裁决。
-
-<p align="center">
-  <img src="assets/risk.png" width="80%">
-</p>
-
-## 快速上手
-
-### Docker 一键部署 (推荐)
-
-```bash
-docker pull ghcr.io/kylinmountain/tradingagents-ashare:latest
-
-mkdir -p $(pwd)/data
-export TA_APP_SECRET_KEY=$(openssl rand -base64 32)
-
-docker run -d -p 8000:8000 \
-  --name tradingagents \
-  -v $(pwd)/data:/app/data \
-  -e DATABASE_URL="sqlite:///./data/tradingagents.db" \
-  -e TA_APP_SECRET_KEY="${TA_APP_SECRET_KEY}" \
-  ghcr.io/kylinmountain/tradingagents-ashare:latest
+```
+选股扫描 → 15 Agent 分析 → 历史回测 → Kelly 仓位分配 → Futu 模拟下单 → 持仓监控 → 反思教训 → 策略优化 → 下一轮
 ```
 
-访问 `http://localhost:8000` 即可使用。
+用户只需一句话：*"futu 虚拟账户，给你 2w 美金，执行闭环模拟交易"*
 
-> **`TA_APP_SECRET_KEY`**：用于加密用户 LLM API Key 和签发登录 JWT。不设置时使用内置默认密钥（仅适合本地开发）。生产环境务必设置，且不可更改。
+### 🆕 量化绩效指标
 
-> **LLM 配置**：启动后在前端"设置"页面配置模型厂商、API Key 和模型名称即可，无需环境变量预设。
+最大回撤 / 夏普比率 / Sortino 比率 / 胜率 / Calmar 比率 — 全自动计算。
 
-> **邮箱验证码**：未配置 SMTP（`MAIL_HOST` 等）时，验证码会在前端登录页直接显示为 `开发环境验证码：xxxxxx`，本地使用无需配置邮件服务器。如果需要真实邮件投递，参考 `.env.example` 配置 `MAIL_HOST` / `MAIL_USER` / `MAIL_PASS` 等并通过 `-e` 注入容器。
+### 🆕 反思记忆系统
+
+交易后 LLM 自动反思，生成教训存入 BM25 记忆，下次类似场景自动调取。5 个独立记忆实例（Bull/Bear/Trader/Judge/RiskJudge）。
+
+---
+
+## 架构总览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Orchestrator（自主循环编排器）                  │
+│  Command Router → Stock Selector → Portfolio Allocator → Observer│
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│              LangGraph 状态机（6 层，15 Agent）                   │
+│  Layer 1: 7 分析师并行 → Layer 2: 多空辩论 → Layer 3: 裁决       │
+│  Layer 4: Trader → Layer 5: 风控三方辩论 → Layer 6: Risk Judge    │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                    数据源层（Provider Registry + Fallback）       │
+│  Futu(US/HK) → Akshare(CN) → yfinance(全球) → Alpha Vantage    │
+│  Search Service (7引擎) + Social Sentiment (Reddit/X/Poly)      │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                    执行 & 存储层                                  │
+│  Futu SIMULATE 模拟交易 + Backtest Engine + BM25 Memory         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 快速上手
 
 ### 源码安装
 
 ```bash
-git clone https://github.com/KylinMountain/TradingAgents-AShare.git
-cd TradingAgents-AShare
+git clone https://github.com/nicklam1994/TradingAgents-Futu.git
+cd TradingAgents-Futu
 
 # 后端（Python 3.10+）
 uv sync
+pip install futu-api tavily-python newspaper3k
 
 # 前端（Node.js 18+）
 cd frontend
@@ -131,70 +95,151 @@ npm run build
 cd ..
 ```
 
-复制 `.env.example` 到 `.env` 并按需修改，然后：
+### 环境变量
 
 ```bash
+cp .env.example .env
+```
+
+编辑 `.env`：
+
+```bash
+# LLM（必填）
+TA_API_KEY=your-api-key
+TA_BASE_URL=https://api.openai.com/v1
+TA_LLM_QUICK=gpt-4o-mini
+TA_LLM_DEEP=gpt-4o
+
+# Futu OpenD（US/HK 数据源）
+FUTU_OPEND_HOST=127.0.0.1
+FUTU_OPEND_PORT=11111
+
+# 搜索引擎（至少一个）
+TAVILY_API_KEY=your-tavily-key
+
+# 社交舆情（可选）
+SOCIAL_SENTIMENT_API_KEY=your-adanos-key
+```
+
+### 启动
+
+```bash
+# 启动 Futu OpenD（需单独安装）
+# 下载: https://openapi.futunn.com/
+
 # 启动后端
 uv run python -m uvicorn api.main:app --port 8000
 ```
 
-访问 `http://localhost:8000` 即可开始 AI 投研之旅。
+访问 `http://localhost:8000`。
 
-## API 集成
+---
 
-系统提供标准 REST API，方便集成到自定义脚本、交易机器人或第三方看板：
+## API 端点
+
+### 分析与报告
 
 | 操作 | 接口 |
 |------|------|
-| 触发分析 | `POST /v1/analyze` → 返回 `job_id` |
-| 状态追踪 | `GET /v1/jobs/{job_id}` |
-| 获取结果 | `GET /v1/jobs/{job_id}/result` |
-| 历史检索 | `GET /v1/reports` |
-| 批量获取最新报告 | `POST /v1/reports/latest-by-symbols` |
-| 持仓导入 | `GET/POST/DELETE /v1/portfolio/imports` |
-| 跟踪看板摘要/明细 | `GET /v1/dashboard/tracking-board` |
-| 批量定时任务操作 | `PATCH /v1/scheduled/batch`、`POST /v1/scheduled/batch/delete`、`POST /v1/scheduled/batch/trigger` |
-| 模型 warmup | `POST /v1/config/warmup` |
+| 自然语言分析 | `POST /v1/chat/completions` |
+| 直接分析 | `POST /v1/analyze` |
+| 任务状态 | `GET /v1/jobs/{id}` |
+| SSE 事件流 | `GET /v1/jobs/{id}/events` |
+| 历史报告 | `GET /v1/reports` |
 
-认证：Web 端登录后在"设置 / API Token"生成密钥，通过 `Authorization: Bearer <TOKEN>` 传入。
+### 模拟交易（新增）
 
-```bash
-curl -X POST 'https://app.510168.xyz/v1/analyze' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <YOUR_API_TOKEN>' \
-  -d '{"symbol": "分析一下600519.SH短期趋势", "trade_date": "2026-03-28"}'
+| 操作 | 接口 |
+|------|------|
+| 账户资金 | `GET /v1/sim/account` |
+| 持仓查询 | `GET /v1/sim/positions` |
+| 模拟下单 | `POST /v1/sim/order` |
+| 撤销订单 | `DELETE /v1/sim/order/{id}` |
+| 订单列表 | `GET /v1/sim/orders` |
+| 成交记录 | `GET /v1/sim/deals` |
+| 量化绩效 | `GET /v1/sim/performance` |
+| 触发反思 | `POST /v1/sim/reflect` |
+
+### 自主交易（新增）
+
+| 操作 | 接口 |
+|------|------|
+| 创建任务 | `POST /v1/autonomous/create` |
+| 任务状态 | `GET /v1/autonomous/{id}` |
+| 暂停任务 | `POST /v1/autonomous/{id}/pause` |
+| 停止任务 | `POST /v1/autonomous/{id}/stop` |
+
+---
+
+## 数据源覆盖
+
+| 市场 | 行情数据 | 新闻 | 基本面 | 舆情 |
+|------|---------|------|--------|------|
+| **A 股** | akshare / baostock | akshare 东方财富 | akshare 新浪/同花顺 | 雪球热搜 |
+| **港股** | Futu OpenD | yfinance / 搜索引擎 | Futu Snapshot | 搜索引擎 |
+| **美股** | Futu OpenD / yfinance | yfinance / Alpha Vantage / 7 家搜索 | yfinance / Alpha Vantage | Reddit / X / Polymarket |
+
+---
+
+## 项目结构
+
+```
+tradingagents/
+├── agents/                    # 15 个 Agent 角色
+│   ├── analysts/              # 7 分析师（Market/Social/News/Fund/Macro/SmartMoney/VP）
+│   ├── researchers/           # Bull/Bear 多空辩论
+│   ├── managers/              # Research Manager + Risk Manager
+│   ├── risk_mgmt/             # 激进/稳健/中性风控辩论
+│   ├── trader/                # Trader + SimExecutor + ExitStrategy
+│   └── utils/                 # 记忆、校准、工具
+├── orchestrator/              # 🆕 自主编排层
+├── dataflows/                 # 数据源（Provider Registry）
+│   ├── providers/             # Futu / Akshare / yfinance / Alpha Vantage
+│   ├── search_service.py      # 🆕 7 引擎搜索
+│   ├── social_sentiment.py    # 🆕 Reddit/X/Polymarket
+│   └── quant_metrics.py       # 🆕 量化绩效指标
+├── graph/                     # LangGraph 状态机
+├── prompts/                   # 中英文提示词
+└── skills/                    # 🆕 可插拔策略插件
+
+api/                           # FastAPI 后端
+├── main.py                    # API 端点
+└── services/
+    ├── sim_trading_service.py # 🆕 Futu 模拟交易
+    └── autonomous_service.py  # 🆕 自主任务管理
+
+frontend/                      # React + Vite 前端
 ```
 
-## 集成 OpenClaw
+---
 
-1. 在本站生成 API Key
-2. 在 OpenClaw 中安装技能 `tradingagents-analysis`
+## 技术栈
 
-示例任务："分析 002594.SZ 今天是否适合介入，给我结论、置信度、目标价、止损价和核心风险。"
+| 层 | 技术 |
+|----|------|
+| **Agent 框架** | LangGraph + LangChain |
+| **LLM** | OpenAI / Anthropic / Gemini / DeepSeek / Moonshot |
+| **后端** | FastAPI + SQLite + SQLAlchemy |
+| **前端** | React + TypeScript + Vite + Tailwind |
+| **数据源** | Futu OpenD + akshare + yfinance + Alpha Vantage |
+| **搜索引擎** | Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax |
+| **记忆** | BM25 词法检索（无需 embedding API） |
+| **交易** | Futu OpenD SIMULATE 环境 |
 
-## Project Status
-![Alt](https://repobeats.axiom.co/api/embed/85d68d13f5eee2bf53404a2efa28f9ccef1c2c3f.svg "Repobeats analytics image")
+---
 
 ## 特别鸣谢
 
-本项目核心架构灵感与部分基础逻辑源自 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents)。感谢原作者及团队在多智能体交易领域做出的卓越探索与开源贡献。
+- [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) — 核心架构灵感
+- [KylinMountain/TradingAgents-AShare](https://github.com/KylinMountain/TradingAgents-AShare) — A 股适配
 
 ## 许可说明
-- 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache 2.0) 二次开发。
-- 新增模块 (`api/`, `frontend/`) 及对核心逻辑的深度修改采用 `PolyForm Noncommercial 1.0.0` 协议。
-- 详情请参阅根目录下的 [LICENSE](./LICENSE) 文件。
+
+- 核心逻辑基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) (Apache 2.0)
+- 新增模块采用 `PolyForm Noncommercial 1.0.0` 协议
 
 ## 重要声明
-- **仅供学习研究**：本项目仅用于学术研究、技术演示及学习交流目的，不构成任何形式的投资建议。
-- **实盘风险**：证券市场有风险，投资需谨慎。基于本系统生成的任何观点、建议或计划，仅代表算法博弈结果，不对实际投资损益负责。
-- **数据延迟**：分析所依赖的数据源可能存在延迟或偏差，请以交易所实时公告为准。
 
-<div align="center">
-<a href="https://www.star-history.com/#KylinMountain/TradingAgents-AShare&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" />
-   <img alt="TradingAgents Star History" src="https://api.star-history.com/svg?repos=KylinMountain/TradingAgents-AShare&type=Date" style="width: 80%; height: auto;" />
- </picture>
-</a>
-</div>
+- **仅供学习研究**：不构成投资建议
+- **实盘风险**：证券市场有风险，投资需谨慎
+- **数据延迟**：数据源可能存在延迟，以交易所实时公告为准
