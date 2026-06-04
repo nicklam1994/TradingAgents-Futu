@@ -32,11 +32,11 @@ DEFAULT_CONFIG = {
     
     # Data vendor configuration
     "data_vendors": {
-        "core_stock_apis": "cn_akshare,cn_baostock,yfinance",
-        "technical_indicators": "cn_akshare,cn_baostock,yfinance",
-        "fundamental_data": "cn_akshare,cn_baostock,yfinance",
+        "core_stock_apis": "futu,cn_akshare,cn_baostock,yfinance",
+        "technical_indicators": "futu,cn_akshare,cn_baostock,yfinance",
+        "fundamental_data": "futu,cn_akshare,cn_baostock,yfinance",
         "news_data": "cn_akshare,cn_baostock,yfinance",
-        "realtime_data": "cn_akshare",
+        "realtime_data": "futu,cn_akshare",
     },
     "tool_vendors": {},
 }
