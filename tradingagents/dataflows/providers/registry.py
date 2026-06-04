@@ -1,6 +1,7 @@
 from typing import Dict
 
 from .base import BaseMarketDataProvider
+from .futu_provider import FutuProvider
 from .yfinance_provider import YFinanceProvider
 from .alpha_vantage_provider import AlphaVantageProvider
 from .china_equity_provider import CnStubProvider
@@ -26,6 +27,8 @@ class DataProviderRegistry:
 
 def build_default_registry() -> DataProviderRegistry:
     registry = DataProviderRegistry()
+    # Futu has highest priority for US/HK equities
+    registry.register(FutuProvider())
     registry.register(CnAkshareProvider())
     registry.register(CnBaoStockProvider())
     registry.register(YFinanceProvider())
