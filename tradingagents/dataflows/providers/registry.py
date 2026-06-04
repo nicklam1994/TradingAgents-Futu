@@ -7,6 +7,7 @@ from .alpha_vantage_provider import AlphaVantageProvider
 from .china_equity_provider import CnStubProvider
 from .cn_akshare_provider import CnAkshareProvider
 from .cn_baostock_provider import CnBaoStockProvider
+from .search_news_provider import SearchNewsProvider
 
 
 class DataProviderRegistry:
@@ -34,4 +35,6 @@ def build_default_registry() -> DataProviderRegistry:
     registry.register(YFinanceProvider())
     registry.register(AlphaVantageProvider())
     registry.register(CnStubProvider())
+    # Search-based news provider (web search fallback)
+    registry.register(SearchNewsProvider())
     return registry
