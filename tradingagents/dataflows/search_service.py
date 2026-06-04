@@ -424,3 +424,25 @@ class SearchService:
     ) -> SearchResponse:
         """Convenience method: search for macro/global market news."""
         return self.search(topic, max_results)
+
+
+# ─── URL content extraction ─────────────────────────────────────────────────
+
+
+def fetch_url_content(url: str, timeout: int = 5) -> str:
+    """Fetch and extract the main article text from *url* using newspaper3k.
+
+    Returns the article body truncated to 1500 characters.  On download or
+    parse failure, returns an empty string (never raises).
+    """
+    try:
+        from newspaper import Article
+
+        article = Article(url)
+        article.download()
+        article.parse()
+        text = article.text.strip()
+        return text[:1500] if text else ""
+    except Exception as e:
+        logger.debug("fetch_url_content failed for %s: %s", url, e)
+        return ""
