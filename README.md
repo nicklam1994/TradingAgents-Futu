@@ -9,9 +9,26 @@
 
 ---
 
+## 开发进度
+
+| Phase | 功能 | 状态 | Commit |
+|-------|------|------|--------|
+| 1 | Futu Provider（US/HK 数据源） | ✅ 完成 | `b372819` |
+| 2 | 搜索 API 框架（7 引擎） | ⏳ 待开始 | — |
+| 3 | 社交舆情（Reddit/X/Poly） | ⏳ 待开始 | — |
+| 4 | 结构化输出 & 风控增强 | ⏳ 待开始 | — |
+| 5 | Futu 模拟交易服务 | ⏳ 待开始 | — |
+| 6 | 量化绩效指标 | ⏳ 待开始 | — |
+| 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
+| 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
+| 9 | 前端 5 新页面 | ⏳ 待开始 | — |
+| 10 | 止损/策略插件 | ⏳ 待开始 | — |
+
+---
+
 ## 核心特性
 
-### 🆕 Futu OpenD 实时行情（港股/美股）
+### Futu OpenD 实时行情（港股/美股）✅
 
 | 能力 | 说明 |
 |------|------|
@@ -22,15 +39,15 @@
 | **码制转换** | 自动：`AAPL` → `US.AAPL`，`00700.HK` → `HK.00700` |
 | **Fallback** | Futu 不可用时自动降级到 yfinance / Alpha Vantage |
 
-### 🆕 搜索引擎增强（7 家）
+### 搜索引擎增强（7 家）⏳ Phase 2
 
 Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax — 多 Key 轮转 + 10min 缓存 + tenacity 重试。
 
-### 🆕 社交舆情（美股）
+### 社交舆情（美股）⏳ Phase 3
 
 Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取情绪分、提及量、趋势。
 
-### 🆕 自主交易闭环（OODA 循环）
+### 自主交易闭环（OODA 循环）⏳ Phase 8
 
 ```
 选股扫描 → 15 Agent 分析 → 历史回测 → Kelly 仓位分配 → Futu 模拟下单 → 持仓监控 → 反思教训 → 策略优化 → 下一轮
@@ -38,11 +55,11 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 用户只需一句话：*"futu 虚拟账户，给你 2w 美金，执行闭环模拟交易"*
 
-### 🆕 量化绩效指标
+### 量化绩效指标 ⏳ Phase 6
 
 最大回撤 / 夏普比率 / Sortino 比率 / 胜率 / Calmar 比率 — 全自动计算。
 
-### 🆕 反思记忆系统
+### 反思记忆系统 ⏳ Phase 7
 
 交易后 LLM 自动反思，生成教训存入 BM25 记忆，下次类似场景自动调取。5 个独立记忆实例（Bull/Bear/Trader/Judge/RiskJudge）。
 
@@ -149,7 +166,7 @@ uv run python -m uvicorn api.main:app --port 8000
 | SSE 事件流 | `GET /v1/jobs/{id}/events` |
 | 历史报告 | `GET /v1/reports` |
 
-### 模拟交易（新增）
+### 模拟交易（Phase 5）
 
 | 操作 | 接口 |
 |------|------|
@@ -162,7 +179,7 @@ uv run python -m uvicorn api.main:app --port 8000
 | 量化绩效 | `GET /v1/sim/performance` |
 | 触发反思 | `POST /v1/sim/reflect` |
 
-### 自主交易（新增）
+### 自主交易（Phase 8）
 
 | 操作 | 接口 |
 |------|------|
@@ -179,8 +196,8 @@ uv run python -m uvicorn api.main:app --port 8000
 
 | 市场 | 行情 | 新闻 | 基本面 | 舆情 |
 |------|------|------|--------|------|
-| **港股** | Futu OpenD | yfinance / 7 家搜索 | Futu Snapshot | 搜索引擎 |
-| **美股** | Futu OpenD / yfinance | yfinance / Alpha Vantage / 7 家搜索 | yfinance / Alpha Vantage | Reddit / X / Polymarket |
+| **港股** | Futu OpenD ✅ | yfinance / 7 家搜索 ⏳ | Futu Snapshot ✅ | 搜索引擎 ⏳ |
+| **美股** | Futu OpenD / yfinance ✅ | yfinance / Alpha Vantage / 7 家搜索 ⏳ | yfinance / Alpha Vantage ✅ | Reddit / X / Polymarket ⏳ |
 
 ---
 
@@ -197,19 +214,23 @@ tradingagents/
 │   └── utils/                 # 记忆、校准、工具
 ├── orchestrator/              # 🆕 自主编排层（OODA 循环）
 ├── dataflows/                 # 数据源（Provider Registry）
-│   ├── providers/             # Futu / yfinance / Alpha Vantage
-│   ├── search_service.py      # 🆕 7 引擎搜索
-│   ├── social_sentiment.py    # 🆕 Reddit/X/Polymarket
-│   └── quant_metrics.py       # 🆕 量化绩效指标
+│   ├── providers/
+│   │   ├── futu_provider.py   # ✅ Futu OpenD Provider（Phase 1）
+│   │   ├── cn_akshare_provider.py
+│   │   ├── yfinance_provider.py
+│   │   └── alpha_vantage_provider.py
+│   ├── search_service.py      # 🆕 7 引擎搜索（Phase 2）
+│   ├── social_sentiment.py    # 🆕 Reddit/X/Polymarket（Phase 3）
+│   └── quant_metrics.py       # 🆕 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
 ├── prompts/                   # 中英文提示词
-└── skills/                    # 🆕 可插拔策略插件
+└── skills/                    # 🆕 可插拔策略插件（Phase 10）
 
 api/                           # FastAPI 后端
 ├── main.py                    # API 端点
 └── services/
-    ├── sim_trading_service.py # 🆕 Futu 模拟交易
-    └── autonomous_service.py  # 🆕 自主任务管理
+    ├── sim_trading_service.py # 🆕 Futu 模拟交易（Phase 5）
+    └── autonomous_service.py  # 🆕 自主任务管理（Phase 8）
 
 frontend/                      # React + Vite 前端
 ```
