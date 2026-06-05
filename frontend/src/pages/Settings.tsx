@@ -35,7 +35,7 @@ type ModelPreset = {
 
 }
 
-const MODEL_PRESETS: ModelPreset[] = []
+const DEFAULT_MODEL_PRESETS: ModelPreset[] = []
 
 function inferPreset(llmProvider: string, backendUrl: string): string {
     const normalizedProvider = (llmProvider || '').toLowerCase()
@@ -103,6 +103,7 @@ export default function Settings() {
     const [futuEncrypt, setFutuEncrypt] = useState(false)
     const [modelPresetsLoaded, setModelPresetsLoaded] = useState(false)
     const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>(DEFAULT_PROVIDER_PRESETS)
+    const [modelPresets, setModelPresets] = useState<ModelPreset[]>(DEFAULT_MODEL_PRESETS)
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
@@ -145,8 +146,8 @@ export default function Settings() {
             const data = await r.json()
             const models = (data.data || data).map((m: any) => m.id || m).filter(Boolean)
             if (models.length) {
-                MODEL_PRESETS.length = 0
-                models.sort().forEach((id: string) => MODEL_PRESETS.push({ id, label: id, tier: 'quick' }))
+                const presets = models.sort().map((id: string) => ({ id, label: id, tier: 'quick' as const }))
+                setModelPresets(presets)
                 setModelPresetsLoaded(true)
             } else {
                 alert('未获取到模型列表')
@@ -612,7 +613,7 @@ export default function Settings() {
                             disabled={configLoading}
                         />
                         <datalist id="quick-models">
-                            {MODEL_PRESETS.filter(m => m.tier === 'quick').map(m => (
+                            {modelPresets.filter(m => m.tier === 'quick').map(m => (
                                 <option key={m.id} value={m.id}>{m.label}</option>
                             ))}
                         </datalist>
@@ -634,7 +635,7 @@ export default function Settings() {
                             disabled={configLoading}
                         />
                         <datalist id="deep-models">
-                            {MODEL_PRESETS.filter(m => m.tier === 'deep').map(m => (
+                            {modelPresets.filter(m => m.tier === 'deep').map(m => (
                                 <option key={m.id} value={m.id}>{m.label}</option>
                             ))}
                         </datalist>
