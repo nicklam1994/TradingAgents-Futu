@@ -345,6 +345,17 @@ class ApiService {
     async markFeedbackRead(id: string): Promise<void> {
         return this.request<void>(`/v1/feedbacks/${id}/read`, { method: 'POST' })
     }
+
+    async get<T = any>(url: string): Promise<T> {
+        return this.request<T>(url)
+    }
+
+    async put<T = any>(url: string, data: any): Promise<T> {
+        return this.request<T>(url, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        })
+    }
 }
 
 export const api = new ApiService()

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
@@ -11,6 +11,15 @@ type ProviderPreset = {
     baseUrl: string
     protocol: string
     editableBaseUrl?: boolean
+}
+
+type SearchProvider = {
+    name: string
+    label: string
+    env_key: string
+    api_key: string
+    base_url?: string
+    enabled: boolean
 }
 
 const PROVIDER_PRESETS: ProviderPreset[] = [
@@ -78,6 +87,11 @@ export default function Settings() {
     const [copiedTokenId, setCopiedTokenId] = useState<string | null>(null)
     const [newlyCreatedToken, setNewlyCreatedToken] = useState<string | null>(null)
 
+    // Search config states
+    const [searchProviders, setSearchProviders] = useState<SearchProvider[]>([])
+    const [searchConfigLoading, setSearchConfigLoading] = useState(false)
+    const [searchSaving, setSearchSaving] = useState(false)
+
     const selectedPreset = useMemo(
         () => PROVIDER_PRESETS.find((item) => item.id === providerPreset) || PROVIDER_PRESETS[0],
         [providerPreset],
@@ -140,6 +154,7 @@ export default function Settings() {
 
         // Fetch tokens
         fetchTokens()
+        loadSearchConfig()
     }, [])
 
     const fetchTokens = async () => {
@@ -151,6 +166,32 @@ export default function Settings() {
             console.error('Failed to fetch tokens:', err)
         } finally {
             setTokensLoading(false)
+        }
+    }
+
+    async function loadSearchConfig() {
+        setSearchConfigLoading(true)
+        try {
+            const data = await api.get('/v1/config/search')
+            setSearchProviders(data.providers || [])
+        } catch (e) {
+            console.error('Failed to load search config', e)
+        } finally {
+            setSearchConfigLoading(false)
+        }
+    }
+
+    async function saveSearchConfig() {
+        setSearchSaving(true)
+        try {
+            await api.put('/v1/config/search', { providers: searchProviders })
+            setSaved(true)
+            setSaveMessage('搜索服务配置已保存')
+            setTimeout(() => setSaved(false), 3000)
+        } catch (e: any) {
+            setConfigError(e?.message || '保存失败')
+        } finally {
+            setSearchSaving(false)
         }
     }
 
@@ -500,6 +541,71 @@ export default function Settings() {
                             </div>
                         )}
                     </div>
+                </div>
+            </div>
+
+            {/* 搜索服务接入 */}
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <Search className="w-5 h-5 text-cyan-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">搜索服务接入</h2>
+                    {searchConfigLoading && <Loader2 className="ml-auto w-4 h-4 animate-spin text-slate-400" />}
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">配置搜索引擎 API Key，用于增强新闻数据源。未配置的引擎将自动跳过。</p>
+                
+                <div className="space-y-3">
+                    {searchProviders.map((provider, idx) => (
+                        <div key={provider.name} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                            <div className="md:col-span-3">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    {provider.label}
+                                    <span className="ml-1 text-xs text-slate-400">({provider.env_key})</span>
+                                </label>
+                            </div>
+                            <div className="md:col-span-7">
+                                <input
+                                    type="password"
+                                    placeholder={provider.name === 'searxng' ? 'https://your-instance.com' : '输入 API Key'}
+                                    value={provider.api_key || ''}
+                                    onChange={e => {
+                                        const updated = [...searchProviders]
+                                        updated[idx] = { ...updated[idx], api_key: e.target.value }
+                                        setSearchProviders(updated)
+                                    }}
+                                    className="input w-full"
+                                    disabled={searchConfigLoading}
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const updated = [...searchProviders]
+                                        updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled }
+                                        setSearchProviders(updated)
+                                    }}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                                        provider.enabled
+                                            ? 'bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400'
+                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                                    }`}
+                                >
+                                    {provider.enabled ? '启用' : '禁用'}
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                
+                <div className="flex justify-end pt-2">
+                    <button
+                        onClick={saveSearchConfig}
+                        disabled={searchSaving}
+                        className="btn btn-primary flex items-center gap-2"
+                    >
+                        {searchSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        保存搜索配置
+                    </button>
                 </div>
             </div>
 
