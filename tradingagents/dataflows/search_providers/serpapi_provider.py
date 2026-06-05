@@ -33,7 +33,7 @@ class SerpAPISearchProvider(SearchProvider):
         t0 = time.monotonic()
 
         try:
-            from serpapi import GoogleSearch
+            from serpapi import Client
 
             params = {
                 "q": query,
@@ -41,8 +41,8 @@ class SerpAPISearchProvider(SearchProvider):
                 "api_key": api_key,
                 "engine": "google",
             }
-            search = GoogleSearch(params)
-            data = search.get_dict()
+            client = Client(api_key=api_key)
+            data = client.search(params)
 
             results = []
             for item in data.get("organic_results", []):

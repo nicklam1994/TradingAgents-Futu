@@ -16,7 +16,7 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from tenacity import (
     retry,
@@ -153,12 +153,19 @@ class SearchService:
         in the priority list is tried.
     """
 
-    def __init__(self, cache_ttl: int = 600) -> None:
+    def __init__(self, cache_ttl: int = 600, search_config: Optional[Dict[str, Any]] = None) -> None:
         """Initialise the search service.
 
         Args:
             cache_ttl: Cache time-to-live in seconds (default 600 = 10 min).
+            search_config: Optional DB config dict from user_llm_configs.search_config.
+                          When provided, injects API keys into environment variables
+                          so providers can read them via os.getenv().
         """
+        # Inject DB search config into env vars so providers can read them
+        if search_config:
+            self._inject_config_to_env(search_config)
+
         self._cache_ttl = cache_ttl
         self._cache: Dict[str, tuple[float, SearchResponse]] = {}
         self._cache_lock = threading.Lock()
@@ -173,6 +180,31 @@ class SearchService:
 
         # Lazy-loaded provider instances (name → instance)
         self._providers: Dict[str, SearchProvider] = {}
+
+    # ── Config injection ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _inject_config_to_env(search_config: Dict[str, Any]) -> None:
+        """Inject DB search config into environment variables.
+
+        Maps provider name → env var name and sets os.environ if not already set.
+        """
+        _CONFIG_TO_ENV = {
+            "tavily": "TAVILY_API_KEYS",
+            "brave": "BRAVE_API_KEYS",
+            "serpapi": "SERPAPI_API_KEYS",
+            "bocha": "BOCHA_API_KEYS",
+            "anspire": "ANSPIRE_API_KEYS",
+            "minimax": "MINIMAX_API_KEYS",
+            "searxng": "SEARXNG_BASE_URLS",
+        }
+        for name, env_var in _CONFIG_TO_ENV.items():
+            provider_cfg = search_config.get(name, {})
+            api_key = (provider_cfg.get("api_key") or "").strip()
+            enabled = provider_cfg.get("enabled", True)
+            if api_key and enabled and not os.environ.get(env_var):
+                os.environ[env_var] = api_key
+                logger.info("[SearchService] Injected %s from DB config", env_var)
 
     # ── Provider instantiation (lazy) ────────────────────────────────────────
 

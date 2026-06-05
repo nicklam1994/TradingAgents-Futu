@@ -1,68 +1,34 @@
-"""LangChain tools for social sentiment data (Reddit / X / Polymarket).
+"""LangChain tool for social sentiment data (Reddit/X/Polymarket).
 
-These tools wrap SocialSentimentService and are designed to be used by
-LangChain agents (e.g., the Social Media Analyst).
+Provides a ``get_social_sentiment`` tool that fetches social-media sentiment
+intelligence from the SocialSentimentService (api.adanos.org) and returns
+a formatted text block suitable for LLM analyst prompts.
 """
 
-from __future__ import annotations
-
-import logging
-from typing import Annotated
-
 from langchain_core.tools import tool
-
-logger = logging.getLogger(__name__)
-
-# Lazy-loaded singleton — avoids import-time failures when API key is absent
-_svc = None
-_svc_lock = __import__("threading").Lock()
-
-
-def _get_service():
-    """Return a cached SocialSentimentService instance (created on first use)."""
-    global _svc  # noqa: PLW0603
-    if _svc is None:
-        with _svc_lock:
-            if _svc is None:
-                from tradingagents.dataflows.social_sentiment import (
-                    SocialSentimentService,
-                )
-                _svc = SocialSentimentService.from_env()
-    return _svc
+from typing import Annotated
 
 
 @tool
 def get_social_sentiment(
-    symbol: Annotated[str, "Stock ticker symbol (e.g. TSLA, AAPL)"],
+    symbol: Annotated[str, "Stock ticker symbol, e.g. TSLA, AAPL"],
 ) -> str:
-    """Retrieve social media sentiment data for a stock ticker.
+    """Fetch social-media sentiment intelligence for a stock from Reddit, X (Twitter), and Polymarket.
 
-    Aggregates sentiment from Reddit, X (Twitter), and Polymarket.
-    Returns buzz scores, sentiment scores, mention counts, and trending
-    context from social platforms. Useful for gauging retail investor
-    mood and viral stock narratives.
+    Returns sentiment scores, buzz levels, mention volumes, and trending data
+    aggregated from social platforms. Useful for gauging retail investor mood,
+    viral momentum, and prediction market pricing for a given ticker.
 
-    Args:
-        symbol: Stock ticker symbol (e.g. TSLA, AAPL, NVDA)
-
-    Returns:
-        str: Formatted social sentiment analysis text, or a message
-             indicating data is unavailable.
+    Only works for US stock tickers. Returns a formatted text report.
     """
-    svc = _get_service()
+    from tradingagents.dataflows.social_sentiment import SocialSentimentService
+
+    svc = SocialSentimentService.from_env()
     if not svc.is_available:
-        return (
-            "Social sentiment data unavailable: SOCIAL_SENTIMENT_API_KEY "
-            "is not configured. Set it in .env to enable Reddit/X/Polymarket "
-            "sentiment tracking."
-        )
+        return "Social sentiment data unavailable: SOCIAL_SENTIMENT_API_KEY not configured."
 
     context = svc.get_social_context(symbol)
-    if context:
-        return context
+    if context is None:
+        return f"No social sentiment data found for {symbol}."
 
-    return (
-        f"No social sentiment data found for {symbol.upper()} on any "
-        f"platform (Reddit, X, Polymarket). The ticker may not be "
-        f"actively discussed or the API returned no results."
-    )
+    return context

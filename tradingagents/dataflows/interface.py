@@ -46,7 +46,7 @@ TOOLS_CATEGORIES = {
         ],
     },
     "social_sentiment": {
-        "description": "Social media sentiment (Reddit / X / Polymarket)",
+        "description": "Social media sentiment from Reddit, X (Twitter), and Polymarket",
         "tools": ["get_social_sentiment"],
     },
 }
