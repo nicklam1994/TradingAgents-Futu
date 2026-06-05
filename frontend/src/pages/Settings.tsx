@@ -623,10 +623,22 @@ export default function Settings() {
                                     使用当前表单配置向模型发送“你好”，不会自动保存设置。
                                 </p>
                             </div>
-                            <button onClick={handleWarmup} disabled={saving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
-                                {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
-                                {warmingUp ? '测试中...' : '测试连接'}
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button onClick={handleWarmup} disabled={saving || saveAllSaving || warmingUp || configLoading} className="btn-secondary inline-flex items-center gap-2">
+                                    {warmingUp ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4" />}
+                                    {warmingUp ? '测试中...' : '测试连接'}
+                                </button>
+                                <button
+                                    onClick={handleSaveAll}
+                                    disabled={saving || saveAllSaving || configLoading}
+                                    style={saveAllSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
+                                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                        saveAllSaved ? '' : 'btn-primary'
+                                    }`}
+                                >
+                                    {saveAllSaved ? '✓ 保存成功' : saveAllSaving ? '保存中...' : '保存配置'}
+                                </button>
+                            </div>
                         </div>
 
                         {warmupError && (
@@ -660,19 +672,6 @@ export default function Settings() {
                         )}
                     </div>
 
-                    {/* 保存配置按钮 */}
-                    <div className="flex justify-end pt-2">
-                        <button
-                            onClick={handleSaveAll}
-                            disabled={saving || saveAllSaving || configLoading}
-                            style={saveAllSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                                saveAllSaved ? '' : 'btn-primary'
-                            }`}
-                        >
-                            {saveAllSaved ? '✓ 保存成功' : saveAllSaving ? '保存中...' : '保存配置'}
-                        </button>
-                    </div>
                 </div>
             </div>
 
