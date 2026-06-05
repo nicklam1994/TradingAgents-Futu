@@ -16,7 +16,7 @@
 | 1 | Futu Provider（US/HK 数据源） | ✅ 完成 | `b372819` |
 | 2 | 搜索 API 框架（7 引擎）+ 搜索服务配置 UI | ✅ 完成 | `4585fab` |
 | 3 | 社交舆情（Reddit/X/Poly）+ 配置 UI | ✅ 完成 | `fa64c69` |
-| 4 | 结构化输出 & 风控增强 | ⏳ 待开始 | — |
+| 4 | 结构化输出 & 风控增强 | ✅ 完成 | `b389e2e` |
 | 5 | Futu 模拟交易服务 | ⏳ 待开始 | — |
 | 6 | 量化绩效指标 | ⏳ 待开始 | — |
 | 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
@@ -57,6 +57,15 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 - **SocialSentimentService**：453 行，支持 fetch_reddit_report / fetch_x_trending / fetch_polymarket_trending
 - **LangChain Tool**：`get_social_sentiment`，Social Media Analyst 并行调用
 - **前端配置**：设置页 → 社交舆情接入 → API Key + Base URL → 保存配置
+
+### 结构化输出 & 风控增强 ✅ Phase 4
+
+分析师输出结构化 JSON，Risk Judge 强制 7 类风险检查。
+
+- **VERDICT JSON schema**：7 个分析师输出 confidence/signal/key_levels/target_price/risk_flags
+- **7 类风险 checklist**：流动性/波动率/集中度/相关性/宏观/事件/技术
+- **信号处理**：`extract_verdict_data` + `extract_risk_judge_data` 结构化提取
+- **DB 存储**：confidence (0-100) + target_price + risk_flags 聚合
 
 ### 自主交易闭环（OODA 循环）⏳ Phase 8
 
@@ -250,12 +259,15 @@ tradingagents/
 │   ├── social_sentiment.py    # ✅ Reddit/X/Polymarket（Phase 3）
 │   └── quant_metrics.py       # 🆕 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
+│   └── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
 ├── prompts/                   # 中英文提示词
 └── skills/                    # 🆕 可插拔策略插件（Phase 10）
 
 api/                           # FastAPI 后端
 ├── main.py                    # API 端点
+├── database.py                # ✅ ReportDB 新增 confidence/target_price/risk_flags（Phase 4）
 └── services/
+    ├── report_service.py      # ✅ 结构化字段解析 + 存储（Phase 4）
     ├── sim_trading_service.py # 🆕 Futu 模拟交易（Phase 5）
     └── autonomous_service.py  # 🆕 自主任务管理（Phase 8）
 
