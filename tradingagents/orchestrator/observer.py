@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
@@ -136,7 +136,9 @@ class Observer:
         trailing_stop_pct: float = 0.05,
         max_concentration_pct: float = 0.30,
         stale_days: int = 30,
+        max_holding_days: int = 30,
         on_alert: Optional[Callable[[PositionAlert], None]] = None,
+        get_history_orders: Optional[Callable[..., List[Dict[str, Any]]]] = None,
     ):
         """Initialize the observer.
 
@@ -145,13 +147,26 @@ class Observer:
             take_profit_pct: Default take-profit threshold (0.15 = +15%)
             trailing_stop_pct: Trailing stop distance from peak (0.05 = 5%)
             max_concentration_pct: Max single-position concentration (0.30 = 30%)
-            stale_days: Days before flagging a stale position
+            stale_days: Days before flagging a stale position (concentration-related)
+            max_holding_days: Max days to hold before stale-position exit alert
             on_alert: Optional callback for each alert generated
+            get_history_orders: Optional callable to fetch historical orders for
+                real entry price resolution (e.g. SimTradingService.get_history_orders)
         """
         self._max_concentration_pct = max_concentration_pct
         self._stale_days = stale_days
+        self._max_holding_days = max_holding_days
         self._on_alert = on_alert
         self._alert_history: List[PositionAlert] = []
+        self._get_history_orders = get_history_orders
+
+        # W2: Cache real entry prices from history orders to avoid repeated queries
+        # Format: {symbol: {"price": float, "timestamp": str}}
+        self._entry_prices: Dict[str, Dict[str, Any]] = {}
+
+        # W3: Track when each position was first observed (for stale detection)
+        # Format: {symbol: datetime}
+        self._first_seen: Dict[str, datetime] = {}
 
         # P1-6: Delegate exit decisions to ExitStrategy (single source of truth)
         self._exit_strategy = ExitStrategy(
@@ -192,6 +207,16 @@ class Observer:
         }
 
         for pos_data in positions:
+            # W3: Track first-seen time for stale detection
+            sym = pos_data.get("symbol", "")
+            if sym and sym not in self._first_seen:
+                self._first_seen[sym] = datetime.now(timezone.utc)
+
+            # W2: Resolve real entry price from history orders (cached)
+            resolved_price = self._resolve_entry_price(pos_data)
+            if resolved_price is not None:
+                pos_data = {**pos_data, "entry_price": resolved_price}
+
             pos = self._parse_position(pos_data)
             if not pos:
                 continue
@@ -228,6 +253,11 @@ class Observer:
                 conc_alert = self._check_concentration(pos, total_assets, now)
                 if conc_alert:
                     alerts.append(conc_alert)
+
+            # W3: Check stale position (held too long)
+            stale_alert = self._check_stale(pos, now)
+            if stale_alert:
+                alerts.append(stale_alert)
 
         # Fire callbacks
         for alert in alerts:
@@ -291,6 +321,125 @@ class Observer:
                 position_size=pos.market_value,
                 threshold_value=self._max_concentration_pct,
                 timestamp=now,
+            )
+        return None
+
+    def _resolve_entry_price(self, pos_data: Dict[str, Any]) -> Optional[float]:
+        """W2: Resolve real entry price from history orders.
+
+        Queries get_history_orders() for filled buy orders of this symbol,
+        picks the earliest dealt_avg_price, and caches the result.
+        Returns None if no history order is found (caller should fallback
+        to the position snapshot's cost_price).
+
+        Args:
+            pos_data: Position dict with at least 'symbol' key.
+
+        Returns:
+            Real entry price from history orders, or None if unavailable.
+        """
+        symbol = pos_data.get("symbol", "")
+        if not symbol:
+            return None
+
+        # Return cached price if available
+        if symbol in self._entry_prices:
+            return self._entry_prices[symbol]["price"]
+
+        # No history order provider configured — skip
+        if self._get_history_orders is None:
+            return None
+
+        try:
+            # Query filled orders for this symbol
+            orders = self._get_history_orders(
+                symbol=symbol,
+                status_filter=["FILLED_ALL"],
+            )
+            if not orders:
+                logger.debug("No filled history orders for %s", symbol)
+                return None
+
+            # Find the earliest filled buy order (earliest create_time)
+            # Futu history orders have: dealt_avg_price, order_type (BUY/SELL),
+            # create_time, etc.
+            buy_orders = [
+                o for o in orders
+                if str(o.get("order_type", "")).upper() in ("BUY",)
+            ]
+            if not buy_orders:
+                logger.debug("No filled buy orders for %s", symbol)
+                return None
+
+            # Sort by create_time ascending, take the first (earliest entry)
+            buy_orders.sort(key=lambda o: o.get("create_time", ""))
+            earliest = buy_orders[0]
+            price = float(earliest.get("dealt_avg_price", 0))
+            timestamp = str(earliest.get("create_time", ""))
+
+            if price > 0:
+                self._entry_prices[symbol] = {
+                    "price": price,
+                    "timestamp": timestamp,
+                }
+                logger.info(
+                    "W2: Resolved entry price for %s: %.4f (from history order at %s)",
+                    symbol, price, timestamp,
+                )
+                return price
+
+        except Exception as e:
+            logger.warning("W2: Failed to resolve entry price for %s: %s", symbol, e)
+
+        return None
+
+    def _check_stale(
+        self, pos: PositionSnapshot, now: str
+    ) -> Optional[PositionAlert]:
+        """W3: Check if a position has been held too long (stale).
+
+        Compares the first time this symbol was observed against
+        max_holding_days. Returns a STALE_POSITION alert if exceeded.
+
+        Args:
+            pos: The position snapshot.
+            now: ISO timestamp string for the alert.
+
+        Returns:
+            PositionAlert if position is stale, else None.
+        """
+        first_seen = self._first_seen.get(pos.symbol)
+        if first_seen is None:
+            return None
+
+        # Calculate holding days from first observation
+        utc_now = datetime.now(timezone.utc)
+        holding_days = (utc_now - first_seen).days
+
+        if holding_days >= self._max_holding_days:
+            return PositionAlert(
+                alert_type=AlertType.STALE_POSITION,
+                symbol=pos.symbol,
+                message=(
+                    f"STALE POSITION {pos.symbol}: held for {holding_days} days "
+                    f"(max: {self._max_holding_days}). "
+                    f"Entry: {pos.entry_price:.4f}, Current: {pos.current_price:.4f}, "
+                    f"P&L: {pos.pnl_pct:.2%}"
+                ),
+                severity="warning",
+                should_exit=True,
+                entry_price=pos.entry_price,
+                current_price=pos.current_price,
+                pnl_pct=pos.pnl_pct,
+                pnl_amount=pos.pnl_amount,
+                position_size=pos.market_value,
+                threshold_value=float(self._max_holding_days),
+                timestamp=now,
+                metadata={
+                    "holding_days": holding_days,
+                    "max_holding_days": self._max_holding_days,
+                    "first_seen_at": first_seen.isoformat(),
+                },
             )
         return None
 
