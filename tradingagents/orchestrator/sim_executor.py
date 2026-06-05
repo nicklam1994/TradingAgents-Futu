@@ -1,8 +1,12 @@
 """Simulated Trading Executor — Orchestrator-level signal gating and execution.
 
 Sits between the Agent analysis pipeline and the SimTradingService (Phase 5).
-Applies configurable confidence threshold, Kelly-criterion position sizing,
-and delegates order placement to the sim trading API.
+Applies configurable confidence threshold for signal gating, then delegates
+order placement (including position sizing) to the sim trading API.
+
+NOTE: Position sizing (Kelly criterion, fixed %) is handled exclusively by
+SimTradingService.execute_signal() to avoid double-Kelly bugs.  This module
+only gates whether a signal should be forwarded.
 
 Usage:
     executor = SimExecutor(confidence_threshold=0.7)
@@ -21,7 +25,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from api.services.sim_trading_service import (
-    AccountInfo,
     SignalInput,
     SignalResult,
     execute_signal,
@@ -64,12 +67,14 @@ class TradeSignal:
 # ── SimExecutor ──────────────────────────────────────────────────────────────
 
 class SimExecutor:
-    """Orchestrator-level executor that gates and sizes simulated trades.
+    """Orchestrator-level executor that gates and forwards simulated trades.
 
     Responsibilities:
         1. should_execute(signal) — confidence gating (threshold configurable)
-        2. calculate_position_size(signal, account) — Kelly formula or fixed %
-        3. execute(signal) — convert to SignalInput and delegate to SimTradingService
+        2. execute(signal) — convert to SignalInput and delegate to SimTradingService
+
+    Position sizing (Kelly, fixed %) is handled by SimTradingService.execute_signal()
+    to avoid duplicate half-Kelly application.
     """
 
     def __init__(self, confidence_threshold: float = 0.7):
@@ -123,64 +128,6 @@ class SimExecutor:
             return False
 
         return True
-
-    # ── Step 7.3: Kelly position sizing ──────────────────────────────────
-
-    def calculate_position_size(
-        self,
-        signal: TradeSignal,
-        account: AccountInfo,
-    ) -> float:
-        """Calculate position size using Kelly criterion or fixed percentage.
-
-        Kelly formula: f = (p * b - q) / b
-            p = win probability (signal.win_rate or signal.confidence)
-            b = odds ratio (signal.odds_ratio, default 2.0)
-            q = 1 - p
-
-        Uses half-Kelly (f * 0.5) for conservative sizing.
-
-        Args:
-            signal: The trade signal with sizing parameters.
-            account: Current account info with total_assets.
-
-        Returns:
-            Dollar amount to allocate for this trade (0.0 if sizing says skip).
-        """
-        if account.total_assets <= 0:
-            logger.warning("Account total assets is zero — cannot size position")
-            return 0.0
-
-        if signal.use_kelly:
-            p = signal.win_rate if signal.win_rate is not None else signal.confidence
-            b = signal.odds_ratio
-            q = 1.0 - p
-
-            # Kelly fraction: f = (p * b - q) / b
-            kelly_f = (p * b - q) / b if b > 0 else 0.0
-
-            # Clamp to [0, 1] — negative Kelly means don't bet
-            kelly_f = max(0.0, min(1.0, kelly_f))
-
-            # Half-Kelly for safety
-            allocation = account.total_assets * kelly_f * 0.5
-
-            logger.info(
-                "Kelly sizing for %s: p=%.3f b=%.2f q=%.3f → f=%.4f "
-                "half_kelly=%.4f → allocation=%.2f",
-                signal.symbol, p, b, q, kelly_f, kelly_f * 0.5, allocation,
-            )
-        else:
-            allocation = account.total_assets * signal.max_position_pct
-            logger.info(
-                "Fixed sizing for %s: %.1f%% of %.2f → allocation=%.2f",
-                signal.symbol,
-                signal.max_position_pct * 100,
-                account.total_assets,
-                allocation,
-            )
-
-        return allocation
 
     # ── Step 7.4: Execute via SimTradingService ──────────────────────────
 
