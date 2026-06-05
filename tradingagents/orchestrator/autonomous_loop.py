@@ -480,8 +480,11 @@ class AutonomousLoop:
             logger.info("Task %s: No candidates to allocate", task_id)
             return
 
+        # L-5~6: adjust strategy weights when Sharpe ratio is low
+        adjusted_candidates = self._adjust_strategy_weights(state.candidates)
+
         allocation = self._allocator.allocate(
-            candidates=state.candidates,
+            candidates=adjusted_candidates,
             total_budget=config.budget,
             currency=config.currency,
         )
@@ -620,6 +623,98 @@ class AutonomousLoop:
                         equity.append(equity[-1] + price * qty * 0.01)
 
         return equity
+
+    # ── Strategy weight adjustment (L-5~6) ────────────────────────────────
+
+    def _adjust_strategy_weights(
+        self, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """L-5~6: Reduce candidate scores when Sharpe ratio is low (<0.5).
+
+        When the portfolio Sharpe ratio deteriorates, this method reduces
+        the composite_score of all candidates by 50%, effectively reducing
+        position sizes via Kelly.
+
+        Args:
+            candidates: Original candidate list with composite_score.
+
+        Returns:
+            Adjusted candidates (new list, originals not mutated).
+        """
+        try:
+            from tradingagents.dataflows.quant_metrics import QuantMetrics
+            returns = self._get_recent_returns()
+            if len(returns) < 2:
+                return candidates
+            sharpe = QuantMetrics.sharpe_ratio(returns)
+            if sharpe < 0.5:
+                logger.warning(
+                    "Low Sharpe ratio %.2f < 0.5 — halving strategy weights",
+                    sharpe,
+                )
+                adjusted = []
+                for c in candidates:
+                    c_copy = dict(c)
+                    c_copy["composite_score"] = c_copy.get("composite_score", 0.5) * 0.5
+                    adjusted.append(c_copy)
+                return adjusted
+            return candidates
+        except Exception as e:
+            logger.warning("Strategy weight adjustment failed: %s", e)
+            return candidates
+
+    def _get_recent_returns(self) -> List[float]:
+        """Compute per-trade returns from recent execution history.
+
+        Returns:
+            List of simple returns (e.g. 0.05 = +5%).
+        """
+        all_returns: List[float] = []
+        tasks = self._store.list_tasks(limit=10)
+
+        for task in tasks:
+            checkpoint = task.get("checkpoint") or {}
+            if isinstance(checkpoint, str):
+                checkpoint = json.loads(checkpoint)
+            state_data = checkpoint.get("state", {})
+
+            # Track positions for FIFO matching
+            positions: Dict[str, List[List[float]]] = defaultdict(list)
+
+            executions = state_data.get("executions", [])
+            for ex in executions:
+                symbol = ex.get("symbol", "")
+                action = ex.get("action_taken", "")
+                price = ex.get("price", 0)
+                qty = ex.get("quantity", 0)
+
+                if action != "executed" or price <= 0 or qty <= 0:
+                    continue
+
+                # Determine buy/sell from trade decisions
+                decisions = state_data.get("trade_decisions", [])
+                decision = next(
+                    (d for d in decisions if d.get("symbol") == symbol), {}
+                )
+                side = decision.get("action", "buy")
+
+                if side == "buy":
+                    positions[symbol].append([price, qty])
+                elif side == "sell":
+                    remaining = qty
+                    while remaining > 0 and positions[symbol]:
+                        buy_price, buy_qty = positions[symbol][0]
+                        matched = min(remaining, buy_qty)
+                        if buy_price > 0:
+                            all_returns.append(
+                                (price - buy_price) / buy_price
+                            )
+                        positions[symbol][0][1] -= matched
+                        remaining -= matched
+                        if positions[symbol][0][1] <= 0:
+                            positions[symbol].pop(0)
+
+        return all_returns
 
     def _config_from_dict(self, d: Dict[str, Any]) -> AutonomousTaskConfig:
         """Reconstruct AutonomousTaskConfig from dict."""
