@@ -637,11 +637,11 @@ export default function Settings() {
                     <button
                         onClick={saveSearchConfig}
                         disabled={searchSaving}
-                        style={searchSaved ? { backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', pointerEvents: 'none' } : undefined}
+                        style={searchSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
                         className="flex items-center gap-2 btn-primary"
                     >
                         <Save className="w-4 h-4" />
-                        {searchSaved ? '已保存' : '保存配置'}
+                        {searchSaved ? '保存成功' : '保存配置'}
                     </button>
                 </div>
             </div>
@@ -687,11 +687,11 @@ export default function Settings() {
                     <button
                         onClick={saveSocialSentimentConfig}
                         disabled={socialSaving}
-                        style={socialSaved ? { backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', pointerEvents: 'none' } : undefined}
+                        style={socialSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
                         className="flex items-center gap-2 btn-primary"
                     >
                         <Save className="w-4 h-4" />
-                        {socialSaved ? '已保存' : '保存配置'}
+                        {socialSaved ? '保存成功' : '保存配置'}
                     </button>
                 </div>
             </div>
