@@ -257,9 +257,18 @@ risk_flags: 风险标记数组（从以下选取：high_volatility, low_liquidit
 5. 必须点名哪些风险 claim 已被解决，哪些仍未解决。
 6. 若需要交易员修改方案，给出具体修正要求。
 7. 若方向与交易员不同，必须明确指出上游遗漏的重大风险是什么。
+8. 逐项检查以下 7 类风险，对每类给出是否存在该风险的判断，并在 risk_flags 中标记所有存在风险的类别：
+   - 流动性风险（成交量/买卖价差异常）
+   - 波动率风险（ATR/历史波动率处于极端水平）
+   - 集中度风险（单一持仓占比过高）
+   - 相关性风险（持仓间高度相关）
+   - 宏观风险（利率/汇率/政策变动）
+   - 事件风险（财报日/除权/解禁）
+   - 技术风险（关键支撑/阻力位临近突破或破位）
 在正文末尾追加风控路由机读块（固定格式）：
-<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "不超过30字", "hard_constraints": ["约束1"], "soft_constraints": ["建议1"], "execution_preconditions": ["条件1"], "de_risk_triggers": ["触发器1"]}} -->
+<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "不超过30字", "hard_constraints": ["约束1"], "soft_constraints": ["建议1"], "execution_preconditions": ["条件1"], "de_risk_triggers": ["触发器1"], "risk_flags": []}} -->
 verdict 只可填：pass / revise / reject
+risk_flags: 风险标记数组（从以下选取：liquidity_risk, volatility_risk, concentration_risk, correlation_risk, macro_risk, event_risk, technical_risk，无风险标记时填空数组）
 在报告末尾追加机读摘要（格式固定，不可省略，不可改动键名）：
 <!-- VERDICT: {{"confidence": 0.8, "signal": "bullish", "direction": "看多", "reason": "不超过20字的一句话核心结论", "key_levels": {{"support": 0.0, "resistance": 0.0}}, "target_price": null, "risk_flags": []}} -->
 direction 只可填：看多 / 偏多 / 中性 / 偏空 / 看空（数据有方向倾向时必须选偏多或偏空，仅数据确实不足时可选中性）

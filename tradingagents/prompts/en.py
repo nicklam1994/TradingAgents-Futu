@@ -154,9 +154,18 @@ Output requirements:
 5. Must name which risk claims are resolved vs. unresolved.
 6. If revision is needed, provide specific requirements for the trader.
 7. If your direction differs from the trader, you must explicitly identify the material risk that upstream missed.
+8. Check each of the following 7 risk categories and flag all applicable ones in risk_flags:
+   - Liquidity risk (abnormal volume / bid-ask spread)
+   - Volatility risk (ATR / historical volatility at extreme levels)
+   - Concentration risk (single position占比过高)
+   - Correlation risk (high correlation between holdings)
+   - Macro risk (interest rate / FX / policy changes)
+   - Event risk (earnings date / ex-dividend / lock-up expiry)
+   - Technical risk (key support/resistance near breakout or breakdown)
 At the very end append this routing block:
-<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "under 20 words", "hard_constraints": ["constraint 1"], "soft_constraints": ["advice 1"], "execution_preconditions": ["condition 1"], "de_risk_triggers": ["trigger 1"]}} -->
+<!-- RISK_JUDGE: {{"verdict": "pass", "revision_reason": "under 20 words", "hard_constraints": ["constraint 1"], "soft_constraints": ["advice 1"], "execution_preconditions": ["condition 1"], "de_risk_triggers": ["trigger 1"], "risk_flags": []}} -->
 verdict must be one of: pass / revise / reject
+risk_flags: array of risk tags (select from: liquidity_risk, volatility_risk, concentration_risk, correlation_risk, macro_risk, event_risk, technical_risk; empty array if none)
 At the very end, append this machine-readable line (fixed format, do not omit):
 <!-- VERDICT: {{"confidence": 0.8, "signal": "bullish", "direction": "BULLISH", "reason": "one-sentence conclusion under 15 words", "key_levels": {{"support": 0.0, "resistance": 0.0}}, "target_price": null, "risk_flags": []}} -->
 direction must be one of: BULLISH / LEAN_BULLISH / NEUTRAL / LEAN_BEARISH / BEARISH (use LEAN_BULLISH or LEAN_BEARISH when data leans directionally but lacks full confirmation; use NEUTRAL only when data is genuinely insufficient)
