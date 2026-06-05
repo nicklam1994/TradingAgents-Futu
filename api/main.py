@@ -4137,24 +4137,34 @@ def get_futu_status(
             SysConfig.enable_proto_encrypt(True)
             SysConfig.set_init_rsa_file(rsa_path)
         
-        # Test quote connection
+        # Enable RSA for remote connections
+        rsa_path = env_vals.get("FUTU_RSA_KEY_PATH", "")
+        need_encrypt = host not in ("127.0.0.1", "localhost")
+        
+        if need_encrypt and rsa_path:
+            SysConfig.enable_proto_encrypt(True)
+            SysConfig.set_init_rsa_file(rsa_path)
+        
+        # Test quote connection + get user info (must be before close)
         quote_ctx = OpenQuoteContext(host=host, port=port)
-        ret, data = quote_ctx.get_global_state()
+        ret, state = quote_ctx.get_global_state()
+        if ret != 0:
+            quote_ctx.close()
+            return {"connected": False, "error": str(state)}
+        
+        ret2, user_info = quote_ctx.get_user_info()
+        server_ver = str(state.get("server_ver", "")) if isinstance(state, dict) else ""
         quote_ctx.close()
         
-        if ret != 0:
-            return {"connected": False, "error": str(data)}
-        
-        # Get user info via trade context
+        # Get trade accounts
         from futu import OpenSecTradeContext, TrdEnv, TrdMarket
-        
         trade_ctx = OpenSecTradeContext(host=host, port=port, filter_trdmarket=TrdMarket.HK, security_firm=SecurityFirm.FUTUSECURITIES)
-        ret, data = trade_ctx.get_acc_list()
+        ret3, acc_data = trade_ctx.get_acc_list()
         trade_ctx.close()
         
         acc_info = []
-        if ret == 0 and not data.empty:
-            for _, row in data.iterrows():
+        if ret3 == 0 and not acc_data.empty:
+            for _, row in acc_data.iterrows():
                 acc_info.append({
                     "acc_id": int(row.get("acc_id", 0)),
                     "acc_type": str(row.get("acc_type", "")),
@@ -4162,13 +4172,31 @@ def get_futu_status(
                     "card_num": str(row.get("card_num", "")),
                     "security_firm": str(row.get("security_firm", "")),
                     "sim_acc_type": str(row.get("sim_acc_type", "")),
+                    "acc_status": str(row.get("acc_status", "")),
                 })
+        
+        user_detail = {}
+        if ret2 == 0 and isinstance(user_info, dict):
+            user_detail = {
+                "user_id": user_info.get("user_id", ""),
+                "nick_name": user_info.get("nick_name", ""),
+                "avatar_url": user_info.get("avatar_url", ""),
+                "sub_quota": user_info.get("sub_quota", 0),
+                "history_kl_quota": user_info.get("history_kl_quota", 0),
+                "hk_qot_right": user_info.get("hk_qot_right", "N/A"),
+                "hk_option_qot_right": user_info.get("hk_option_qot_right", "N/A"),
+                "hk_future_qot_right": user_info.get("hk_future_qot_right", "N/A"),
+                "us_qot_right": user_info.get("us_qot_right", "N/A"),
+                "us_option_qot_right": user_info.get("us_option_qot_right", "N/A"),
+                "us_future_qot_right": user_info.get("us_future_qot_right", "N/A"),
+            }
         
         return {
             "connected": True,
             "host": host,
             "port": port,
-            "server_ver": str(data.get("server_ver", "")) if hasattr(data, 'get') else "",
+            "server_ver": server_ver,
+            "user": user_detail,
             "accounts": acc_info,
         }
     except Exception as e:
