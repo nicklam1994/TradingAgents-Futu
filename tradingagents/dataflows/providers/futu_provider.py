@@ -6,7 +6,7 @@ Configure via FUTU_OPEND_HOST / FUTU_OPEND_PORT environment variables.
 
 import json
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -102,8 +102,16 @@ class FutuProvider(BaseMarketDataProvider):
 
     # ── 1.3 get_stock_data — K 线 ──
 
-    def get_stock_data(self, symbol: str, start_date: str, end_date: str) -> str:
+    def get_stock_data(self, symbol: str, start_date: str, end_date: str,
+                       autype: Optional[str] = None) -> str:
         """Fetch historical K-line data via FutuOpenD.
+
+        Args:
+            symbol: Stock symbol (e.g., "HK.00700", "AAPL")
+            start_date: Start date in YYYY-MM-DD format
+            end_date: End date in YYYY-MM-DD format
+            autype: Adjustment type — None (no adjustment), "qfq" (forward),
+                    "hfq" (backward).  Default None.
 
         Returns CSV string with columns: Date,Open,High,Low,Close,Volume.
         """
@@ -117,7 +125,7 @@ class FutuProvider(BaseMarketDataProvider):
                 start=start_date,
                 end=end_date,
                 ktype=KLType.K_DAY,
-                autype=None,  # 不做复权调整，保持原始价格
+                autype=autype or "NONE",
             )
             if ret != RET_OK:
                 raise RuntimeError(

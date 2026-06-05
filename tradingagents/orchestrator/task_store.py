@@ -81,50 +81,86 @@ class TaskStore:
                     ON autonomous_tasks(created_at);
             """)
 
-    def _execute_with_retry(
-        self, cursor, sql: str, params: tuple = (), max_retries: int = 3
-    ) -> sqlite3.Cursor:
-        """Execute SQL with exponential backoff on 'database is locked' (P2-5).
-
-        Retries up to max_retries times with delays: 0.1s, 0.2s, 0.4s.
-        This prevents concurrent write failures from crashing the orchestrator.
-        """
-        last_error: Optional[sqlite3.OperationalError] = None
-        for attempt in range(max(1, max_retries)):
-            try:
-                return cursor.execute(sql, params)
-            except sqlite3.OperationalError as e:
-                last_error = e
-                if "database is locked" in str(e) and attempt < max_retries - 1:
-                    delay = 0.1 * (2 ** attempt)
-                    logger.debug(
-                        "SQLite locked, retry %d/%d in %.1fs",
-                        attempt + 1, max_retries, delay,
-                    )
-                    time.sleep(delay)
-                    continue
-                raise
-        # Should not reach here, but satisfy type checker
-        raise last_error  # type: ignore[misc]
-
     @contextmanager
     def _conn(self):
-        """Context manager for SQLite connections with WAL mode and retry (P2-5~6).
+        """Context manager for SQLite connections with WAL mode and lock retry.
 
-        P2-6: timeout=10 waits for lock release before raising.
-        P2-5: _execute_with_retry wraps write operations with backoff.
+        Yields a _LockRetryProxy that wraps conn.execute() with exponential
+        backoff on 'database is locked' errors.  All CRUD operations get
+        automatic retry without needing to call a separate retry helper.
         """
         conn = sqlite3.connect(self._db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        proxy = self._LockRetryProxy(conn, logger)
         try:
-            yield conn
-            conn.commit()
+            yield proxy
+            proxy._commit_with_retry()
         except Exception:
             conn.rollback()
             raise
         finally:
             conn.close()
+
+    class _LockRetryProxy:
+        """Wraps a sqlite3.Connection so execute() auto-retries on lock errors.
+
+        Commit is also retried because WAL-mode lock contention can occur
+        at commit time as well.
+        """
+
+        def __init__(self, conn: sqlite3.Connection, logger_: logging.Logger,
+                     max_retries: int = 3):
+            self._conn = conn
+            self._logger = logger_
+            self._max_retries = max(1, max_retries)
+
+        # Proxy attribute access (row_factory, etc.) to the real connection
+        def __getattr__(self, name: str):
+            return getattr(self._conn, name)
+
+        def execute(self, sql: str, params=()) -> sqlite3.Cursor:
+            """Execute SQL with exponential backoff on 'database is locked'."""
+            last_error: Optional[sqlite3.OperationalError] = None
+            for attempt in range(self._max_retries):
+                try:
+                    return self._conn.execute(sql, params)
+                except sqlite3.OperationalError as e:
+                    last_error = e
+                    if "database is locked" in str(e) and attempt < self._max_retries - 1:
+                        delay = 0.1 * (2 ** attempt)
+                        self._logger.debug(
+                            "SQLite locked on execute, retry %d/%d in %.1fs",
+                            attempt + 1, self._max_retries, delay,
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
+            raise last_error  # type: ignore[misc]
+
+        def executescript(self, script: str):
+            """Execute a script (used by _ensure_schema)."""
+            return self._conn.executescript(script)
+
+        def _commit_with_retry(self):
+            """Commit with exponential backoff on 'database is locked'."""
+            last_error: Optional[sqlite3.OperationalError] = None
+            for attempt in range(self._max_retries):
+                try:
+                    self._conn.commit()
+                    return
+                except sqlite3.OperationalError as e:
+                    last_error = e
+                    if "database is locked" in str(e) and attempt < self._max_retries - 1:
+                        delay = 0.1 * (2 ** attempt)
+                        self._logger.debug(
+                            "SQLite locked on commit, retry %d/%d in %.1fs",
+                            attempt + 1, self._max_retries, delay,
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
+            raise last_error  # type: ignore[misc]
 
     def _now_iso(self) -> str:
         return datetime.now(timezone.utc).isoformat()

@@ -119,22 +119,16 @@ class SkillRegistry:
 
     # ── Auto-discovery ───────────────────────────────────────────────────────
 
-    def discover(self, package_path: Optional[str] = None) -> int:
+    def discover(self) -> int:
         """Auto-discover and register all BaseSkill subclasses in the builtin package.
 
-        Scans ``tradingagents.skills.builtin`` for Python modules, finds all
-        concrete (non-abstract) subclasses of BaseSkill, instantiates them,
-        and registers.
-
-        Args:
-            package_path: Override package to scan (dotted path).
-                          Default: "tradingagents.skills.builtin"
+        Scans ``tradingagents.skills.builtin`` only — external package_path is
+        not accepted, preventing whitelist bypass (W7-1).
 
         Returns:
             Number of newly registered skills.
         """
-        if package_path is None:
-            package_path = "tradingagents.skills.builtin"
+        package_path = "tradingagents.skills.builtin"
 
         count = 0
         try:

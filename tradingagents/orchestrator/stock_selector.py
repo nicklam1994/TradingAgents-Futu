@@ -227,13 +227,13 @@ class StockSelector:
         pool: List[str],
         market_data: Dict[str, Dict[str, Any]],
         dimensions: List[str],
-    ) -> Dict[str, Dict[str, float]]:
+    ) -> Dict[str, Dict[str, Optional[float]]]:
         """Run dimension analyses in parallel using ThreadPoolExecutor.
 
         Returns:
-            Dict mapping symbol → {dimension: score}
+            Dict mapping symbol → {dimension: score} (score may be None if unavailable)
         """
-        results: Dict[str, Dict[str, float]] = {s: {} for s in pool}
+        results: Dict[str, Dict[str, Optional[float]]] = {s: {} for s in pool}
 
         # Define dimension analyzers
         analyzers: Dict[str, Callable] = {
@@ -261,12 +261,12 @@ class StockSelector:
                     if dim in analyzers:
                         try:
                             score, reasoning = tasks[task_idx].result(timeout=30)
-                            results[symbol][dim] = score
+                            results[symbol][dim] = score  # may be None if no data
                         except Exception as e:
                             logger.warning(
                                 "Analysis failed for %s/%s: %s", symbol, dim, e
                             )
-                            results[symbol][dim] = 0.5  # Neutral default
+                            results[symbol][dim] = None
                         task_idx += 1
 
         return results
@@ -274,7 +274,11 @@ class StockSelector:
     def _analyze_momentum(
         self, symbol: str, data: Dict[str, Any]
     ) -> Tuple[float, str]:
-        """Analyze momentum via FutuProvider technical indicators (P2-3~4).
+        """Analyze momentum via FutuProvider.get_stock_data() (W3-1, W4-1).
+
+        Uses only the public get_stock_data() API — no private method access.
+        Requests forward-adjusted (qfq) K-lines so MA calculations reflect
+        actual price movements after splits/dividends.
 
         Computes real MA crossover + RSI from K-line data:
         - MA score (60%): 1.0 when MA5 > MA20, 0.0 otherwise
@@ -291,39 +295,33 @@ class StockSelector:
             from tradingagents.dataflows.providers.futu_provider import FutuProvider
 
             provider = FutuProvider()
-            market, code = provider._to_futu_code(symbol)
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=90)
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
 
-            ctx = provider._get_quote_ctx()
-            try:
-                from futu import KLType, RET_OK
+            # Use public get_stock_data() with forward-adjusted (qfq) prices
+            raw_csv = provider.get_stock_data(symbol, start_date, end_date, autype="qfq")
+            if not raw_csv or not raw_csv.strip():
+                raise RuntimeError(f"No K-line data for {symbol}")
 
-                ret, kdata, _ = ctx.request_history_kline(
-                    code,
-                    start=start_date.strftime("%Y-%m-%d"),
-                    end=end_date.strftime("%Y-%m-%d"),
-                    ktype=KLType.K_DAY,
-                    autype=None,
-                )
-                if ret != RET_OK or kdata is None or kdata.empty:
-                    raise RuntimeError(f"No K-line data for {symbol}")
-            finally:
-                ctx.close()
+            # Skip comment lines (start with '#')
+            lines = [ln for ln in raw_csv.splitlines() if not ln.startswith("#")]
+            csv_text = "\n".join(lines)
+            if not csv_text.strip():
+                raise RuntimeError(f"Empty K-line CSV for {symbol}")
 
-            # Prepare OHLCV DataFrame for stockstats
-            df = kdata.rename(columns={
-                "time_key": "date", "open": "open", "high": "high",
-                "low": "low", "close": "close", "volume": "volume",
-            })[["date", "open", "high", "low", "close", "volume"]].copy()
+            from io import StringIO
 
-            df["date"] = pd.to_datetime(df["date"])
+            df = pd.read_csv(StringIO(csv_text))
+            # get_stock_data() returns: Date,Open,High,Low,Close,Volume
+            df = df.rename(columns={"Date": "date", "Open": "open", "High": "high",
+                                    "Low": "low", "Close": "close", "Volume": "volume"})
+            df["date"] = pd.to_datetime(df["date"], errors="coerce")
             df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
 
             if len(df) < 20:
                 raise RuntimeError(f"Insufficient data for {symbol}: {len(df)} days")
 
-            # Compute indicators via stockstats
+            # Compute indicators via stockstats (no private API calls)
             ss = StockDataFrame(df)
             ma5_series = ss["close_5_sma"]
             ma20_series = ss["close_20_sma"]
@@ -377,7 +375,7 @@ class StockSelector:
         reasoning_parts = []
 
         # PE ratio scoring
-        if pe and pe > 0:
+        if pe is not None and pe > 0:
             if pe < 15:
                 score += 0.2
                 reasoning_parts.append(f"Low PE ({pe:.1f}) — value stock")
@@ -389,7 +387,7 @@ class StockSelector:
                 reasoning_parts.append(f"High PE ({pe:.1f}) — growth premium")
 
         # Market cap scoring (prefer mid-large cap for liquidity)
-        if market_cap:
+        if market_cap is not None and market_cap > 0:
             if market_cap > 1e10:  # >10B
                 score += 0.1
                 reasoning_parts.append("Large cap — good liquidity")
@@ -401,14 +399,16 @@ class StockSelector:
 
     def _analyze_sentiment(
         self, symbol: str, data: Dict[str, Any]
-    ) -> Tuple[float, str]:
+    ) -> Tuple[Optional[float], str]:
         """Analyze social sentiment via SocialSentimentService (P2-1~2).
 
         Fetches real sentiment scores from Reddit/X/Polymarket APIs.
-        Falls back to 0.5 (neutral) when the service is unavailable.
+        Falls back to empty dict (None score) when the service is unavailable,
+        so callers never receive fabricated data.
 
         Returns:
-            (score, reasoning_text) tuple — score in 0.0–1.0 range
+            (score, reasoning_text) tuple — score in 0.0–1.0 range,
+            or (None, reason) when no data is available.
         """
         try:
             from tradingagents.dataflows.social_sentiment import (
@@ -418,14 +418,14 @@ class StockSelector:
             service = SocialSentimentService.from_env()
             if not service.is_available:
                 logger.debug("Sentiment API not configured for %s", symbol)
-                return 0.5, f"Sentiment API not configured for {symbol}"
+                return None, f"Sentiment API not configured for {symbol}"
 
             # Strip exchange prefix: "HK.00700" → "00700"
             ticker = symbol.split(".")[-1] if "." in symbol else symbol
             result = service.get_social_sentiment(ticker)
 
             if not result.get("available"):
-                return 0.5, f"Sentiment unavailable for {symbol}"
+                return None, f"Sentiment unavailable for {symbol}"
 
             # Extract sentiment components from Reddit data
             reddit = result.get("reddit")
@@ -447,18 +447,22 @@ class StockSelector:
                 # Mention count for reasoning
                 mention_count = report.get("total_mentions") or report.get("mentions", 0)
 
+            # Normalize sentiment_score from [-1,1] to [0,1] (W2-1)
+            if sentiment_score is not None:
+                try:
+                    sentiment_score = max(0.0, min(1.0, (float(sentiment_score) + 1) / 2))
+                except (TypeError, ValueError):
+                    sentiment_score = None
+
             # Combine available signals into 0-1 score
             if sentiment_score is not None and buzz_score is not None:
-                try:
-                    score = (float(sentiment_score) + buzz_score) / 2.0
-                except (TypeError, ValueError):
-                    score = buzz_score  # fallback to buzz only
+                score = (sentiment_score + buzz_score) / 2.0
             elif sentiment_score is not None:
-                score = float(sentiment_score)
+                score = sentiment_score
             elif buzz_score is not None:
                 score = buzz_score
             else:
-                return 0.5, f"Sentiment data empty for {symbol}"
+                return None, f"Sentiment data empty for {symbol}"
 
             score = max(0.0, min(1.0, score))
             parts = [f"sentiment={sentiment_score}", f"buzz={buzz_score:.0%}"]
@@ -468,7 +472,7 @@ class StockSelector:
 
         except Exception as e:
             logger.debug("Sentiment fallback for %s: %s", symbol, e)
-            return 0.5, f"Sentiment fallback for {symbol}: {e}"
+            return None, f"Sentiment unavailable for {symbol}: {e}"
 
     def _analyze_volume(
         self, symbol: str, data: Dict[str, Any]
@@ -482,9 +486,9 @@ class StockSelector:
         turnover = data.get("turnover", 0)
 
         score = 0.5
-        if volume and volume > 0:
+        if volume is not None and volume > 0:
             score += 0.15
-        if turnover and turnover > 0:
+        if turnover is not None and turnover > 0:
             score += 0.15
 
         return min(1.0, score), f"Volume={volume}, Turnover={turnover}"
@@ -493,7 +497,7 @@ class StockSelector:
         self,
         pool: List[str],
         market_data: Dict[str, Dict[str, Any]],
-        scores: Dict[str, Dict[str, float]],
+        scores: Dict[str, Dict[str, Optional[float]]],
         dimensions: List[str],
     ) -> List[StockCandidate]:
         """Build StockCandidate objects with composite scores."""
@@ -509,10 +513,10 @@ class StockSelector:
                 current_price=data.get("price"),
                 market_cap=data.get("market_cap"),
                 pe_ratio=data.get("pe_ratio"),
-                momentum_score=dim_scores.get("momentum", 0.5),
-                fundamental_score=dim_scores.get("fundamental", 0.5),
-                sentiment_score=dim_scores.get("sentiment", 0.5),
-                volume_score=dim_scores.get("volume", 0.5),
+                momentum_score=dim_scores.get("momentum") or 0.5,
+                fundamental_score=dim_scores.get("fundamental") or 0.5,
+                sentiment_score=dim_scores.get("sentiment") or 0.5,
+                volume_score=dim_scores.get("volume") or 0.5,
             )
 
             # Weighted composite score
@@ -541,7 +545,7 @@ class StockSelector:
         """
         affordable = []
         for c in candidates:
-            if c.current_price and c.current_price > 0:
+            if c.current_price is not None and c.current_price > 0:
                 # Determine lot size based on exchange
                 lot_size = 100 if c.symbol.startswith(("HK.", "SH.", "SZ.")) else 1
                 min_cost = c.current_price * lot_size
