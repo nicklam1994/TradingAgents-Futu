@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
+from tradingagents.agents.trader.exit_strategy import ExitReason, ExitStrategy
+
 logger = logging.getLogger(__name__)
 
 
@@ -110,10 +112,12 @@ class PositionSnapshot:
 class Observer:
     """Position monitor with configurable risk thresholds.
 
+    Delegates stop-loss, take-profit, and trailing-stop logic to ExitStrategy
+    (from tradingagents.agents.trader.exit_strategy) to avoid duplicate
+    threshold math.
+
     Features:
-        - Stop-loss: auto-exit when loss exceeds threshold
-        - Take-profit: alert/exit when profit target hit
-        - Trailing stop: dynamic stop that follows price up
+        - Stop-loss / Take-profit / Trailing stop: via ExitStrategy.evaluate()
         - Concentration warning: flag when single position > threshold
         - Stale position: flag positions held too long without movement
 
@@ -144,13 +148,17 @@ class Observer:
             stale_days: Days before flagging a stale position
             on_alert: Optional callback for each alert generated
         """
-        self._stop_loss_pct = stop_loss_pct
-        self._take_profit_pct = take_profit_pct
-        self._trailing_stop_pct = trailing_stop_pct
         self._max_concentration_pct = max_concentration_pct
         self._stale_days = stale_days
         self._on_alert = on_alert
         self._alert_history: List[PositionAlert] = []
+
+        # P1-6: Delegate exit decisions to ExitStrategy (single source of truth)
+        self._exit_strategy = ExitStrategy(
+            stop_loss_pct=stop_loss_pct,
+            trailing_pct=trailing_stop_pct,
+            take_profit_pct=take_profit_pct,
+        )
 
     def check_positions(
         self,
@@ -171,27 +179,51 @@ class Observer:
         alerts: List[PositionAlert] = []
         now = datetime.now(timezone.utc).isoformat()
 
+        # P1-6: Map ExitReason → AlertType for unified handling
+        _EXIT_REASON_MAP = {
+            ExitReason.STOP_LOSS: AlertType.STOP_LOSS,
+            ExitReason.TRAILING_STOP: AlertType.TRAILING_STOP,
+            ExitReason.TAKE_PROFIT: AlertType.TAKE_PROFIT,
+        }
+        _SEVERITY_MAP = {
+            ExitReason.STOP_LOSS: "critical",
+            ExitReason.TRAILING_STOP: "warning",
+            ExitReason.TAKE_PROFIT: "info",
+        }
+
         for pos_data in positions:
             pos = self._parse_position(pos_data)
             if not pos:
                 continue
 
-            # Check stop-loss
-            sl_alert = self._check_stop_loss(pos, now)
-            if sl_alert:
-                alerts.append(sl_alert)
+            # P1-6: Delegate stop-loss / trailing / take-profit to ExitStrategy
+            decision = self._exit_strategy.evaluate(
+                entry_price=pos.entry_price,
+                current_price=pos.current_price,
+                highest_price=pos.highest_price or pos.current_price,
+                side=pos.side,
+            )
+            if decision.should_exit and decision.reason in _EXIT_REASON_MAP:
+                alert_type = _EXIT_REASON_MAP[decision.reason]
+                # Take-profit is advisory (should_exit=True but we flag, don't force)
+                forced_exit = decision.reason != ExitReason.TAKE_PROFIT
+                alerts.append(PositionAlert(
+                    alert_type=alert_type,
+                    symbol=pos.symbol,
+                    message=decision.message,
+                    severity=_SEVERITY_MAP[decision.reason],
+                    should_exit=forced_exit,
+                    entry_price=pos.entry_price,
+                    current_price=pos.current_price,
+                    pnl_pct=pos.pnl_pct,
+                    pnl_amount=pos.pnl_amount,
+                    position_size=pos.market_value,
+                    threshold_value=decision.threshold,
+                    timestamp=now,
+                    metadata=decision.metadata,
+                ))
 
-            # Check take-profit
-            tp_alert = self._check_take_profit(pos, now)
-            if tp_alert:
-                alerts.append(tp_alert)
-
-            # Check trailing stop
-            ts_alert = self._check_trailing_stop(pos, now)
-            if ts_alert:
-                alerts.append(ts_alert)
-
-            # Check concentration
+            # Check concentration (not part of exit strategy — portfolio-level)
             if total_assets > 0:
                 conc_alert = self._check_concentration(pos, total_assets, now)
                 if conc_alert:
@@ -232,114 +264,6 @@ class Observer:
         except (ValueError, TypeError) as e:
             logger.warning("Failed to parse position: %s", e)
             return None
-
-    def _check_stop_loss(
-        self, pos: PositionSnapshot, now: str
-    ) -> Optional[PositionAlert]:
-        """Check if position has hit stop-loss threshold."""
-        # Use position-specific stop-loss if set, otherwise use default
-        threshold = pos.stop_loss_price
-        if threshold:
-            should_exit = (
-                pos.current_price <= threshold
-                if pos.side == "long"
-                else pos.current_price >= threshold
-            )
-        else:
-            should_exit = pos.pnl_pct <= self._stop_loss_pct
-            threshold = self._stop_loss_pct
-
-        if should_exit:
-            return PositionAlert(
-                alert_type=AlertType.STOP_LOSS,
-                symbol=pos.symbol,
-                message=(
-                    f"STOP-LOSS triggered for {pos.symbol}: "
-                    f"P&L {pos.pnl_pct:+.1%} (threshold: {threshold})"
-                ),
-                severity="critical",
-                should_exit=True,
-                entry_price=pos.entry_price,
-                current_price=pos.current_price,
-                pnl_pct=pos.pnl_pct,
-                pnl_amount=pos.pnl_amount,
-                position_size=pos.market_value,
-                threshold_value=threshold if isinstance(threshold, (int, float)) else 0,
-                timestamp=now,
-            )
-        return None
-
-    def _check_take_profit(
-        self, pos: PositionSnapshot, now: str
-    ) -> Optional[PositionAlert]:
-        """Check if position has hit take-profit target."""
-        threshold = pos.take_profit_price
-        if threshold:
-            should_exit = (
-                pos.current_price >= threshold
-                if pos.side == "long"
-                else pos.current_price <= threshold
-            )
-        else:
-            should_exit = pos.pnl_pct >= self._take_profit_pct
-            threshold = self._take_profit_pct
-
-        if should_exit:
-            return PositionAlert(
-                alert_type=AlertType.TAKE_PROFIT,
-                symbol=pos.symbol,
-                message=(
-                    f"TAKE-PROFIT reached for {pos.symbol}: "
-                    f"P&L {pos.pnl_pct:+.1%} (target: {threshold})"
-                ),
-                severity="info",
-                should_exit=False,  # Take-profit is advisory, not forced
-                entry_price=pos.entry_price,
-                current_price=pos.current_price,
-                pnl_pct=pos.pnl_pct,
-                pnl_amount=pos.pnl_amount,
-                position_size=pos.market_value,
-                threshold_value=threshold if isinstance(threshold, (int, float)) else 0,
-                timestamp=now,
-            )
-        return None
-
-    def _check_trailing_stop(
-        self, pos: PositionSnapshot, now: str
-    ) -> Optional[PositionAlert]:
-        """Check trailing stop (price dropped X% from peak)."""
-        if pos.side != "long":
-            return None  # Trailing stop only for long positions
-
-        highest = pos.highest_price or pos.current_price
-        trailing_pct = pos.trailing_stop_pct or self._trailing_stop_pct
-
-        if highest <= 0:
-            return None
-
-        # Price has dropped trailing_pct from the highest
-        drop_from_peak = (highest - pos.current_price) / highest
-        if drop_from_peak >= trailing_pct:
-            return PositionAlert(
-                alert_type=AlertType.TRAILING_STOP,
-                symbol=pos.symbol,
-                message=(
-                    f"TRAILING STOP for {pos.symbol}: "
-                    f"dropped {drop_from_peak:.1%} from peak {highest:.2f} "
-                    f"(threshold: {trailing_pct:.1%})"
-                ),
-                severity="warning",
-                should_exit=True,
-                entry_price=pos.entry_price,
-                current_price=pos.current_price,
-                pnl_pct=pos.pnl_pct,
-                pnl_amount=pos.pnl_amount,
-                position_size=pos.market_value,
-                threshold_value=trailing_pct,
-                timestamp=now,
-                metadata={"highest_price": highest, "drop_from_peak": drop_from_peak},
-            )
-        return None
 
     def _check_concentration(
         self, pos: PositionSnapshot, total_assets: float, now: str
