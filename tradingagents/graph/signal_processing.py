@@ -143,3 +143,160 @@ def _extract_decision_keyword(text: str) -> str | None:
         return decision
 
     return "UNKNOWN"
+
+
+def extract_verdict_data(text: str) -> dict:
+    """Extract structured VERDICT JSON from analyst report text.
+
+    Parses the <!-- VERDICT: {...} --> block and returns all fields as a dict.
+    Returns empty dict if no valid VERDICT found.
+
+    Fields:
+        direction: str (看多/偏多/中性/偏空/看空 or BULLISH/LEAN_BULLISH/etc.)
+        reason: str
+        confidence: float (0-1)
+        signal: str (bullish/bearish/neutral)
+        key_levels: dict {"support": float, "resistance": float}
+        target_price: float or None
+        risk_flags: list[str]
+    """
+    if not text:
+        return {}
+
+    match = re.search(
+        r"<!--\s*VERDICT:\s*(\{.*?\})\s*-->",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return {}
+
+    try:
+        raw_json = match.group(1).strip().replace("\n", " ").replace("\r", " ")
+        payload = json.loads(raw_json)
+    except Exception:
+        return {}
+
+    result = {}
+
+    # direction (existing field)
+    direction = str(payload.get("direction") or "").strip()
+    if direction:
+        result["direction"] = direction
+
+    # reason (existing field)
+    reason = str(payload.get("reason") or "").strip()
+    if reason:
+        result["reason"] = reason
+
+    # confidence (new: 0-1 float)
+    conf = payload.get("confidence")
+    if conf is not None:
+        try:
+            conf = float(conf)
+            if 0 <= conf <= 1:
+                result["confidence"] = conf
+        except (ValueError, TypeError):
+            pass
+
+    # signal (new: bullish/bearish/neutral)
+    signal = str(payload.get("signal") or "").strip().lower()
+    if signal in ("bullish", "bearish", "neutral"):
+        result["signal"] = signal
+
+    # key_levels (new: {"support": float, "resistance": float})
+    key_levels = payload.get("key_levels")
+    if isinstance(key_levels, dict):
+        support = key_levels.get("support")
+        resistance = key_levels.get("resistance")
+        try:
+            support = float(support) if support is not None else 0.0
+        except (ValueError, TypeError):
+            support = 0.0
+        try:
+            resistance = float(resistance) if resistance is not None else 0.0
+        except (ValueError, TypeError):
+            resistance = 0.0
+        if support > 0 or resistance > 0:
+            result["key_levels"] = {"support": support, "resistance": resistance}
+
+    # target_price (new: float or None)
+    tp = payload.get("target_price")
+    if tp is not None:
+        try:
+            tp = float(tp)
+            if tp > 0:
+                result["target_price"] = tp
+        except (ValueError, TypeError):
+            pass
+
+    # risk_flags (new: list of risk tag strings)
+    flags = payload.get("risk_flags")
+    if isinstance(flags, list):
+        valid_flags = {
+            "high_volatility", "low_liquidity", "concentration_risk",
+            "macro_risk", "event_risk", "technical_risk", "correlation_risk",
+            "liquidity_risk", "volatility_risk",
+        }
+        result["risk_flags"] = [f for f in flags if isinstance(f, str) and f in valid_flags]
+
+    return result
+
+
+def extract_risk_judge_data(text: str) -> dict:
+    """Extract structured RISK_JUDGE JSON from Risk Judge report text.
+
+    Parses the <!-- RISK_JUDGE: {...} --> block and returns all fields as a dict.
+    Returns empty dict if no valid RISK_JUDGE found.
+
+    Fields:
+        verdict: str (pass/revise/reject)
+        revision_reason: str
+        hard_constraints: list[str]
+        soft_constraints: list[str]
+        execution_preconditions: list[str]
+        de_risk_triggers: list[str]
+        risk_flags: list[str] (7-category risk tags)
+    """
+    if not text:
+        return {}
+
+    match = re.search(
+        r"<!--\s*RISK_JUDGE:\s*(\{.*?\})\s*-->",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not match:
+        return {}
+
+    try:
+        raw_json = match.group(1).strip().replace("\n", " ").replace("\r", " ")
+        payload = json.loads(raw_json)
+    except Exception:
+        return {}
+
+    result = {}
+
+    verdict = str(payload.get("verdict") or "").strip().lower()
+    if verdict in ("pass", "revise", "reject"):
+        result["verdict"] = verdict
+
+    reason = str(payload.get("revision_reason") or "").strip()
+    if reason:
+        result["revision_reason"] = reason
+
+    for key in ("hard_constraints", "soft_constraints", "execution_preconditions", "de_risk_triggers"):
+        val = payload.get(key)
+        if isinstance(val, list):
+            result[key] = [str(v) for v in val if v]
+
+    # risk_flags from RISK_JUDGE (7-category risk tags)
+    flags = payload.get("risk_flags")
+    if isinstance(flags, list):
+        valid_flags = {
+            "liquidity_risk", "volatility_risk", "concentration_risk",
+            "correlation_risk", "macro_risk", "event_risk", "technical_risk",
+        }
+        result["risk_flags"] = [f for f in flags if isinstance(f, str) and f in valid_flags]
+
+    return result
