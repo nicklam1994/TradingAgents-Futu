@@ -6,6 +6,7 @@ Configure via FUTU_OPEND_HOST / FUTU_OPEND_PORT environment variables.
 
 import json
 import os
+from typing import Any, Dict
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -287,6 +288,40 @@ class FutuProvider(BaseMarketDataProvider):
             for label, value in table_rows:
                 md += f"| {label} | {value} |\n"
             return md
+        finally:
+            ctx.close()
+
+    def get_fundamentals_dict(self, ticker: str) -> Dict[str, Any]:
+        """Fetch company snapshot as a raw dict (for programmatic use).
+
+        Returns dict with keys: pe_ttm, pb_ratio, market_cap, dividend_ratio,
+        turnover_rate, amplitude, high_52w, low_52w, volume, turnover, name, price.
+        """
+        from futu import RET_OK
+
+        market, code = self._to_futu_code(ticker)
+        ctx = self._get_quote_ctx()
+        try:
+            ret, data = ctx.get_market_snapshot([code])
+            if ret != RET_OK or data is None or data.empty:
+                logger.warning("get_fundamentals_dict failed for %s: %s", ticker, ret)
+                return {}
+
+            row = data.iloc[0]
+            return {
+                "name": str(row.get("name", "")),
+                "price": float(row.get("last_price", 0) or 0),
+                "pe_ttm": float(row.get("pe_ttm_ratio", 0) or 0),
+                "pb_ratio": float(row.get("pb_ratio", 0) or 0),
+                "market_cap": float(row.get("market_val", 0) or 0),
+                "dividend_ratio": float(row.get("dividend_ratio_ttm", 0) or 0),
+                "turnover_rate": float(row.get("turnover_rate", 0) or 0),
+                "amplitude": float(row.get("amplitude", 0) or 0),
+                "high_52w": float(row.get("high_price", 0) or 0),
+                "low_52w": float(row.get("low_price", 0) or 0),
+                "volume": int(row.get("volume", 0) or 0),
+                "turnover": float(row.get("turnover", 0) or 0),
+            }
         finally:
             ctx.close()
 
