@@ -636,11 +636,12 @@ export default function Settings() {
                 <div className="flex justify-end pt-2">
                     <button
                         onClick={saveSearchConfig}
-                        disabled={searchSaving || searchSaved}
-                        className={`flex items-center gap-2 btn-primary ${searchSaved ? '!bg-green-500 !border-green-500 !text-white cursor-default' : ''}`}
+                        disabled={searchSaving}
+                        style={searchSaved ? { backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', pointerEvents: 'none' } : undefined}
+                        className="flex items-center gap-2 btn-primary"
                     >
                         <Save className="w-4 h-4" />
-                        {searchSaved ? '已保存' : '保存搜索配置'}
+                        {searchSaved ? '已保存' : '保存配置'}
                     </button>
                 </div>
             </div>
@@ -685,11 +686,12 @@ export default function Settings() {
                 <div className="flex justify-end pt-2">
                     <button
                         onClick={saveSocialSentimentConfig}
-                        disabled={socialSaving || socialSaved}
-                        className={`flex items-center gap-2 btn-primary ${socialSaved ? '!bg-green-500 !border-green-500 !text-white cursor-default' : ''}`}
+                        disabled={socialSaving}
+                        style={socialSaved ? { backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff', pointerEvents: 'none' } : undefined}
+                        className="flex items-center gap-2 btn-primary"
                     >
                         <Save className="w-4 h-4" />
-                        {socialSaved ? '已保存' : '保存舆情配置'}
+                        {socialSaved ? '已保存' : '保存配置'}
                     </button>
                 </div>
             </div>
