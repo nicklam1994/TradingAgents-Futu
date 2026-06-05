@@ -34,6 +34,37 @@ const PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'custom-openai', label: '自定义 OpenAI 兼容', provider: 'openai', baseUrl: '', protocol: 'OpenAI 兼容', editableBaseUrl: true },
 ]
 
+type ModelPreset = {
+    id: string
+    label: string
+    tier: 'quick' | 'deep'
+    provider: string
+}
+
+const MODEL_PRESETS: ModelPreset[] = [
+    // Quick models
+    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', tier: 'quick', provider: 'openai' },
+    { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', tier: 'quick', provider: 'openai' },
+    { id: 'gpt-4o-mini', label: 'GPT-4o Mini', tier: 'quick', provider: 'openai' },
+    { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'quick', provider: 'anthropic' },
+    { id: 'claude-haiku-3.5', label: 'Claude 3.5 Haiku', tier: 'quick', provider: 'anthropic' },
+    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'quick', provider: 'google' },
+    { id: 'deepseek-chat', label: 'DeepSeek V3', tier: 'quick', provider: 'deepseek' },
+    { id: 'moonshot-v1-8k', label: 'Moonshot V1 8K', tier: 'quick', provider: 'moonshot' },
+    { id: 'glm-4-flash', label: 'GLM-4 Flash', tier: 'quick', provider: 'zhipu' },
+    { id: 'qwen-plus', label: 'Qwen Plus', tier: 'quick', provider: 'dashscope' },
+    // Deep models
+    { id: 'gpt-4.1', label: 'GPT-4.1', tier: 'deep', provider: 'openai' },
+    { id: 'gpt-4o', label: 'GPT-4o', tier: 'deep', provider: 'openai' },
+    { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', tier: 'deep', provider: 'anthropic' },
+    { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'deep', provider: 'anthropic' },
+    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'deep', provider: 'google' },
+    { id: 'deepseek-reasoner', label: 'DeepSeek R1', tier: 'deep', provider: 'deepseek' },
+    { id: 'kimi-k2-0905-preview', label: 'Kimi K2', tier: 'deep', provider: 'moonshot' },
+    { id: 'glm-4-plus', label: 'GLM-4 Plus', tier: 'deep', provider: 'zhipu' },
+    { id: 'qwen-max', label: 'Qwen Max', tier: 'deep', provider: 'dashscope' },
+]
+
 function inferPreset(llmProvider: string, backendUrl: string): string {
     const normalizedProvider = (llmProvider || '').toLowerCase()
     const normalizedUrl = (backendUrl || '').replace(/\/$/, '')
@@ -69,6 +100,7 @@ export default function Settings() {
     const [configLoading, setConfigLoading] = useState(false)
     const [saving, setSaving] = useState(false)
     const [saveAllSaving, setSaveAllSaving] = useState(false)
+    const [saveAllSaved, setSaveAllSaved] = useState(false)
     const [warmingUp, setWarmingUp] = useState(false)
     const [saved, setSaved] = useState(false)
     const [saveMessage, setSaveMessage] = useState('设置已保存')
@@ -359,7 +391,8 @@ export default function Settings() {
         setSaveAllSaving(true)
         try {
             await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
-            showSavedMessage('全部设置已保存')
+            setSaveAllSaved(true)
+            setTimeout(() => setSaveAllSaved(false), 3000)
         } catch (err) {
             alert(err instanceof Error ? err.message : '保存全部设置失败')
         } finally {
@@ -464,7 +497,7 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            模型厂商
+                            API Providers
                         </label>
                         <select
                             value={providerPreset}
@@ -480,7 +513,7 @@ export default function Settings() {
 
                     <div>
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            接入协议
+                            API Protocols
                         </label>
                         <div className="input w-full flex items-center gap-2 bg-slate-50 dark:bg-slate-900/70 text-slate-600 dark:text-slate-300">
                             <Link2 className="w-4 h-4 text-slate-400" />
@@ -509,39 +542,10 @@ export default function Settings() {
                         </div>
                     )}
 
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            常规模型
-                            <span className="ml-1 text-xs text-slate-400 font-normal">用于意图识别、JSON 提取等轻量任务</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={quickThinkLlm}
-                            onChange={e => setQuickThinkLlm(e.target.value)}
-                            className="input w-full"
-                            placeholder="例如：gpt-4.1-mini / deepseek-chat / moonshot-v1-8k"
-                            disabled={configLoading}
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            推理模型
-                            <span className="ml-1 text-xs text-slate-400 font-normal">用于深度分析、辩论等复杂任务</span>
-                        </label>
-                        <input
-                            type="text"
-                            value={deepThinkLlm}
-                            onChange={e => setDeepThinkLlm(e.target.value)}
-                            className="input w-full"
-                            placeholder="例如：gpt-4.1 / deepseek-reasoner / kimi-k2-0905-preview"
-                            disabled={configLoading}
-                        />
-                    </div>
-
+                    {/* API Key */}
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            用户模型 Key
+                            API Key
                         </label>
                         <div className="relative">
                             <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -550,7 +554,7 @@ export default function Settings() {
                                 value={llmApiKey}
                                 onChange={e => setLlmApiKey(e.target.value)}
                                 className="input w-full pl-10"
-                                placeholder={hasStoredApiKey ? '已保存，留空则保持不变' : '输入你的模型 API Key'}
+                                placeholder={hasStoredApiKey ? '已保存，留空则保持不变' : '输入你的 API Key'}
                                 disabled={configLoading}
                             />
                         </div>
@@ -572,10 +576,63 @@ export default function Settings() {
                                 </button>
                             )}
                         </div>
-                        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                            保存模型配置后，系统会在后台自动测试连通性；也可以直接点击下方按钮，发送\u201c你好\u201d来验证模型是否正常响应。
-                        </p>
                     </div>
+
+                    {/* 常规模型 */}
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            常规模型
+                            <span className="ml-1 text-xs text-slate-400 font-normal">用于意图识别、JSON 提取等轻量任务</span>
+                        </label>
+                        <div className="flex gap-2">
+                            <select
+                                value={quickThinkLlm}
+                                onChange={e => setQuickThinkLlm(e.target.value)}
+                                className="input flex-1"
+                                disabled={configLoading}
+                            >
+                                <option value="">{quickThinkLlm || '选择或手动输入'}</option>
+                                {MODEL_PRESETS.filter(m => m.tier === 'quick').map(m => (
+                                    <option key={m.id} value={m.id}>{m.label}</option>
+                                ))}
+                            </select>
+                            <button
+                                type="button"
+                                onClick={() => setQuickThinkLlm(prompt('输入模型名称') || quickThinkLlm)}
+                                className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm"
+                                title="手动输入模型名"
+                            >✏️</button>
+                        </div>
+                    </div>
+
+                    {/* 推理模型 */}
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                            推理模型
+                            <span className="ml-1 text-xs text-slate-400 font-normal">用于深度分析、辩论等复杂任务</span>
+                        </label>
+                        <div className="flex gap-2">
+                            <select
+                                value={deepThinkLlm}
+                                onChange={e => setDeepThinkLlm(e.target.value)}
+                                className="input flex-1"
+                                disabled={configLoading}
+                            >
+                                <option value="">{deepThinkLlm || '选择或手动输入'}</option>
+                                {MODEL_PRESETS.filter(m => m.tier === 'deep').map(m => (
+                                    <option key={m.id} value={m.id}>{m.label}</option>
+                                ))}
+                            </select>
+                            <button
+                                type="button"
+                                onClick={() => setDeepThinkLlm(prompt('输入模型名称') || deepThinkLlm)}
+                                className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm"
+                                title="手动输入模型名"
+                            >✏️</button>
+                        </div>
+                    </div>
+
+
 
                     <div className="md:col-span-2 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 bg-slate-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -620,6 +677,20 @@ export default function Settings() {
                                 ))}
                             </div>
                         )}
+                    </div>
+
+                    {/* 保存配置按钮 */}
+                    <div className="flex justify-end pt-2">
+                        <button
+                            onClick={handleSaveAll}
+                            disabled={saving || saveAllSaving || configLoading}
+                            style={saveAllSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                                saveAllSaved ? '' : 'btn-primary'
+                            }`}
+                        >
+                            {saveAllSaved ? '✓ 保存成功' : saveAllSaving ? '保存中...' : '保存配置'}
+                        </button>
                     </div>
                 </div>
             </div>
