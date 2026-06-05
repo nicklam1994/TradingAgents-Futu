@@ -254,3 +254,4 @@ uv.lock.cp313
 .worktrees/
 FutuOpenD/
 config/rsa_key.txt
+config/rsa_key_pkcs8.txt
