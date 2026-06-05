@@ -20,9 +20,9 @@
 | 5 | Futu 模拟交易服务（9 端点 + RSA 加密 + OpenD 配置 UI） | ✅ 完成 | `fc8ed41` |
 | 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | ✅ 完成 | `f55a989` |
 | 7 | 模拟交易 Agent & 反思（SimExecutor + SimTradeReflector） | ✅ 完成 | `7df1e64` |
-| 8 | 自主 Orchestrator（OODA） | 🔄 进行中 | — |
+| 8 | 自主 Orchestrator（OODA） | ✅ 完成 | `39ba5c1` |
 | 9 | 前端 5 新页面 | ⏳ 待开始 | — |
-| 10 | 止损/策略插件 | ⏳ 待开始 | — |
+| 10 | 止损/策略插件 | ✅ 完成 | `fa34454` |
 | 11 | 通知系统移植（7 渠道 + Bot 平台） | ⏳ 待开始 | — |
 
 ---
@@ -116,7 +116,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 **Kelly 公式**：`f = (p * b - q) / b`，half-Kelly 保守策略。
 
-### 自主交易闭环（OODA 循环）🔄 Phase 8
+### 自主交易闭环（OODA 循环）✅ Phase 8
 
 ```
 选股扫描 → 15 Agent 分析 → 历史回测 → Kelly 仓位分配 → Futu 模拟下单 → 持仓监控 → 反思教训 → 策略优化 → 下一轮
@@ -132,7 +132,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Orchestrator（自主循环编排器） 🔄 Phase 8      │
+│                    Orchestrator（自主循环编排器） ✅ Phase 8      │
 │  Command Router → Stock Selector → Portfolio Allocator → Observer│
 └──────────────────────────────┬──────────────────────────────────┘
                                │
@@ -291,7 +291,7 @@ uv run python -m uvicorn api.main:app --port 8000
 |------|------|
 | 触发反思 | `POST /v1/sim/reflect` |
 
-### 自主交易 🔄 Phase 8
+### 自主交易 ✅ Phase 8
 
 | 操作 | 接口 |
 |------|------|
@@ -326,7 +326,7 @@ tradingagents/
 │   └── utils/                 # 记忆、校准、工具
 ├── orchestrator/              # 🆕 自主编排层（OODA 循环）
 │   ├── sim_executor.py        # ✅ SimExecutor（Phase 7）
-│   └── autonomous_loop.py     # 🔄 OODA 编排（Phase 8）
+│   └── autonomous_loop.py     # ✅ OODA 编排（Phase 8）
 ├── dataflows/                 # 数据源（Provider Registry）
 │   ├── providers/
 │   │   ├── futu_provider.py   # ✅ Futu OpenD Provider（Phase 1）
@@ -342,7 +342,7 @@ tradingagents/
 │   ├── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
 │   └── reflection.py          # ✅ SimTradeReflector（Phase 7）
 ├── prompts/                   # 中英文提示词
-└── skills/                    # 🆕 可插拔策略插件（Phase 10）
+└── skills/                    # ✅ 可插拔策略插件（Phase 10）
 
 api/                           # FastAPI 后端
 ├── main.py                    # API 端点
@@ -350,7 +350,7 @@ api/                           # FastAPI 后端
 └── services/
     ├── report_service.py      # ✅ 结构化字段解析 + 存储（Phase 4）
     ├── sim_trading_service.py # ✅ Futu 模拟交易（Phase 5）
-    └── autonomous_service.py  # 🔄 自主任务管理（Phase 8）
+    └── autonomous_service.py  # ✅ 自主任务管理（Phase 8）
 
 frontend/                      # React + Vite 前端
 ├── public/
