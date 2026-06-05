@@ -342,9 +342,23 @@ class Observer:
         if not symbol:
             return None
 
-        # Return cached price if available
+        # Return cached price if available (W2: 1-hour TTL)
         if symbol in self._entry_prices:
-            return self._entry_prices[symbol]["price"]
+            cached = self._entry_prices[symbol]
+            cached_ts = cached.get("timestamp", "")
+            if cached_ts:
+                try:
+                    from datetime import datetime as dt
+                    cache_time = dt.fromisoformat(cached_ts.replace("Z", "+00:00"))
+                    if (datetime.now(timezone.utc) - cache_time).total_seconds() < 3600:
+                        return cached["price"]
+                    else:
+                        logger.debug("W2: Cache expired for %s, refreshing", symbol)
+                        del self._entry_prices[symbol]
+                except Exception:
+                    return cached["price"]
+            else:
+                return cached["price"]
 
         # No history order provider configured — skip
         if self._get_history_orders is None:
@@ -382,6 +396,14 @@ class Observer:
                     "price": price,
                     "timestamp": timestamp,
                 }
+                # W3: Use order timestamp for _first_seen instead of observation time
+                if symbol not in self._first_seen and timestamp:
+                    try:
+                        order_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                        self._first_seen[symbol] = order_time
+                        logger.info("W3: Set _first_seen for %s from order time: %s", symbol, timestamp)
+                    except Exception:
+                        pass
                 logger.info(
                     "W2: Resolved entry price for %s: %.4f (from history order at %s)",
                     symbol, price, timestamp,

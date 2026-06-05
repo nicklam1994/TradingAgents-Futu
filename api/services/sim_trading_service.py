@@ -712,9 +712,18 @@ def get_history_orders(
             }
             futu_status = [status_map[s] for s in status_filter if s in status_map]
 
+        # Convert symbol to Futu code format if provided
+        futu_code = ""
+        if symbol:
+            try:
+                from tradingagents.dataflows.providers.futu_provider import FutuProvider
+                _, futu_code = FutuProvider._to_futu_code(None, symbol)
+            except Exception:
+                futu_code = symbol
+
         ret, data = ctx.history_order_list_query(
             status_filter_list=futu_status,
-            code="",
+            code=futu_code,
             start=start,
             end=end,
             trd_env=TrdEnv.SIMULATE,

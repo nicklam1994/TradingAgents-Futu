@@ -158,7 +158,15 @@ class AutonomousLoop:
         self._router = command_router or CommandRouter()
         self._selector = stock_selector or StockSelector()
         self._allocator = portfolio_allocator or PortfolioAllocator()
-        self._observer = observer or Observer()
+        # W1 fix: inject get_history_orders for real entry price
+        if observer is None:
+            try:
+                from api.services.sim_trading_service import get_history_orders
+                self._observer = Observer(get_history_orders=get_history_orders)
+            except ImportError:
+                self._observer = Observer()
+        else:
+            self._observer = observer
         self._on_iteration = on_iteration
         self._running_tasks: Dict[str, bool] = {}  # task_id → should_continue
 
