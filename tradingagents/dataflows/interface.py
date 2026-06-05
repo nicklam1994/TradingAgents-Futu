@@ -45,6 +45,10 @@ TOOLS_CATEGORIES = {
             "get_hot_stocks_xq",
         ],
     },
+    "social_sentiment": {
+        "description": "Social media sentiment (Reddit / X / Polymarket)",
+        "tools": ["get_social_sentiment"],
+    },
 }
 
 _registry = build_default_registry()

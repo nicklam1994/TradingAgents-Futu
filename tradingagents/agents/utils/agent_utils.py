@@ -25,6 +25,9 @@ from tradingagents.agents.utils.game_theory_tools import (
     get_zt_pool,
     get_hot_stocks_xq,
 )
+from tradingagents.agents.utils.social_sentiment_tools import (
+    get_social_sentiment,
+)
 
 def create_msg_delete():
     def delete_messages(state):
