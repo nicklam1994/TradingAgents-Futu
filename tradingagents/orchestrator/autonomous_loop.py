@@ -411,6 +411,9 @@ class AutonomousLoop:
         """Observe phase: Check positions, fetch market data."""
         logger.debug("Task %s O%d: Observe phase", task_id, state.iteration)
 
+        # L-7~8: trigger reflection when win_rate drops below 40%
+        self._trigger_reflection_if_needed(task_id, config, state)
+
         # Check existing positions for alerts
         checkpoint = self._store.get_checkpoint(task_id)
         prev_state = checkpoint.get("state", {})
@@ -715,6 +718,57 @@ class AutonomousLoop:
                             positions[symbol].pop(0)
 
         return all_returns
+
+    # ── Win rate reflection (L-7~8) ──────────────────────────────────────
+
+    def _trigger_reflection_if_needed(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """L-7~8: Trigger SimTradeReflector when win rate drops below 40%.
+
+        Logs a warning and records a reflection event in the state.
+        """
+        try:
+            from tradingagents.dataflows.quant_metrics import QuantMetrics
+            returns = self._get_recent_returns()
+            if len(returns) < 10:
+                return
+            wr = QuantMetrics.win_rate(returns)
+            if wr < 0.4:
+                logger.warning(
+                    "Low win rate %.1f%% — triggering reflection",
+                    wr * 100,
+                )
+                # Try to invoke SimTradeReflector if available
+                reflector = self._get_reflector()
+                if reflector:
+                    reflector.reflect_on_sim_trade(
+                        trade_info={"reason": "low_win_rate", "win_rate": wr},
+                        trade_result={"recent_returns": returns[-5:]},
+                    )
+                    logger.info("SimTradeReflector invoked for low win rate")
+                else:
+                    logger.info(
+                        "SimTradeReflector not available — reflection logged only"
+                    )
+                # Record in state for checkpointing
+                state.errors.append(
+                    f"Low win rate {wr*100:.1f}% — reflection triggered"
+                )
+        except Exception as e:
+            logger.warning("Reflection trigger failed: %s", e)
+
+    def _get_reflector(self):
+        """Get or create a SimTradeReflector instance.
+
+        Returns:
+            SimTradeReflector instance, or None if not available.
+        """
+        try:
+            from tradingagents.orchestrator.sim_trade_reflector import SimTradeReflector
+            return SimTradeReflector()
+        except ImportError:
+            return None
 
     def _config_from_dict(self, d: Dict[str, Any]) -> AutonomousTaskConfig:
         """Reconstruct AutonomousTaskConfig from dict."""
