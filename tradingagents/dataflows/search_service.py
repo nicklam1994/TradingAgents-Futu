@@ -54,6 +54,18 @@ class SearchResponse:
     search_time: float = 0.0
 
 
+@dataclass
+class _Result:
+    """Holder for in-flight dedup results.
+
+    Uses a dedicated wrapper so the result reference stays valid even after
+    the inflight dict entry is deleted — waiters hold a local reference to
+    this object and read the result from it rather than re-looking up the dict.
+    """
+
+    response: Optional[SearchResponse] = None
+
+
 # ─── Provider ABC ────────────────────────────────────────────────────────────
 
 
@@ -155,8 +167,8 @@ class SearchService:
         self._key_indices: Dict[str, int] = {}
         self._key_lock = threading.Lock()
 
-        # In-flight dedup: query_hash → threading.Event + result holder
-        self._inflight: Dict[str, tuple[threading.Event, list[SearchResponse]]] = {}
+        # In-flight dedup: query_hash → (threading.Event, _Result holder)
+        self._inflight: Dict[str, tuple[threading.Event, _Result]] = {}
         self._inflight_lock = threading.Lock()
 
         # Lazy-loaded provider instances (name → instance)
@@ -261,34 +273,49 @@ class SearchService:
             ``None`` if this caller should execute the search (it now owns the
             in-flight slot).  Otherwise returns the result from the first
             caller that completed the search.
+
+        Race-condition fix: waiters hold a local reference to the ``_Result``
+        holder.  ``_dedup_complete`` writes the result into the holder *before*
+        setting the event and *before* deleting the inflight entry.  After
+        ``event.wait()`` returns, the waiter reads from its local holder
+        reference — no dict re-lookup needed.
         """
         with self._inflight_lock:
             if key in self._inflight:
-                # Another thread is already searching — wait for its result
-                event, result_holder = self._inflight[key]
-                # Release lock before blocking
-                pass
+                # Another thread is already searching — grab references
+                event, result = self._inflight[key]
             else:
                 # We are the first — create the slot
                 event = threading.Event()
-                self._inflight[key] = (event, [])
+                result = _Result()
+                self._inflight[key] = (event, result)
                 return None  # Caller should execute
 
-        # Wait outside the lock (another thread owns the slot)
+        # Wait outside the lock (another thread owns the slot).
+        # Read from our local ``result`` reference — it stays valid even if
+        # ``_dedup_complete`` deletes the inflight entry.
         event.wait(timeout=30)
-        with self._inflight_lock:
-            _, result_holder = self._inflight.get(key, (None, []))
-        return result_holder[0] if result_holder else None
+        return result.response
 
     def _dedup_complete(self, key: str, resp: SearchResponse) -> None:
-        """Publish the result for an in-flight query and wake waiters."""
+        """Publish the result for an in-flight query and wake waiters.
+
+        Order matters to avoid the race condition:
+        1. Write result into the holder (waiters have a live reference).
+        2. Set the event (waiters wake up and read from their holder).
+        3. Delete the inflight entry (cleanup).
+        """
         with self._inflight_lock:
             entry = self._inflight.get(key)
-            if entry is not None:
-                event, result_holder = entry
-                result_holder.append(resp)
-                event.set()
-                del self._inflight[key]
+            if entry is None:
+                return
+            event, result = entry
+            # Step 1: store result BEFORE waking waiters
+            result.response = resp
+            # Step 2: wake waiters — they read from their local _Result ref
+            event.set()
+            # Step 3: cleanup (waiters don't need the dict entry anymore)
+            del self._inflight[key]
 
     # ── Core search with retry ───────────────────────────────────────────────
 
