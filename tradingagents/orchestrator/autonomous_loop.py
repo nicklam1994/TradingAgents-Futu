@@ -88,6 +88,7 @@ class AutonomousTaskConfig:
     # Loop parameters
     max_iterations: int = 30  # Max OODA iterations
     iteration_interval_sec: int = 3600  # Seconds between iterations (1 hour)
+    stage_timeout: int = 300  # Per-stage timeout in seconds (P1-5)
     stop_loss_pct: float = -0.08
     take_profit_pct: float = 0.15
     # Stock pool (if not using selector)
@@ -107,6 +108,7 @@ class AutonomousTaskConfig:
             "mode": self.mode,
             "max_iterations": self.max_iterations,
             "iteration_interval_sec": self.iteration_interval_sec,
+            "stage_timeout": self.stage_timeout,
             "stop_loss_pct": self.stop_loss_pct,
             "take_profit_pct": self.take_profit_pct,
             "fixed_symbols": self.fixed_symbols,
@@ -204,11 +206,16 @@ class AutonomousLoop:
         self._store.start(task_id)
         self._running_tasks[task_id] = True
 
-        # Run first iteration synchronously, then schedule subsequent ones
+        # Run the OODA loop (first iteration)
         logger.info("Started autonomous task %s: %s", task_id, command[:60])
 
-        # Run the OODA loop (first iteration)
-        self._run_iteration(task_id, config)
+        # _run_iteration is async (needs event loop for timeout support).
+        # Detect existing loop; if none, run synchronously.
+        try:
+            asyncio.get_running_loop()
+            asyncio.ensure_future(self._run_iteration(task_id, config))
+        except RuntimeError:
+            asyncio.run(self._run_iteration(task_id, config))
 
         return task_id
 
@@ -235,7 +242,11 @@ class AutonomousLoop:
             if isinstance(meta, str):
                 meta = json.loads(meta)
             config = self._config_from_dict(meta)
-            self._run_iteration(task_id, config)
+            try:
+                asyncio.get_running_loop()
+                asyncio.ensure_future(self._run_iteration(task_id, config))
+            except RuntimeError:
+                asyncio.run(self._run_iteration(task_id, config))
         return success
 
     def stop(self, task_id: str) -> bool:
@@ -269,7 +280,7 @@ class AutonomousLoop:
 
     # ── OODA Loop ─────────────────────────────────────────────────────────
 
-    def _run_iteration(self, task_id: str, config: AutonomousTaskConfig) -> None:
+    async def _run_iteration(self, task_id: str, config: AutonomousTaskConfig) -> None:
         """Run a single OODA iteration.
 
         Each iteration:
@@ -294,23 +305,65 @@ class AutonomousLoop:
         )
 
         try:
-            # ── Observe ──
-            self._phase_observe(task_id, config, state)
+            timeout = config.stage_timeout  # seconds per stage (P1-3)
 
-            # ── Orient ──
+            # ── Observe (P1-4: timeout-protected) ──
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._phase_observe, task_id, config, state),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "Task %s iteration %d: Observe stage timed out after %ds — skipping",
+                    task_id, iteration, timeout,
+                )
+                state.errors.append(f"Observe timed out ({timeout}s)")
+
+            # ── Orient (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.ORIENT
-                self._phase_orient(task_id, config, state)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self._phase_orient, task_id, config, state),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Task %s iteration %d: Orient stage timed out after %ds — skipping",
+                        task_id, iteration, timeout,
+                    )
+                    state.errors.append(f"Orient timed out ({timeout}s)")
 
-            # ── Decide ──
+            # ── Decide (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.DECIDE
-                self._phase_decide(task_id, config, state)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self._phase_decide, task_id, config, state),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Task %s iteration %d: Decide stage timed out after %ds — skipping",
+                        task_id, iteration, timeout,
+                    )
+                    state.errors.append(f"Decide timed out ({timeout}s)")
 
-            # ── Act ──
+            # ── Act (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.ACT
-                self._phase_act(task_id, config, state)
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self._phase_act, task_id, config, state),
+                        timeout=timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Task %s iteration %d: Act stage timed out after %ds — skipping",
+                        task_id, iteration, timeout,
+                    )
+                    state.errors.append(f"Act timed out ({timeout}s)")
 
             # Update progress
             progress = iteration / config.max_iterations
@@ -485,6 +538,7 @@ class AutonomousLoop:
             mode=d.get("mode", "simulate"),
             max_iterations=d.get("max_iterations", 30),
             iteration_interval_sec=d.get("iteration_interval_sec", 3600),
+            stage_timeout=d.get("stage_timeout", 300),
             stop_loss_pct=d.get("stop_loss_pct", -0.08),
             take_profit_pct=d.get("take_profit_pct", 0.15),
             fixed_symbols=d.get("fixed_symbols", []),
