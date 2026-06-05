@@ -450,12 +450,29 @@ class AutonomousLoop:
         logger.debug("Task %s O%d: Orient phase", task_id, state.iteration)
 
         # L-3~4: drawdown circuit breaker — pause loop if drawdown > 20%
-        if self._check_drawdown_circuit_breaker(task_id):
+        # W3-2: skip circuit breaker check for one iteration after circuit
+        # breaker resume (pause_reason == "circuit_breaker") to avoid
+        # immediately re-pausing on the same drawdown data.
+        checkpoint = self._store.get_checkpoint(task_id)
+        pause_reason = checkpoint.get("pause_reason")
+        if pause_reason == "circuit_breaker":
+            logger.info(
+                "Task %s: Resumed from circuit breaker — skipping one drawdown check",
+                task_id,
+            )
+            # Clear pause_reason so next iteration checks normally
+            checkpoint["pause_reason"] = None
+            self._store.save_checkpoint(task_id, checkpoint)
+        elif self._check_drawdown_circuit_breaker(task_id):
             logger.warning(
                 "Task %s: Drawdown circuit breaker triggered — pausing loop",
                 task_id,
             )
             state.errors.append("Drawdown circuit breaker: max drawdown > 20%")
+            # W3-1: Record pause_reason to distinguish circuit breaker from user pause
+            cp = self._store.get_checkpoint(task_id)
+            cp["pause_reason"] = "circuit_breaker"
+            self._store.save_checkpoint(task_id, cp)
             self.pause(task_id)
             return
 
