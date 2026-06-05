@@ -142,7 +142,8 @@ export default function Settings() {
             const data = await api.get(`/v1/models?base_url=${encodeURIComponent(baseUrl)}&api_key=${encodeURIComponent(key)}`)
             const models: string[] = data.models || []
             if (models.length) {
-                const presets = models.map((id: string) => ({ id, label: id, tier: 'quick' as const }))
+                const toPreset = (id: string, tier: 'quick' | 'deep') => ({ id, label: id, tier })
+                const presets = [...models.map((id: string) => toPreset(id, 'quick')), ...models.map((id: string) => toPreset(id, 'deep'))]
                 setModelPresets(presets)
                 setModelPresetsLoaded(true)
             } else {
