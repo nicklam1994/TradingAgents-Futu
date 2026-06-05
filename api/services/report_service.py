@@ -232,7 +232,8 @@ def resolve_report_fields(
     # Extract structured VERDICT data (confidence, signal, key_levels, risk_flags)
     from tradingagents.graph.signal_processing import extract_verdict_data, extract_risk_judge_data
     verdict_data = extract_verdict_data(final_trade_decision or "")
-    risk_judge_data = extract_risk_judge_data(final_trade_decision or "")
+    risk_judge_decision = result_data.get("risk_judge_decision") if result_data else None
+    risk_judge_data = extract_risk_judge_data(risk_judge_decision or "")
 
     # Aggregate risk_flags from both VERDICT and RISK_JUDGE
     verdict_risk_flags = verdict_data.get("risk_flags", [])
