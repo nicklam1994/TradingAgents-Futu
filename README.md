@@ -18,7 +18,7 @@
 | 3 | 社交舆情（Reddit/X/Poly）+ 配置 UI | ✅ 完成 | `fa64c69` |
 | 4 | 结构化输出 & 风控增强 | ✅ 完成 | `b389e2e` |
 | 5 | Futu 模拟交易服务（9 端点 + RSA 加密 + OpenD 配置 UI） | ✅ 完成 | `fc8ed41` |
-| 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | 🔄 进行中 | — |
+| 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | ✅ 完成 | `f55a989` |
 | 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
 | 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
 | 9 | 前端 5 新页面 | ⏳ 待开始 | — |
@@ -90,6 +90,20 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 - `get_acc_list(trd_market)` 支持 HK/US 双市场
 - 前端 Futu OpenD 配置 UI（连接测试 + 用户信息 + 行情权限 + 账户列表）
 
+### 量化绩效指标 ✅ Phase 6
+
+5 个量化指标，纯 Python 实现，`GET /v1/sim/performance` 端点。
+
+| 指标 | 说明 |
+|------|------|
+| `max_drawdown` | 最大回撤比例（0-1） |
+| `sharpe_ratio` | 年化夏普比率（√252 缩放） |
+| `sortino_ratio` | Sortino 比率（只用下行波动率） |
+| `win_rate` | 胜率（盈利交易数 / 总交易数） |
+| `calmar_ratio` | Calmar 比率（年化收益 / 最大回撤） |
+
+**实现**：FIFO 匹配买卖对，从模拟账户成交记录自动计算。
+
 ### 自主交易闭环（OODA 循环）⏳ Phase 8
 
 ```
@@ -97,10 +111,6 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 ```
 
 用户只需一句话：*"futu 虚拟账户，给你 2w 美金，执行闭环模拟交易"*
-
-### 量化绩效指标 🔄 Phase 6
-
-最大回撤 / 夏普比率 / Sortino 比率 / 胜率 / Calmar 比率 — 纯 Python 实现，`GET /v1/sim/performance` 端点。
 
 ### 反思记忆系统 ⏳ Phase 7
 
@@ -137,8 +147,9 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
-│                    量化绩效 🔄 Phase 6                           │
+│                    量化绩效 ✅ Phase 6                           │
 │  max_drawdown / sharpe / sortino / win_rate / calmar            │
+│  FIFO 买卖对匹配 + 自动从成交记录计算                            │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -260,7 +271,7 @@ uv run python -m uvicorn api.main:app --port 8000
 | 历史订单 | `GET /v1/sim/history-orders` |
 | 信号执行 | `POST /v1/sim/signal` |
 
-### 量化绩效 🔄 Phase 6
+### 量化绩效 ✅ Phase 6
 
 | 操作 | 接口 |
 |------|------|
@@ -310,7 +321,7 @@ tradingagents/
 │   ├── search_service.py      # ✅ 7 引擎搜索（Phase 2）
 │   ├── search_providers/      # ✅ 7 个搜索引擎实现
 │   ├── social_sentiment.py    # ✅ Reddit/X/Polymarket（Phase 3）
-│   └── quant_metrics.py       # 🔄 量化绩效指标（Phase 6）
+│   └── quant_metrics.py       # ✅ 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
 │   └── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
 ├── prompts/                   # 中英文提示词
