@@ -153,26 +153,24 @@ def _to_futu_trade_code(symbol: str) -> tuple:
 
     s = symbol.strip().upper()
 
-    # Explicit HK suffix
+    # Futu prefix format: HK.00700, US.AAPL
+    if s.startswith("HK."):
+        return (TrdMarket.HK, s)
+    if s.startswith("US."):
+        return (TrdMarket.US, s)
+
+    # Suffix format: 00700.HK, AAPL.US
     if s.endswith(".HK"):
-        ticker = s[:-3]
-        return (TrdMarket.HK, ticker)
-
-    # Explicit US suffix
+        return (TrdMarket.HK, f"HK.{s[:-3]}")
     if s.endswith(".US"):
-        ticker = s[:-3]
-        return (TrdMarket.US, ticker)
+        return (TrdMarket.US, f"US.{s[:-3]}")
 
-    # A-share suffixes — simulated trading supports CN market
-    if s.endswith(".SH"):
-        ticker = s[:-3]
-        return (TrdMarket.CN, ticker)
-    if s.endswith(".SZ"):
-        ticker = s[:-3]
-        return (TrdMarket.CN, ticker)
+    # A-share — not supported by Futu
+    if s.endswith(".SH") or s.endswith(".SZ"):
+        raise ValueError(f"Futu does not support A-shares ({symbol}). Use HK or US markets.")
 
-    # No suffix → assume US market
-    return (TrdMarket.US, s)
+    # Bare ticker → assume US
+    return (TrdMarket.US, f"US.{s}")
 
 
 def _symbol_from_futu_code(code: str) -> str:
@@ -576,6 +574,138 @@ def get_deals(
         ctx.close()
 
 
+
+
+# ── Additional trading queries ──────────────────────────────────────────────
+
+
+def get_acc_list(trd_market: str = "HK") -> List[Dict[str, Any]]:
+    """Get list of trading accounts (simulated + real).
+
+    Args:
+        trd_market: "HK" or "US".
+
+    Returns:
+        List of account dicts with acc_id, sim_acc_type, trd_env, etc.
+    """
+    from futu import TrdMarket
+
+    market = TrdMarket.US if trd_market.upper() == "US" else TrdMarket.HK
+    ctx = _get_trade_ctx()
+    try:
+        ret, data = ctx.get_acc_list()
+        if ret != 0:
+            raise RuntimeError(f"Futu get_acc_list failed: {data}")
+        if data is None or data.empty:
+            return []
+        return data.to_dict("records")
+    finally:
+        ctx.close()
+
+
+
+
+def get_trading_info(
+    symbol: str,
+    price: float,
+    order_type: str = "NORMAL",
+    trd_env: str = "SIMULATE",
+    acc_id: int = 0,
+) -> Dict[str, Any]:
+    """Query max buy/sell quantity and other trading info before placing an order.
+
+    Args:
+        symbol: Stock symbol (e.g. "00700.HK", "AAPL.US").
+        price: Order price.
+        order_type: "NORMAL", "MARKET", "AUCTION_LIMIT".
+        trd_env: Only "SIMULATE" supported.
+        acc_id: Optional account ID. If 0, auto-detects simulated STOCK account.
+
+    Returns:
+        Dict with max_cash_buy, max_stock_sell, etc.
+    """
+    from futu import RET_OK, TrdEnv
+
+    if trd_env != "SIMULATE":
+        raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
+
+    market, code = _to_futu_trade_code(symbol)
+    futu_order_type = _resolve_order_type(order_type)
+    ctx = _get_trade_ctx(symbol)
+    try:
+        kwargs = dict(
+            order_type=futu_order_type,
+            code=code,
+            price=price,
+            trd_env=TrdEnv.SIMULATE,
+        )
+        if acc_id > 0:
+            kwargs["acc_id"] = acc_id
+        ret, data = ctx.acctradinginfo_query(**kwargs)
+        if ret != RET_OK:
+            raise RuntimeError(f"Futu acctradinginfo_query failed: {data}")
+        if data is None or data.empty:
+            return {}
+        return data.iloc[0].to_dict()
+    finally:
+        ctx.close()
+
+
+def get_history_orders(
+    symbol: Optional[str] = None,
+    status_filter: Optional[List[str]] = None,
+    start: str = "",
+    end: str = "",
+    trd_env: str = "SIMULATE",
+) -> List[Dict[str, Any]]:
+    """Query historical orders (not limited to today).
+
+    Args:
+        symbol: Filter by symbol. None = all.
+        status_filter: List of order statuses (e.g. ["FILLED_ALL", "CANCELLED_ALL"]).
+        start: Start time "YYYY-MM-DD HH:MM:SS".
+        end: End time "YYYY-MM-DD HH:MM:SS".
+        trd_env: Only "SIMULATE" supported.
+
+    Returns:
+        List of order dicts.
+    """
+    from futu import RET_OK, TrdEnv, OrderStatus
+
+    if trd_env != "SIMULATE":
+        raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
+
+    ctx = _get_trade_ctx(symbol)
+    try:
+        futu_status = []
+        if status_filter:
+            status_map = {
+                "SUBMITTED": OrderStatus.SUBMITTED,
+                "SUBMITTING": OrderStatus.SUBMITTING,
+                "FILLED_ALL": OrderStatus.FILLED_ALL,
+                "FILLED_PART": OrderStatus.FILLED_PART,
+                "CANCELLED_ALL": OrderStatus.CANCELLED_ALL,
+                "CANCELLED_PART": OrderStatus.CANCELLED_PART,
+                "FAILED": OrderStatus.FAILED,
+                "DISABLED": OrderStatus.DISABLED,
+                "DEAD": OrderStatus.DEAD,
+            }
+            futu_status = [status_map[s] for s in status_filter if s in status_map]
+
+        ret, data = ctx.history_order_list_query(
+            status_filter_list=futu_status,
+            code="",
+            start=start,
+            end=end,
+            trd_env=TrdEnv.SIMULATE,
+        )
+        if ret != RET_OK:
+            raise RuntimeError(f"Futu history_order_list_query failed: {data}")
+        if data is None or data.empty:
+            return []
+        return data.to_dict("records")
+    finally:
+        ctx.close()
 # ── Signal execution ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -768,7 +898,7 @@ def _resolve_order_type(order_type_str: str):
         "NORMAL": OrderType.NORMAL,
         "MARKET": OrderType.MARKET,
         "AUCTION_LIMIT": OrderType.AUCTION_LIMIT,
-        "AUCTION_MARKET": OrderType.AUCTION_MARKET,
+        "AUCTION": OrderType.AUCTION,
     }
     return mapping.get(order_type_str, OrderType.NORMAL)
 

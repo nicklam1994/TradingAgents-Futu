@@ -4796,6 +4796,9 @@ from api.services.sim_trading_service import (
     get_orders as _sim_get_orders,
     get_deals as _sim_get_deals,
     execute_signal as _sim_execute_signal,
+    get_acc_list as _sim_get_acc_list,
+    get_trading_info as _sim_get_trading_info,
+    get_history_orders as _sim_get_history_orders,
     SignalInput as _SignalInput,
     account_to_dict as _account_to_dict,
     position_to_dict as _position_to_dict,
@@ -4946,6 +4949,49 @@ def sim_deals(
     except Exception as e:
         logger.error(f"sim_deals error: {e}")
         raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/v1/sim/acc-list")
+def sim_acc_list(current_user: UserDB = Depends(_require_api_user)):
+    """Get list of trading accounts."""
+    try:
+        data = _sim_get_acc_list()
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.error(f"sim_acc_list error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/v1/sim/trading-info")
+def sim_trading_info(
+    symbol: str = Query(..., description="Stock symbol"),
+    price: float = Query(..., description="Order price"),
+    order_type: str = Query("NORMAL", description="Order type"),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Query max buy/sell quantity before placing an order."""
+    try:
+        data = _sim_get_trading_info(symbol, price, order_type)
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.error(f"sim_trading_info error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/v1/sim/history-orders")
+def sim_history_orders(
+    symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    start: str = Query("", description="Start time YYYY-MM-DD HH:MM:SS"),
+    end: str = Query("", description="End time YYYY-MM-DD HH:MM:SS"),
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """Query historical orders (not limited to today)."""
+    try:
+        data = _sim_get_history_orders(symbol=symbol, start=start, end=end)
+        return {"ok": True, "data": data, "total": len(data)}
+    except Exception as e:
+        logger.error(f"sim_history_orders error: {e}")
+        raise HTTPException(500, detail=str(e))
 
 
 @app.post("/v1/sim/signal")
