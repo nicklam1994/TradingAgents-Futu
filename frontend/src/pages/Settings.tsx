@@ -22,7 +22,7 @@ type SearchProvider = {
     enabled: boolean
 }
 
-// Default providers (fallback if /models.json fails to load)
+// Default providers (fallback if /providers.json fails to load)
 const DEFAULT_PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'openai', label: 'OpenAI', provider: 'openai', baseUrl: 'https://api.openai.com/v1', protocol: 'OpenAI' },
     { id: 'custom-openai', label: '自定义 OpenAI 兼容', provider: 'openai', baseUrl: '', protocol: 'OpenAI 兼容', editableBaseUrl: true },
@@ -32,7 +32,7 @@ type ModelPreset = {
     id: string
     label: string
     tier: 'quick' | 'deep'
-    provider: string
+
 }
 
 const MODEL_PRESETS: ModelPreset[] = []
@@ -66,7 +66,6 @@ export default function Settings() {
     const [quickThinkLlm, setQuickThinkLlm] = useState('')
     const [maxDebateRounds, setMaxDebateRounds] = useState(1)
     const [maxRiskRounds, setMaxRiskRounds] = useState(1)
-    const [serverFallbackEnabled, setServerFallbackEnabled] = useState(true)
     const [emailReportEnabled, setEmailReportEnabled] = useState(true)
     const [wecomReportEnabled, setWecomReportEnabled] = useState(true)
     const [configLoading, setConfigLoading] = useState(false)
@@ -123,16 +122,40 @@ export default function Settings() {
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
 
-    // Load providers from /models.json on demand
-    const loadModelPresets = async () => {
+    // Auto-load providers from /providers.json on mount
+    useEffect(() => {
+        fetch('/providers.json')
+            .then(r => r.json())
+            .then(data => { if (data.providers?.length) setProviderPresets(data.providers) })
+            .catch(() => {})
+    }, [])
+
+    // Load model list from provider's /v1/models endpoint
+    const [modelListLoading, setModelListLoading] = useState(false)
+    const loadModelList = async () => {
+        const baseUrl = effectiveBaseUrl
+        const key = llmApiKey.trim()
+        if (!baseUrl || !key) { alert('请先填写 Base URL 和 API Key'); return }
+        setModelListLoading(true)
         try {
-            const r = await fetch('/models.json')
+            // Try OpenAI-compatible /v1/models endpoint
+            const url = baseUrl.replace(/\/+$/, '') + '/models'
+            const r = await fetch(url, { headers: { 'Authorization': `Bearer ${key}` } })
+            if (!r.ok) throw new Error(`HTTP ${r.status}`)
             const data = await r.json()
-            if (data.providers?.length) {
-                setProviderPresets(data.providers)
+            const models = (data.data || data).map((m: any) => m.id || m).filter(Boolean)
+            if (models.length) {
+                MODEL_PRESETS.length = 0
+                models.sort().forEach((id: string) => MODEL_PRESETS.push({ id, label: id, tier: 'quick' }))
+                setModelPresetsLoaded(true)
+            } else {
+                alert('未获取到模型列表')
             }
-            setModelPresetsLoaded(true)
-        } catch { console.warn('Failed to load models.json') }
+        } catch (e: any) {
+            alert('加载失败: ' + (e.message || '无法连接'))
+        } finally {
+            setModelListLoading(false)
+        }
     }
 
     useEffect(() => {
@@ -176,7 +199,6 @@ export default function Settings() {
                 setHasStoredApiKey(!!cfg.has_api_key)
                 setHasStoredWebhook(!!cfg.has_wecom_webhook)
                 setStoredWebhookDisplay(cfg.wecom_webhook_display || '')
-                setServerFallbackEnabled(!!cfg.server_fallback_enabled)
                 setEmailReportEnabled(cfg.email_report_enabled !== false)
                 setWecomReportEnabled(cfg.wecom_report_enabled !== false)
                 if (Array.isArray(cfg.default_analysts) && cfg.default_analysts.length > 0) {
@@ -547,16 +569,20 @@ export default function Settings() {
                     <div className="md:col-span-2 flex items-center gap-3">
                         <button
                             type="button"
-                            onClick={loadModelPresets}
-                            className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            onClick={loadModelList}
+                            disabled={!llmApiKey.trim() || modelListLoading}
+                            title={!llmApiKey.trim() ? '请先填写 API Key' : ''}
+                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                                !llmApiKey.trim()
+                                    ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                            }`}
                         >
-                            {modelPresetsLoaded ? '✓ 已加载' : '加载模型清单'}
+                            {modelListLoading ? '加载中...' : modelPresetsLoaded ? '✓ 已加载' : '加载模型清单'}
                         </button>
-                        <div className="text-xs text-slate-500 dark:text-slate-400">
-                            {serverFallbackEnabled
-                                ? '当前后端已开启公共模型回退：未填写个人 Key 时，可能仍会使用服务端默认模型配置。'
-                                : '当前后端已关闭公共模型回退：未填写个人 Key 时，将无法发起需要模型的分析任务。'}
-                        </div>
+                        {!llmApiKey.trim() && (
+                            <span className="text-xs text-amber-500">← 请先填写 API Key</span>
+                        )}
                         {hasStoredApiKey && (
                             <button
                                 type="button"
