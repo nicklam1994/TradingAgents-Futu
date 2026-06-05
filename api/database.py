@@ -360,6 +360,7 @@ class UserLLMConfigDB(Base):
     api_key_encrypted = Column(Text, nullable=True)
     wecom_webhook_encrypted = Column(Text, nullable=True)
     default_analysts = Column(Text, nullable=True)  # JSON list, e.g. '["market","social",...]'
+    search_config = Column(Text, nullable=True)  # JSON: {"tavily":{"api_key":"...","enabled":true}, ...}
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

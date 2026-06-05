@@ -3855,11 +3855,13 @@ def update_search_config(
         }
 
     user_cfg = auth_service.get_user_llm_config(db, current_user.id)
-    if user_cfg:
-        user_cfg.search_config = json.dumps(config_data)
-        db.commit()
-    else:
-        raise HTTPException(status_code=404, detail="User config not found")
+    if not user_cfg:
+        # Auto-create config row if missing
+        user_cfg = UserLLMConfigDB(user_id=current_user.id)
+        db.add(user_cfg)
+        db.flush()
+    user_cfg.search_config = json.dumps(config_data)
+    db.commit()
 
     return {"message": "搜索服务配置已保存", "providers_count": len(config_data)}
 
