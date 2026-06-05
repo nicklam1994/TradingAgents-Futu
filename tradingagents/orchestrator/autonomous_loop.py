@@ -531,6 +531,7 @@ class AutonomousLoop:
                     result = executor.execute(signal)
                     state.executions.append({
                         "symbol": decision["symbol"],
+                        "side": decision["action"],  # buy or sell for equity curve
                         "action_taken": result.action_taken,
                         "order_id": result.order_id,
                         "quantity": result.quantity,
@@ -580,16 +581,15 @@ class AutonomousLoop:
             return False
 
     def _get_equity_curve(self, task_id: str) -> List[float]:
-        """Build a time-ordered equity curve from task execution history.
+        """Build a time-ordered equity curve tracking real cash flows.
 
-        Iterates through checkpoint executions and builds cumulative
-        portfolio value: starting budget adjusted after each trade.
+        Buy trades reduce equity (cash outflow to acquire shares),
+        sell trades increase equity (cash inflow from liquidation).
+        Tasks are sorted by started_at to ensure correct time ordering.
 
         Returns:
             List of portfolio values over time.
         """
-        checkpoint = self._store.get_checkpoint(task_id)
-        state_data = checkpoint.get("state", {})
         config_data = self._store.get(task_id)
         if not config_data:
             return []
@@ -600,30 +600,45 @@ class AutonomousLoop:
             meta = json.loads(meta)
         budget = meta.get("budget", 10000.0)
 
-        # Build equity curve from all iterations' executions
-        equity = [budget]
-        executions = state_data.get("executions", [])
-        for ex in executions:
-            if ex.get("action_taken") == "executed":
-                price = ex.get("price", 0)
-                qty = ex.get("quantity", 0)
-                if price > 0 and qty > 0:
-                    trade_value = price * qty
-                    equity.append(equity[-1] + trade_value * 0.01)
+        # Collect all executions with timestamps for time-ordered replay
+        all_executions: List[Dict[str, Any]] = []
 
-        # Also scan historical task data for more equity points
+        # Current task's executions
+        checkpoint = self._store.get_checkpoint(task_id)
+        state_data = checkpoint.get("state", {})
+        task_started = config_data.get("started_at", "")
+        for ex in state_data.get("executions", []):
+            all_executions.append({"ex": ex, "started_at": task_started})
+
+        # Historical completed tasks — sort by started_at for time ordering (W2-1)
         tasks = self._store.list_tasks(status="completed", limit=20)
-        for t in tasks:
+        tasks_sorted = sorted(tasks, key=lambda t: t.get("started_at", ""))
+        for t in tasks_sorted:
             cp = t.get("checkpoint") or {}
             if isinstance(cp, str):
                 cp = json.loads(cp)
             s = cp.get("state", {})
+            t_started = t.get("started_at", "")
             for ex in s.get("executions", []):
-                if ex.get("action_taken") == "executed":
-                    price = ex.get("price", 0)
-                    qty = ex.get("quantity", 0)
-                    if price > 0 and qty > 0:
-                        equity.append(equity[-1] + price * qty * 0.01)
+                all_executions.append({"ex": ex, "started_at": t_started})
+
+        # Replay executions: buy reduces equity (cash outflow), sell increases (inflow)
+        equity = [budget]
+        for item in all_executions:
+            ex = item["ex"]
+            if ex.get("action_taken") != "executed":
+                continue
+            price = ex.get("price", 0)
+            qty = ex.get("quantity", 0)
+            if price <= 0 or qty <= 0:
+                continue
+
+            # Infer side from trade decisions in the execution context
+            side = ex.get("side", "buy")
+            if side == "buy":
+                equity.append(equity[-1] - price * qty)  # cash outflow
+            else:
+                equity.append(equity[-1] + price * qty)   # cash inflow
 
         return equity
 
