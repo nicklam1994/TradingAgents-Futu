@@ -252,3 +252,5 @@ frontend/node_modules/
 .vite/
 uv.lock.cp313
 .worktrees/
+FutuOpenD/
+config/rsa_key.txt

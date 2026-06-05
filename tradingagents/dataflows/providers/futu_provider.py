@@ -16,7 +16,7 @@ from .base import BaseMarketDataProvider
 
 def _opend_host() -> str:
     """Read FutuOpenD host from env, default to localhost."""
-    return os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+    return os.getenv("FUTU_OPEND_HOST", "172.17.160.1")
 
 
 def _opend_port() -> int:

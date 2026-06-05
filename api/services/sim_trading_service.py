@@ -24,12 +24,27 @@ logger = logging.getLogger(__name__)
 
 def _opend_host() -> str:
     """Read FutuOpenD host from env, default to localhost."""
-    return os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+    return os.getenv("FUTU_OPEND_HOST", "172.17.160.1")
 
 
 def _opend_port() -> int:
     """Read FutuOpenD port from env, default to 11111."""
     return int(os.getenv("FUTU_OPEND_PORT", "11111"))
+
+
+# ── RSA Encryption Setup ─────────────────────────────────────────────────────
+
+
+def _get_rsa_path() -> Optional[str]:
+    """Get the absolute path to the RSA key file, or None if not found."""
+    rsa_path = os.getenv("FUTU_RSA_KEY_PATH", "config/rsa_key.txt")
+    if not os.path.isabs(rsa_path):
+        rsa_path = os.path.join(os.path.dirname(__file__), "..", "..", rsa_path)
+    rsa_path = os.path.abspath(rsa_path)
+    if not os.path.exists(rsa_path):
+        logger.warning("RSA key not found at %s — trade connections may fail", rsa_path)
+        return None
+    return rsa_path
 
 
 # ── Enums ────────────────────────────────────────────────────────────────────
@@ -173,7 +188,12 @@ def _get_trade_ctx(symbol: Optional[str] = None):
     If symbol is provided, uses its market; otherwise defaults to HK.
     Caller MUST close the context when done (use try/finally pattern).
     """
-    from futu import OpenSecTradeContext, TrdMarket, SecurityFirm
+    from futu import OpenSecTradeContext, TrdMarket, SecurityFirm, SysConfig
+
+    rsa_path = _get_rsa_path()
+    if rsa_path:
+        SysConfig.enable_proto_encrypt(is_encrypt=True)
+        SysConfig.set_init_rsa_file(rsa_path)
 
     if symbol:
         market, _ = _to_futu_trade_code(symbol)
@@ -185,6 +205,7 @@ def _get_trade_ctx(symbol: Optional[str] = None):
         host=_opend_host(),
         port=_opend_port(),
         security_firm=SecurityFirm.FUTUSECURITIES,
+        is_encrypt=True if rsa_path else None,
     )
 
 
@@ -212,13 +233,7 @@ def get_account(trd_env: str = "SIMULATE") -> AccountInfo:
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
     # Use a general context — accinfo_query doesn't need a specific market
-    from futu import OpenSecTradeContext, TrdMarket, SecurityFirm
-    ctx = OpenSecTradeContext(
-        filter_trdmarket=TrdMarket.HK,
-        host=_opend_host(),
-        port=_opend_port(),
-        security_firm=SecurityFirm.FUTUSECURITIES,
-    )
+    ctx = _get_trade_ctx()
     try:
         ret, data = ctx.accinfo_query(trd_env=TrdEnv.SIMULATE)
         if ret != RET_OK:
@@ -269,22 +284,15 @@ def get_positions(
     Raises:
         RuntimeError: If FutuOpenD is offline or API call fails.
     """
-    from futu import RET_OK, TrdEnv, OpenSecTradeContext, TrdMarket, SecurityFirm
+    from futu import RET_OK, TrdEnv
 
     if trd_env != "SIMULATE":
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
-    ctx = OpenSecTradeContext(
-        filter_trdmarket=TrdMarket.HK,
-        host=_opend_host(),
-        port=_opend_port(),
-        security_firm=SecurityFirm.FUTUSECURITIES,
-    )
+    ctx = _get_trade_ctx()
     try:
         ret, data = ctx.position_list_query(
             trd_env=TrdEnv.SIMULATE,
-            page_index=page_index,
-            page_size=min(page_size, 1000),
         )
         if ret != RET_OK:
             raise RuntimeError(f"Futu position_list_query failed: {data}")
@@ -371,12 +379,7 @@ def place_order(
 
     # Get market-specific trade context
     market, code = _to_futu_trade_code(symbol)
-    ctx = OpenSecTradeContext(
-        filter_trdmarket=market,
-        host=_opend_host(),
-        port=_opend_port(),
-        security_firm=SecurityFirm.FUTUSECURITIES,
-    )
+    ctx = _get_trade_ctx(symbol)
     try:
         ret, data = ctx.place_order(
             price=price,
@@ -432,12 +435,7 @@ def cancel_order(
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
     market, _ = _to_futu_trade_code(symbol)
-    ctx = OpenSecTradeContext(
-        filter_trdmarket=market,
-        host=_opend_host(),
-        port=_opend_port(),
-        security_firm=SecurityFirm.FUTUSECURITIES,
-    )
+    ctx = _get_trade_ctx(symbol)
     try:
         ret, data = ctx.modify_order(
             modify_order_op=ModifyOrderOp.CANCEL,
@@ -478,28 +476,15 @@ def get_orders(
 
     if symbol:
         market, code = _to_futu_trade_code(symbol)
-        ctx = OpenSecTradeContext(
-            filter_trdmarket=market,
-            host=_opend_host(),
-            port=_opend_port(),
-            security_firm=SecurityFirm.FUTUSECURITIES,
-        )
+        ctx = _get_trade_ctx(symbol)
         code_filter = code
     else:
-        # Default to HK market if no symbol specified
-        ctx = OpenSecTradeContext(
-            filter_trdmarket=TrdMarket.HK,
-            host=_opend_host(),
-            port=_opend_port(),
-            security_firm=SecurityFirm.FUTUSECURITIES,
-        )
+        ctx = _get_trade_ctx()
         code_filter = None
 
     try:
         ret, data = ctx.order_list_query(
             trd_env=TrdEnv.SIMULATE,
-            page_index=page_index,
-            page_size=min(page_size, 1000),
         )
         if ret != RET_OK:
             raise RuntimeError(f"Futu order_list_query failed: {data}")
@@ -558,25 +543,13 @@ def get_deals(
 
     if symbol:
         market, code = _to_futu_trade_code(symbol)
-        ctx = OpenSecTradeContext(
-            filter_trdmarket=market,
-            host=_opend_host(),
-            port=_opend_port(),
-            security_firm=SecurityFirm.FUTUSECURITIES,
-        )
+        ctx = _get_trade_ctx(symbol)
     else:
-        ctx = OpenSecTradeContext(
-            filter_trdmarket=TrdMarket.HK,
-            host=_opend_host(),
-            port=_opend_port(),
-            security_firm=SecurityFirm.FUTUSECURITIES,
-        )
+        ctx = _get_trade_ctx()
 
     try:
         ret, data = ctx.deal_list_query(
             trd_env=TrdEnv.SIMULATE,
-            page_index=page_index,
-            page_size=min(page_size, 1000),
         )
         if ret != RET_OK:
             raise RuntimeError(f"Futu deal_list_query failed: {data}")
