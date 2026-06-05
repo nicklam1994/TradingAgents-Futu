@@ -58,7 +58,7 @@ export default function Sidebar() {
                 {isExpanded ? (
                     <div className="text-xs text-slate-500 text-center">
                         <p className="text-slate-400 text-sm font-medium">TradingAgents</p>
-                        <p className="mt-0.5">多智能体投研系统</p>
+                        <p className="mt-0.5">跨越港美，智算全局</p>
                         <p className="mt-1 font-mono text-[11px] text-slate-400">{buildVersion}</p>
                         <p className="mt-0.5 text-[10px] text-slate-500">{buildDate} · {buildCommit}</p>
                     </div>

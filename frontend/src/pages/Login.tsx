@@ -90,7 +90,7 @@ export default function Login() {
                     <div className="relative">
                         <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/85 px-3 py-1.5 text-xs tracking-[0.22em] text-slate-500 shadow-sm dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-400">
                             <Radar className="h-3.5 w-3.5 text-cyan-500" />
-                            A 股多智能体研究系统
+                            寰宇智盘 (OmniTerminal)
                         </div>
 
                         <div className="mt-10 max-w-3xl">

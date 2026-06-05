@@ -34,7 +34,7 @@ const createInitialChatMessages = (): ChatMessage[] => [
     {
         id: 'init',
         role: 'assistant',
-        content: '我是你的 A 股多智能体投研助手。直接告诉我你想分析的标的和日期。',
+        content: '我是寰宇智盘，你的港美股多智能体投研助手。告诉我你想分析的标的。',
         timestamp: new Date().toISOString(),
     },
 ]

@@ -119,7 +119,7 @@ export default function Header() {
                     <div className="hidden md:flex items-center gap-4">
                         <div className="flex items-center gap-2.5">
                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_16px_rgba(16,185,129,0.4)]" />
-                            <div className="text-sm font-semibold tracking-[0.04em] text-slate-900 dark:text-slate-100">A 股投研终端</div>
+                            <div className="text-sm font-semibold tracking-[0.04em] text-slate-900 dark:text-slate-100">寰宇智盘 (OmniTerminal)</div>
                         </div>
                         <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
                         <div className="text-xs tracking-[0.18em] text-slate-400 dark:text-slate-500">工作台在线</div>
