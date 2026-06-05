@@ -856,6 +856,16 @@ class SearchConfigUpdateRequest(BaseModel):
     providers: List[SearchProviderConfig]
 
 
+class SocialSentimentConfigResponse(BaseModel):
+    api_key: str = ""
+    base_url: str = "https://api.adanos.org"
+    has_key: bool = False
+
+class SocialSentimentConfigUpdateRequest(BaseModel):
+    api_key: str = ""
+    base_url: str = "https://api.adanos.org"
+
+
 class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
     prompt: str = "你好"
 
@@ -3864,6 +3874,67 @@ def update_search_config(
     db.commit()
 
     return {"message": "搜索服务配置已保存", "providers_count": len(config_data)}
+
+
+@app.get("/v1/config/social-sentiment", response_model=SocialSentimentConfigResponse)
+def get_social_sentiment_config(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    search_config = {}
+    if user_cfg and hasattr(user_cfg, 'search_config') and user_cfg.search_config:
+        try:
+            search_config = json.loads(user_cfg.search_config)
+        except Exception:
+            pass
+
+    ss = search_config.get("social_sentiment", {})
+    api_key = ss.get("api_key", "")
+    base_url = ss.get("base_url", "https://api.adanos.org")
+    return SocialSentimentConfigResponse(
+        api_key=_mask_secret_value(api_key) if api_key else "",
+        base_url=base_url,
+        has_key=bool(api_key),
+    )
+
+
+@app.put("/v1/config/social-sentiment")
+def update_social_sentiment_config(
+    request: SocialSentimentConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    if not user_cfg:
+        user_cfg = UserLLMConfigDB(user_id=current_user.id)
+        db.add(user_cfg)
+        db.flush()
+
+    # Merge into existing search_config JSON
+    search_config = {}
+    if user_cfg.search_config:
+        try:
+            search_config = json.loads(user_cfg.search_config)
+        except Exception:
+            pass
+
+    # Only update if API key is not masked (preserve existing key)
+    existing = search_config.get("social_sentiment", {})
+    new_key = request.api_key
+    if new_key and "***" in new_key:
+        # Masked value — keep existing key
+        new_key = existing.get("api_key", "")
+
+    search_config["social_sentiment"] = {
+        "api_key": new_key,
+        "base_url": request.base_url or "https://api.adanos.org",
+    }
+    user_cfg.search_config = json.dumps(search_config)
+    db.commit()
+
+    return {"message": "社交舆情配置已保存"}
+
 
 
 @app.post("/v1/config/warmup", response_model=UserRuntimeWarmupResponse)

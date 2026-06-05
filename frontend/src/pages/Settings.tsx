@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search, MessageCircle } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
@@ -92,6 +92,12 @@ export default function Settings() {
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
+    // Social sentiment config states
+    const [socialApiKey, setSocialApiKey] = useState('')
+    const [socialBaseUrl, setSocialBaseUrl] = useState('https://api.adanos.org')
+    const [socialSaving, setSocialSaving] = useState(false)
+    const [socialHasKey, setSocialHasKey] = useState(false)
+
     const selectedPreset = useMemo(
         () => PROVIDER_PRESETS.find((item) => item.id === providerPreset) || PROVIDER_PRESETS[0],
         [providerPreset],
@@ -155,6 +161,7 @@ export default function Settings() {
         // Fetch tokens
         fetchTokens()
         loadSearchConfig()
+        loadSocialSentimentConfig()
     }, [])
 
     const fetchTokens = async () => {
@@ -181,6 +188,17 @@ export default function Settings() {
         }
     }
 
+    async function loadSocialSentimentConfig() {
+        try {
+            const data = await api.get('/v1/config/social-sentiment')
+            setSocialApiKey(data.api_key || '')
+            setSocialBaseUrl(data.base_url || 'https://api.adanos.org')
+            setSocialHasKey(data.has_key || false)
+        } catch (e) {
+            console.error('Failed to load social sentiment config', e)
+        }
+    }
+
     async function saveSearchConfig() {
         setSearchSaving(true)
         try {
@@ -192,6 +210,24 @@ export default function Settings() {
             setConfigError(e?.message || '保存失败')
         } finally {
             setSearchSaving(false)
+        }
+    }
+
+    async function saveSocialSentimentConfig() {
+        setSocialSaving(true)
+        try {
+            await api.put('/v1/config/social-sentiment', {
+                api_key: socialApiKey,
+                base_url: socialBaseUrl,
+            })
+            setSaved(true)
+            setSaveMessage('社交舆情配置已保存')
+            setSocialHasKey(!!socialApiKey)
+            setTimeout(() => setSaved(false), 3000)
+        } catch (e: any) {
+            setConfigError(e?.message || '保存失败')
+        } finally {
+            setSocialSaving(false)
         }
     }
 
@@ -605,6 +641,55 @@ export default function Settings() {
                     >
                         {searchSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         保存搜索配置
+                    </button>
+                </div>
+            </div>
+
+            {/* 社交舆情接入 */}
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <MessageCircle className="w-5 h-5 text-orange-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">社交舆情接入</h2>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">配置社交舆情数据源（Reddit / X / Polymarket），用于增强海外社交情绪分析。</p>
+
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                            API Key
+                            <span className="ml-1 text-xs text-slate-400">(SOCIAL_SENTIMENT_API_KEY)</span>
+                        </label>
+                        <input
+                            type="password"
+                            placeholder={socialHasKey ? '已保存（留空不更新）' : '输入 API Key'}
+                            value={socialApiKey}
+                            onChange={e => setSocialApiKey(e.target.value)}
+                            className="input w-full"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                            API Base URL
+                            <span className="ml-1 text-xs text-slate-400">(SOCIAL_SENTIMENT_BASE_URL)</span>
+                        </label>
+                        <input
+                            type="text"
+                            placeholder="https://api.adanos.org"
+                            value={socialBaseUrl}
+                            onChange={e => setSocialBaseUrl(e.target.value)}
+                            className="input w-full"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex justify-end pt-2">
+                    <button
+                        onClick={saveSocialSentimentConfig}
+                        disabled={socialSaving}
+                        className="btn btn-primary flex items-center gap-2"
+                    >
+                        {socialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        保存舆情配置
                     </button>
                 </div>
             </div>
