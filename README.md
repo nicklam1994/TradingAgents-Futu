@@ -15,7 +15,7 @@
 |-------|------|------|--------|
 | 1 | Futu Provider（US/HK 数据源） | ✅ 完成 | `b372819` |
 | 2 | 搜索 API 框架（7 引擎）+ 搜索服务配置 UI | ✅ 完成 | `4585fab` |
-| 3 | 社交舆情（Reddit/X/Poly） | ⏳ 待开始 | — |
+| 3 | 社交舆情（Reddit/X/Poly）+ 配置 UI | ✅ 完成 | `fa64c69` |
 | 4 | 结构化输出 & 风控增强 | ⏳ 待开始 | — |
 | 5 | Futu 模拟交易服务 | ⏳ 待开始 | — |
 | 6 | 量化绩效指标 | ⏳ 待开始 | — |
@@ -48,11 +48,15 @@ Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax — 多 Key 轮�
 - ✅ **SerpAPI** — Google 搜索代理
 - ✅ **Bocha** — 中文 AI 搜索
 
-**前端配置**：设置页 → 搜索服务接入 → 填入 API Key → 启用 → 保存
+**前端配置**：设置页 → 搜索服务接入 → 填入 API Key → 启用 → 保存配置
 
-### 社交舆情（美股）⏳ Phase 3
+### 社交舆情（美股）✅ Phase 3
 
 Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取情绪分、提及量、趋势。
+
+- **SocialSentimentService**：453 行，支持 fetch_reddit_report / fetch_x_trending / fetch_polymarket_trending
+- **LangChain Tool**：`get_social_sentiment`，Social Media Analyst 并行调用
+- **前端配置**：设置页 → 社交舆情接入 → API Key + Base URL → 保存配置
 
 ### 自主交易闭环（OODA 循环）⏳ Phase 8
 
@@ -89,7 +93,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 ┌──────────────────────────────▼──────────────────────────────────┐
 │                    数据源层（Provider Registry + Fallback）       │
 │  Futu(港美股) → yfinance(全球) → Alpha Vantage(备用)            │
-│  Search Service (7引擎) ✅ + Social Sentiment (Reddit/X/Poly) ⏳ │
+│  Search Service (7引擎) ✅ + Social Sentiment (Reddit/X/Poly) ✅ │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -146,7 +150,7 @@ FUTU_OPEND_PORT=11111
 # 搜索引擎（也可在前端设置页配置）
 TAVILY_API_KEY=your-tavily-key
 
-# 社交舆情（可选）
+# 社交舆情（也可在前端设置页配置）
 SOCIAL_SENTIMENT_API_KEY=your-adanos-key
 ```
 
@@ -180,6 +184,13 @@ uv run python -m uvicorn api.main:app --port 8000
 | 获取搜索配置 | `GET /v1/config/search` |
 | 保存搜索配置 | `PUT /v1/config/search` |
 
+### 社交舆情配置 ✅
+
+| 操作 | 接口 |
+|------|------|
+| 获取舆情配置 | `GET /v1/config/social-sentiment` |
+| 保存舆情配置 | `PUT /v1/config/social-sentiment` |
+
 ### 模拟交易（Phase 5）
 
 | 操作 | 接口 |
@@ -211,7 +222,7 @@ uv run python -m uvicorn api.main:app --port 8000
 | 市场 | 行情 | 新闻 | 基本面 | 舆情 |
 |------|------|------|--------|------|
 | **港股** | Futu OpenD ✅ | yfinance / 7 家搜索 ✅ | Futu Snapshot ✅ | 搜索引擎 ✅ |
-| **美股** | Futu OpenD / yfinance ✅ | yfinance / Alpha Vantage / 7 家搜索 ✅ | yfinance / Alpha Vantage ✅ | Reddit / X / Polymarket ⏳ |
+| **美股** | Futu OpenD / yfinance ✅ | yfinance / Alpha Vantage / 7 家搜索 ✅ | yfinance / Alpha Vantage ✅ | Reddit / X / Polymarket ✅ |
 
 ---
 
@@ -236,7 +247,7 @@ tradingagents/
 │   │   └── alpha_vantage_provider.py
 │   ├── search_service.py      # ✅ 7 引擎搜索（Phase 2）
 │   ├── search_providers/      # ✅ 7 个搜索引擎实现
-│   ├── social_sentiment.py    # 🆕 Reddit/X/Polymarket（Phase 3）
+│   ├── social_sentiment.py    # ✅ Reddit/X/Polymarket（Phase 3）
 │   └── quant_metrics.py       # 🆕 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
 ├── prompts/                   # 中英文提示词
@@ -264,6 +275,7 @@ frontend/                      # React + Vite 前端
 | **行情/交易** | Futu OpenD（港股 + 美股模拟交易） |
 | **全球数据** | yfinance + Alpha Vantage |
 | **搜索引擎** | Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax |
+| **社交舆情** | Reddit / X / Polymarket（via api.adanos.org） |
 | **记忆** | BM25 词法检索（无需 embedding API） |
 
 ---
