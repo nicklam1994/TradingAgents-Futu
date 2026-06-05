@@ -68,6 +68,7 @@ _shared_data_collector = DataCollector()
 from tradingagents.dataflows.trade_calendar import cn_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
+from tradingagents.dataflows.quant_metrics import QuantMetrics
 from tradingagents.graph.intent_parser import parse_intent as _parse_intent
 from tradingagents.agents.utils.context_utils import USER_CONTEXT_KEYS, normalize_user_context
 from tradingagents.agents.utils.agent_states import current_tracker_var
@@ -5222,6 +5223,85 @@ def sim_execute_signal(
         return {"ok": True, "data": _signal_result_to_dict(result)}
     except Exception as e:
         logger.error(f"sim_execute_signal error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/v1/sim/performance")
+def sim_performance(
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict[str, Any]:
+    """Return quantitative performance metrics for the simulated account.
+
+    Computes max drawdown, Sharpe ratio, Sortino ratio, win rate, and Calmar
+    ratio from the account's deal history by matching buy/sell pairs (FIFO).
+    Returns a JSON object with all metrics.
+    """
+    try:
+        deals = _sim_get_deals(trd_env="SIMULATE")
+        if not deals:
+            return {
+                "ok": True,
+                "data": {
+                    "max_drawdown": 0.0,
+                    "sharpe_ratio": 0.0,
+                    "sortino_ratio": 0.0,
+                    "win_rate": 0.0,
+                    "calmar_ratio": 0.0,
+                    "trade_count": 0,
+                },
+            }
+
+        # ── Match buy/sell pairs per symbol (FIFO) ──────────────────────
+        from collections import defaultdict, deque
+
+        # Group buys by symbol; sells consume the earliest buy
+        buy_queue: dict[str, deque] = defaultdict(deque)  # symbol -> deque[(price, qty)]
+        trade_returns: list[float] = []
+
+        for d in deals:
+            side = d.side.lower() if hasattr(d, "side") else ""
+            price = d.price if hasattr(d, "price") else 0.0
+            qty = d.qty if hasattr(d, "qty") else 0.0
+            code = d.code if hasattr(d, "code") else ""
+
+            if side == "buy":
+                buy_queue[code].append((price, qty))
+            elif side == "sell" and buy_queue.get(code):
+                # Match against earliest buy (FIFO)
+                remaining = qty
+                while remaining > 0 and buy_queue[code]:
+                    buy_price, buy_qty = buy_queue[code][0]
+                    matched = min(remaining, buy_qty)
+                    if buy_price > 0:
+                        trade_returns.append(
+                            (price - buy_price) / buy_price
+                        )
+                    remaining -= matched
+                    if matched >= buy_qty:
+                        buy_queue[code].popleft()
+                    else:
+                        buy_queue[code][0] = (buy_price, buy_qty - matched)
+
+        # ── Build equity curve from cumulative returns ──────────────────
+        base_capital = 100_000.0
+        equity_curve: list[float] = [base_capital]
+        for r in trade_returns:
+            equity_curve.append(equity_curve[-1] * (1.0 + r))
+
+        qm = QuantMetrics()
+        n = len(trade_returns)
+
+        data = {
+            "max_drawdown": round(qm.max_drawdown(equity_curve), 6) if len(equity_curve) >= 2 else 0.0,
+            "sharpe_ratio": round(qm.sharpe_ratio(trade_returns), 4) if n >= 2 else 0.0,
+            "sortino_ratio": round(qm.sortino_ratio(trade_returns), 4) if n >= 2 else 0.0,
+            "win_rate": round(qm.win_rate(trade_returns), 4) if n > 0 else 0.0,
+            "calmar_ratio": round(qm.calmar_ratio(equity_curve), 4) if len(equity_curve) >= 2 else 0.0,
+            "trade_count": n,
+        }
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.error(f"sim_performance error: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
