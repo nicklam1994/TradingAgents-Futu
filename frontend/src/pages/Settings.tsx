@@ -103,6 +103,7 @@ export default function Settings() {
     const [futuStatus, setFutuStatus] = useState<{connected: boolean; host?: string; port?: number; server_ver?: string; error?: string; user?: any; accounts?: any[]}>({connected: false})
     const [futuTesting, setFutuTesting] = useState(false)
     const [futuEncrypt, setFutuEncrypt] = useState(false)
+    const [modelPresetsLoaded, setModelPresetsLoaded] = useState(false)
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
@@ -121,6 +122,18 @@ export default function Settings() {
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
+
+    // Load models.json on demand
+    const loadModelPresets = async () => {
+        try {
+            const r = await fetch('/models.json')
+            const data = await r.json()
+            if (data.providers?.length) { PROVIDER_PRESETS.length = 0; data.providers.forEach((p: any) => PROVIDER_PRESETS.push(p)) }
+            if (data.models?.length) { MODEL_PRESETS.length = 0; data.models.forEach((m: any) => MODEL_PRESETS.push(m)) }
+            setModelPresetsLoaded(true)
+        } catch { console.warn('Failed to load models.json') }
+    }
+
     useEffect(() => {
         setWarmupResults([])
         setWarmupError(null)
@@ -494,61 +507,66 @@ export default function Settings() {
                         </div>
                     </div>
 
+                    {/* Base URL + API Key */}
                     {(selectedPreset.baseUrl || selectedPreset.editableBaseUrl) && (
-                        <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                                Base URL
-                            </label>
-                            <input
-                                type="text"
-                                value={selectedPreset.editableBaseUrl ? customBaseUrl : selectedPreset.baseUrl}
-                                onChange={e => setCustomBaseUrl(e.target.value)}
-                                className="input w-full"
-                                disabled={configLoading || !selectedPreset.editableBaseUrl}
-                                placeholder="https://your-openai-compatible-endpoint/v1"
-                            />
-                            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                                {selectedPreset.editableBaseUrl
-                                    ? '自定义 OpenAI 兼容服务需要自行填写 Base URL。'
-                                    : '该厂商默认通过预设的 OpenAI 兼容地址接入，通常只需填写模型名和 API Key。'}
-                            </p>
-                        </div>
+                        <>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                                    Base URL
+                                </label>
+                                <input
+                                    type="text"
+                                    value={selectedPreset.editableBaseUrl ? customBaseUrl : selectedPreset.baseUrl}
+                                    onChange={e => setCustomBaseUrl(e.target.value)}
+                                    className="input w-full"
+                                    disabled={configLoading || !selectedPreset.editableBaseUrl}
+                                    placeholder="https://your-openai-compatible-endpoint/v1"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
+                                    API Key
+                                </label>
+                                <div className="relative">
+                                    <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                                    <input
+                                        type="password"
+                                        value={llmApiKey}
+                                        onChange={e => setLlmApiKey(e.target.value)}
+                                        className="input w-full pl-10"
+                                        placeholder={hasStoredApiKey ? '已保存，留空则保持不变' : '输入你的 API Key'}
+                                        disabled={configLoading}
+                                    />
+                                </div>
+                            </div>
+                        </>
                     )}
 
-                    {/* API Key */}
-                    <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">
-                            API Key
-                        </label>
-                        <div className="relative">
-                            <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                            <input
-                                type="password"
-                                value={llmApiKey}
-                                onChange={e => setLlmApiKey(e.target.value)}
-                                className="input w-full pl-10"
-                                placeholder={hasStoredApiKey ? '已保存，留空则保持不变' : '输入你的 API Key'}
-                                disabled={configLoading}
-                            />
+                    {/* 加载模型清单 */}
+                    <div className="md:col-span-2 flex items-center gap-3">
+                        <button
+                            type="button"
+                            onClick={loadModelPresets}
+                            className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        >
+                            {modelPresetsLoaded ? '✓ 已加载' : '加载模型清单'}
+                        </button>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                            {serverFallbackEnabled
+                                ? '当前后端已开启公共模型回退：未填写个人 Key 时，可能仍会使用服务端默认模型配置。'
+                                : '当前后端已关闭公共模型回退：未填写个人 Key 时，将无法发起需要模型的分析任务。'}
                         </div>
-                        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                            <div className="text-xs text-slate-500 dark:text-slate-400">
-                                {serverFallbackEnabled
-                                    ? '当前后端已开启公共模型回退：未填写个人 Key 时，可能仍会使用服务端默认模型配置。'
-                                    : '当前后端已关闭公共模型回退：未填写个人 Key 时，将无法发起需要模型的分析任务。'}
-                            </div>
-                            {hasStoredApiKey && (
-                                <button
-                                    type="button"
-                                    onClick={handleClearApiKey}
-                                    disabled={saving || saveAllSaving}
-                                    className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50"
-                                >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    清除密钥
-                                </button>
-                            )}
-                        </div>
+                        {hasStoredApiKey && (
+                            <button
+                                type="button"
+                                onClick={handleClearApiKey}
+                                disabled={saving || saveAllSaving}
+                                className="inline-flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600 disabled:opacity-50 ml-auto"
+                            >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                清除密钥
+                            </button>
+                        )}
                     </div>
 
                     {/* 常规模型 */}
