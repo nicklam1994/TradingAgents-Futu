@@ -154,6 +154,14 @@ class ExitStrategy:
                 message="Invalid entry price",
             )
 
+        if current_price <= 0:
+            logger.warning("Invalid current_price=%s, returning no-exit", current_price)
+            return ExitDecision(
+                should_exit=False,
+                reason=ExitReason.NO_EXIT,
+                message="Invalid current price",
+            )
+
         # Compute P&L
         pnl_pct = self._calc_pnl(entry_price, current_price, side)
 
