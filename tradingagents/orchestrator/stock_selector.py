@@ -16,6 +16,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -189,10 +191,12 @@ class StockSelector:
             # Use get_realtime_quotes for batch quote fetching
             try:
                 quotes_raw = provider.get_realtime_quotes(pool)
-                # Parse the string output into a dict
-                import json
-                quotes = json.loads(quotes_raw) if isinstance(quotes_raw, str) else quotes_raw
-                for item in quotes if isinstance(quotes, list) else []:
+                # Parse CSV string into list of dicts
+                # FutuProvider returns CSV with columns:
+                # symbol,price,change,change_pct,volume,high,low,open
+                reader = csv.DictReader(io.StringIO(quotes_raw))
+                quotes = list(reader)
+                for item in quotes:
                     sym = item.get("symbol", "")
                     data[sym] = {
                         "price": item.get("last_price") or item.get("price"),
