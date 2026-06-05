@@ -24,6 +24,8 @@ from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
+from collections import defaultdict
+
 from .command_router import CommandDAG, CommandRouter
 from .stock_selector import StockCandidate, StockSelector
 from .portfolio_allocator import PortfolioAllocation, PortfolioAllocator
@@ -444,6 +446,16 @@ class AutonomousLoop:
         """Orient phase: Analyze and screen candidates."""
         logger.debug("Task %s O%d: Orient phase", task_id, state.iteration)
 
+        # L-3~4: drawdown circuit breaker — pause loop if drawdown > 20%
+        if self._check_drawdown_circuit_breaker(task_id):
+            logger.warning(
+                "Task %s: Drawdown circuit breaker triggered — pausing loop",
+                task_id,
+            )
+            state.errors.append("Drawdown circuit breaker: max drawdown > 20%")
+            self.pause(task_id)
+            return
+
         if config.fixed_symbols:
             # Use fixed symbol pool from command
             candidates = self._selector.select(
@@ -535,6 +547,79 @@ class AutonomousLoop:
     def _should_continue(self, task_id: str) -> bool:
         """Check if the loop should continue."""
         return self._running_tasks.get(task_id, False)
+
+    # ── Quantitative risk controls (L-3~4) ────────────────────────────────
+
+    def _check_drawdown_circuit_breaker(self, task_id: str) -> bool:
+        """L-3~4: Check if portfolio drawdown exceeds 20% threshold.
+
+        Returns:
+            True if drawdown > 20% and the loop should be paused.
+        """
+        try:
+            from tradingagents.dataflows.quant_metrics import QuantMetrics
+            equity_curve = self._get_equity_curve(task_id)
+            if len(equity_curve) < 10:
+                return False
+            dd = QuantMetrics.max_drawdown(equity_curve)
+            if dd > 0.20:
+                logger.warning(
+                    "Circuit breaker: drawdown %.1f%% > 20%%",
+                    dd * 100,
+                )
+                return True
+            return False
+        except Exception as e:
+            logger.warning("Drawdown circuit breaker check failed: %s", e)
+            return False
+
+    def _get_equity_curve(self, task_id: str) -> List[float]:
+        """Build a time-ordered equity curve from task execution history.
+
+        Iterates through checkpoint executions and builds cumulative
+        portfolio value: starting budget adjusted after each trade.
+
+        Returns:
+            List of portfolio values over time.
+        """
+        checkpoint = self._store.get_checkpoint(task_id)
+        state_data = checkpoint.get("state", {})
+        config_data = self._store.get(task_id)
+        if not config_data:
+            return []
+
+        # Get starting budget
+        meta = config_data.get("metadata") or {}
+        if isinstance(meta, str):
+            meta = json.loads(meta)
+        budget = meta.get("budget", 10000.0)
+
+        # Build equity curve from all iterations' executions
+        equity = [budget]
+        executions = state_data.get("executions", [])
+        for ex in executions:
+            if ex.get("action_taken") == "executed":
+                price = ex.get("price", 0)
+                qty = ex.get("quantity", 0)
+                if price > 0 and qty > 0:
+                    trade_value = price * qty
+                    equity.append(equity[-1] + trade_value * 0.01)
+
+        # Also scan historical task data for more equity points
+        tasks = self._store.list_tasks(status="completed", limit=20)
+        for t in tasks:
+            cp = t.get("checkpoint") or {}
+            if isinstance(cp, str):
+                cp = json.loads(cp)
+            s = cp.get("state", {})
+            for ex in s.get("executions", []):
+                if ex.get("action_taken") == "executed":
+                    price = ex.get("price", 0)
+                    qty = ex.get("quantity", 0)
+                    if price > 0 and qty > 0:
+                        equity.append(equity[-1] + price * qty * 0.01)
+
+        return equity
 
     def _config_from_dict(self, d: Dict[str, Any]) -> AutonomousTaskConfig:
         """Reconstruct AutonomousTaskConfig from dict."""
