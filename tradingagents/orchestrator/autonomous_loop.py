@@ -774,9 +774,23 @@ class AutonomousLoop:
                 # Try to invoke SimTradeReflector if available
                 reflector = self._get_reflector()
                 if reflector:
+                    # W5-1: Pass full trade context for richer reflection
+                    all_returns_summary = {
+                        "mean": sum(returns) / len(returns) if returns else 0,
+                        "min": min(returns) if returns else 0,
+                        "max": max(returns) if returns else 0,
+                        "count": len(returns),
+                    }
                     reflector.reflect_on_sim_trade(
-                        trade_info={"reason": "low_win_rate", "win_rate": wr},
-                        trade_result={"recent_returns": returns[-5:]},
+                        trade_info={
+                            "reason": "low_win_rate",
+                            "win_rate": wr,
+                            "total_trades": len(returns),
+                        },
+                        trade_result={
+                            "recent_returns": returns[-10:],
+                            "all_returns_summary": all_returns_summary,
+                        },
                     )
                     logger.info("SimTradeReflector invoked for low win rate")
                 else:
