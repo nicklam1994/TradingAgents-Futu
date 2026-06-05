@@ -4668,6 +4668,191 @@ def mark_feedback_read(
     return {"ok": True}
 
 
+# ─── Simulated Trading API Endpoints (Phase 5) ──────────────────────────────
+
+from api.services.sim_trading_service import (
+    get_account as _sim_get_account,
+    get_positions as _sim_get_positions,
+    place_order as _sim_place_order,
+    cancel_order as _sim_cancel_order,
+    get_orders as _sim_get_orders,
+    get_deals as _sim_get_deals,
+    execute_signal as _sim_execute_signal,
+    SignalInput as _SignalInput,
+    account_to_dict as _account_to_dict,
+    position_to_dict as _position_to_dict,
+    order_result_to_dict as _order_result_to_dict,
+    order_info_to_dict as _order_info_to_dict,
+    deal_info_to_dict as _deal_info_to_dict,
+    signal_result_to_dict as _signal_result_to_dict,
+)
+
+
+class SimOrderRequest(BaseModel):
+    """Request body for placing a simulated order."""
+    symbol: str = Field(..., description="股票代码，如 AAPL、00700.HK、NVDA.US")
+    side: str = Field(..., description="交易方向: BUY 或 SELL")
+    quantity: float = Field(..., gt=0, description="订单数量")
+    price: float = Field(0, ge=0, description="订单价格，市价单传 0")
+    order_type: str = Field("NORMAL", description="订单类型: NORMAL/MARKET/AUCTION_LIMIT/AUCTION_MARKET")
+    remark: Optional[str] = Field(None, description="订单备注")
+
+
+class SimSignalRequest(BaseModel):
+    """Request body for executing a trading signal."""
+    symbol: str = Field(..., description="股票代码")
+    signal: str = Field(..., description="信号: buy/sell/hold")
+    confidence: float = Field(..., ge=0, le=1, description="置信度 0-1")
+    target_price: Optional[float] = Field(None, description="目标价")
+    stop_loss_price: Optional[float] = Field(None, description="止损价")
+    max_position_pct: float = Field(0.25, ge=0, le=1, description="最大仓位比例")
+    use_kelly: bool = Field(False, description="是否使用 Kelly 公式计算仓位")
+
+
+@app.get("/v1/sim/account")
+def sim_account(current_user: UserDB = Depends(_require_api_user)) -> Dict[str, Any]:
+    """查询模拟交易账户资金信息。"""
+    try:
+        info = _sim_get_account("SIMULATE")
+        return {"ok": True, "data": _account_to_dict(info)}
+    except Exception as e:
+        logger.error(f"sim_account error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/v1/sim/positions")
+def sim_positions(
+    page_size: int = Query(100, ge=1, le=1000),
+    page_index: int = Query(0, ge=0),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """查询模拟交易持仓列表。"""
+    try:
+        positions = _sim_get_positions(
+            "SIMULATE", page_size=page_size, page_index=page_index
+        )
+        return {
+            "ok": True,
+            "data": [_position_to_dict(p) for p in positions],
+            "total": len(positions),
+        }
+    except Exception as e:
+        logger.error(f"sim_positions error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/v1/sim/order")
+def sim_place_order(
+    req: SimOrderRequest,
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """模拟下单。"""
+    try:
+        result = _sim_place_order(
+            symbol=req.symbol,
+            side=req.side,
+            quantity=req.quantity,
+            price=req.price,
+            order_type=req.order_type,
+            trd_env="SIMULATE",
+            remark=req.remark,
+        )
+        return {"ok": True, "data": _order_result_to_dict(result)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"sim_place_order error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.delete("/v1/sim/order/{order_id}")
+def sim_cancel_order(
+    order_id: str,
+    symbol: str = Query(..., description="股票代码，用于确定市场上下文"),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """撤销模拟订单。"""
+    try:
+        _sim_cancel_order(order_id, symbol, "SIMULATE")
+        return {"ok": True, "message": f"Order {order_id} cancelled"}
+    except Exception as e:
+        logger.error(f"sim_cancel_order error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/v1/sim/orders")
+def sim_orders(
+    symbol: Optional[str] = Query(None, description="股票代码筛选"),
+    page_size: int = Query(100, ge=1, le=1000),
+    page_index: int = Query(0, ge=0),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """查询模拟交易订单列表。"""
+    try:
+        orders = _sim_get_orders(
+            symbol=symbol,
+            trd_env="SIMULATE",
+            page_size=page_size,
+            page_index=page_index,
+        )
+        return {
+            "ok": True,
+            "data": [_order_info_to_dict(o) for o in orders],
+            "total": len(orders),
+        }
+    except Exception as e:
+        logger.error(f"sim_orders error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/v1/sim/deals")
+def sim_deals(
+    symbol: Optional[str] = Query(None, description="股票代码筛选"),
+    page_size: int = Query(100, ge=1, le=1000),
+    page_index: int = Query(0, ge=0),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """查询模拟交易成交记录。"""
+    try:
+        deals = _sim_get_deals(
+            symbol=symbol,
+            trd_env="SIMULATE",
+            page_size=page_size,
+            page_index=page_index,
+        )
+        return {
+            "ok": True,
+            "data": [_deal_info_to_dict(d) for d in deals],
+            "total": len(deals),
+        }
+    except Exception as e:
+        logger.error(f"sim_deals error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.post("/v1/sim/signal")
+def sim_execute_signal(
+    req: SimSignalRequest,
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """根据 Agent 分析信号自动下单。"""
+    try:
+        signal = _SignalInput(
+            symbol=req.symbol,
+            signal=req.signal,
+            confidence=req.confidence,
+            target_price=req.target_price,
+            stop_loss_price=req.stop_loss_price,
+            max_position_pct=req.max_position_pct,
+            use_kelly=req.use_kelly,
+        )
+        result = _sim_execute_signal(signal)
+        return {"ok": True, "data": _signal_result_to_dict(result)}
+    except Exception as e:
+        logger.error(f"sim_execute_signal error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
