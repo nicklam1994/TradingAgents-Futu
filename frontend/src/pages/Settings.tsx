@@ -22,15 +22,9 @@ type SearchProvider = {
     enabled: boolean
 }
 
-const PROVIDER_PRESETS: ProviderPreset[] = [
+// Loaded from /models.json at runtime
+let PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'openai', label: 'OpenAI', provider: 'openai', baseUrl: 'https://api.openai.com/v1', protocol: 'OpenAI' },
-    { id: 'anthropic', label: 'Anthropic', provider: 'anthropic', baseUrl: '', protocol: 'Anthropic' },
-    { id: 'google', label: 'Google Gemini', provider: 'google', baseUrl: '', protocol: 'Google' },
-    { id: 'dashscope', label: '阿里云百炼（DashScope）', provider: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', protocol: 'OpenAI 兼容' },
-    { id: 'deepseek', label: 'DeepSeek', provider: 'openai', baseUrl: 'https://api.deepseek.com/v1', protocol: 'OpenAI 兼容' },
-    { id: 'moonshot', label: 'Moonshot AI（Kimi）', provider: 'openai', baseUrl: 'https://api.moonshot.cn/v1', protocol: 'OpenAI 兼容' },
-    { id: 'zhipu', label: '智谱 AI', provider: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', protocol: 'OpenAI 兼容' },
-    { id: 'siliconflow', label: '硅基流动', provider: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', protocol: 'OpenAI 兼容' },
     { id: 'custom-openai', label: '自定义 OpenAI 兼容', provider: 'openai', baseUrl: '', protocol: 'OpenAI 兼容', editableBaseUrl: true },
 ]
 
@@ -41,29 +35,8 @@ type ModelPreset = {
     provider: string
 }
 
-const MODEL_PRESETS: ModelPreset[] = [
-    // Quick models
-    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', tier: 'quick', provider: 'openai' },
-    { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', tier: 'quick', provider: 'openai' },
-    { id: 'gpt-4o-mini', label: 'GPT-4o Mini', tier: 'quick', provider: 'openai' },
-    { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'quick', provider: 'anthropic' },
-    { id: 'claude-haiku-3.5', label: 'Claude 3.5 Haiku', tier: 'quick', provider: 'anthropic' },
-    { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', tier: 'quick', provider: 'google' },
-    { id: 'deepseek-chat', label: 'DeepSeek V3', tier: 'quick', provider: 'deepseek' },
-    { id: 'moonshot-v1-8k', label: 'Moonshot V1 8K', tier: 'quick', provider: 'moonshot' },
-    { id: 'glm-4-flash', label: 'GLM-4 Flash', tier: 'quick', provider: 'zhipu' },
-    { id: 'qwen-plus', label: 'Qwen Plus', tier: 'quick', provider: 'dashscope' },
-    // Deep models
-    { id: 'gpt-4.1', label: 'GPT-4.1', tier: 'deep', provider: 'openai' },
-    { id: 'gpt-4o', label: 'GPT-4o', tier: 'deep', provider: 'openai' },
-    { id: 'claude-opus-4-20250514', label: 'Claude Opus 4', tier: 'deep', provider: 'anthropic' },
-    { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4', tier: 'deep', provider: 'anthropic' },
-    { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', tier: 'deep', provider: 'google' },
-    { id: 'deepseek-reasoner', label: 'DeepSeek R1', tier: 'deep', provider: 'deepseek' },
-    { id: 'kimi-k2-0905-preview', label: 'Kimi K2', tier: 'deep', provider: 'moonshot' },
-    { id: 'glm-4-plus', label: 'GLM-4 Plus', tier: 'deep', provider: 'zhipu' },
-    { id: 'qwen-max', label: 'Qwen Max', tier: 'deep', provider: 'dashscope' },
-]
+// Loaded from /models.json at runtime
+let MODEL_PRESETS: ModelPreset[] = []
 
 function inferPreset(llmProvider: string, backendUrl: string): string {
     const normalizedProvider = (llmProvider || '').toLowerCase()
