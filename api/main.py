@@ -5036,6 +5036,25 @@ class SimSignalRequest(BaseModel):
     use_kelly: bool = Field(False, description="是否使用 Kelly 公式计算仓位")
 
 
+class SimReflectRequest(BaseModel):
+    """Request body for reflecting on a simulated trade."""
+    trade_info: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Original trade signal info. Keys: symbol, signal, confidence, "
+            "price, quantity, reasoning (optional)."
+        ),
+    )
+    trade_result: Dict[str, Any] = Field(
+        ...,
+        description=(
+            "Execution result from SimExecutor/SimTradingService. Keys: "
+            "action_taken, order_id, pnl (optional), outcome (optional), "
+            "kelly_fraction (optional), reason (optional)."
+        ),
+    )
+
+
 @app.get("/v1/sim/account")
 def sim_account(current_user: UserDB = Depends(_require_api_user)) -> Dict[str, Any]:
     """查询模拟交易账户资金信息。"""
@@ -5302,6 +5321,74 @@ def sim_performance(
         return {"ok": True, "data": data}
     except Exception as e:
         logger.error(f"sim_performance error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+# ── Sim Trade Reflection endpoint (Phase 7.8) ──────────────────────────────
+
+# Module-level cached SimTradeReflector instance (preserves BM25 memory across requests)
+_sim_reflector_instance = None
+
+
+def _get_sim_reflector():
+    """Lazy-initialize a SimTradeReflector with the user's configured LLM.
+
+    Returns a SimTradeReflector instance, or raises if LLM config is unavailable.
+    """
+    global _sim_reflector_instance
+    if _sim_reflector_instance is not None:
+        return _sim_reflector_instance
+
+    from tradingagents.graph.reflection import SimTradeReflector
+    from tradingagents.llm_clients.factory import create_llm_client
+
+    config = _build_runtime_config({})
+    provider = config.get("llm_provider", "openai")
+    model = config.get("quick_think_llm")
+    base_url = config.get("backend_url")
+    api_key = config.get("api_key")
+
+    if not model:
+        raise ValueError("No LLM model configured (quick_think_llm is empty)")
+
+    client = create_llm_client(
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        api_key=api_key,
+    )
+    llm = client.get_llm()
+
+    _sim_reflector_instance = SimTradeReflector(llm)
+    return _sim_reflector_instance
+
+
+@app.post("/v1/sim/reflect")
+def sim_reflect(
+    req: SimReflectRequest,
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict[str, Any]:
+    """Reflect on a completed simulated trade and store lessons in BM25 memory.
+
+    Accepts trade_info (original signal) and trade_result (execution outcome),
+    invokes the LLM to generate structured reflection, and stores the lessons
+    in BM25 memory for future retrieval.
+    """
+    try:
+        reflector = _get_sim_reflector()
+        lesson_text = reflector.reflect_on_sim_trade(req.trade_info, req.trade_result)
+
+        return {
+            "ok": True,
+            "data": {
+                "lesson": lesson_text,
+                "memory_count": len(reflector.memory.documents),
+            },
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"sim_reflect error: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
