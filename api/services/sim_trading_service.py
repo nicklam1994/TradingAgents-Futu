@@ -180,6 +180,14 @@ def _symbol_from_futu_code(code: str) -> str:
 
 # ── Trade context factory ────────────────────────────────────────────────────
 
+def _need_encrypt() -> bool:
+    """Check if RSA encryption is needed (remote host only, not localhost)."""
+    host = _opend_host()
+    if host in ("127.0.0.1", "localhost"):
+        return False
+    return _get_rsa_path() is not None
+
+
 def _get_trade_ctx(symbol: Optional[str] = None):
     """Create an OpenSecTradeContext for simulated trading.
 
@@ -188,8 +196,9 @@ def _get_trade_ctx(symbol: Optional[str] = None):
     """
     from futu import OpenSecTradeContext, TrdMarket, SecurityFirm, SysConfig
 
-    rsa_path = _get_rsa_path()
-    if rsa_path:
+    encrypt = _need_encrypt()
+    if encrypt:
+        rsa_path = _get_rsa_path()
         SysConfig.enable_proto_encrypt(is_encrypt=True)
         SysConfig.set_init_rsa_file(rsa_path)
 
@@ -203,7 +212,7 @@ def _get_trade_ctx(symbol: Optional[str] = None):
         host=_opend_host(),
         port=_opend_port(),
         security_firm=SecurityFirm.FUTUSECURITIES,
-        is_encrypt=True if rsa_path else None,
+        is_encrypt=True if encrypt else None,
     )
 
 
@@ -583,15 +592,26 @@ def get_acc_list(trd_market: str = "HK") -> List[Dict[str, Any]]:
     """Get list of trading accounts (simulated + real).
 
     Args:
-        trd_market: "HK" or "US".
+        trd_market: "HK" or "US". Must match the market to see correct accounts.
 
     Returns:
         List of account dicts with acc_id, sim_acc_type, trd_env, etc.
     """
-    from futu import TrdMarket
+    from futu import TrdMarket, OpenSecTradeContext, SecurityFirm, SysConfig
 
     market = TrdMarket.US if trd_market.upper() == "US" else TrdMarket.HK
-    ctx = _get_trade_ctx()
+    encrypt = _need_encrypt()
+    if encrypt:
+        rsa_path = _get_rsa_path()
+        SysConfig.enable_proto_encrypt(is_encrypt=True)
+        SysConfig.set_init_rsa_file(rsa_path)
+    ctx = OpenSecTradeContext(
+        filter_trdmarket=market,
+        host=_opend_host(),
+        port=_opend_port(),
+        security_firm=SecurityFirm.FUTUSECURITIES,
+        is_encrypt=True if encrypt else None,
+    )
     try:
         ret, data = ctx.get_acc_list()
         if ret != 0:

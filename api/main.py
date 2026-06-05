@@ -4952,10 +4952,13 @@ def sim_deals(
 
 
 @app.get("/v1/sim/acc-list")
-def sim_acc_list(current_user: UserDB = Depends(_require_api_user)):
+def sim_acc_list(
+    trd_market: str = Query("HK", description="HK or US"),
+    current_user: UserDB = Depends(_require_api_user),
+):
     """Get list of trading accounts."""
     try:
-        data = _sim_get_acc_list()
+        data = _sim_get_acc_list(trd_market=trd_market)
         return {"ok": True, "data": data}
     except Exception as e:
         logger.error(f"sim_acc_list error: {e}")
