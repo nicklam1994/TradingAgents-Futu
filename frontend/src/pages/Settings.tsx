@@ -637,12 +637,11 @@ export default function Settings() {
                     <button
                         onClick={saveSearchConfig}
                         disabled={searchSaving}
-                        className="btn btn-primary flex items-center gap-2"
+                        className={`flex items-center gap-2 ${searchSaved ? 'bg-green-500 hover:bg-green-500' : 'btn-primary'}`}
                     >
-                        {searchSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        保存搜索配置
+                        {searchSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : searchSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                        {searchSaved ? '已保存' : '保存搜索配置'}
                     </button>
-                    {searchSaved && <span className="ml-3 text-sm text-green-600 dark:text-green-400">✓ 已保存</span>}
                 </div>
             </div>
 
@@ -687,12 +686,11 @@ export default function Settings() {
                     <button
                         onClick={saveSocialSentimentConfig}
                         disabled={socialSaving}
-                        className="btn btn-primary flex items-center gap-2"
+                        className={`flex items-center gap-2 ${socialSaved ? 'bg-green-500 hover:bg-green-500' : 'btn-primary'}`}
                     >
-                        {socialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                        保存舆情配置
+                        {socialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : socialSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                        {socialSaved ? '已保存' : '保存舆情配置'}
                     </button>
-                    {socialSaved && <span className="ml-3 text-sm text-green-600 dark:text-green-400">✓ 已保存</span>}
                 </div>
             </div>
 
