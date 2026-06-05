@@ -682,6 +682,7 @@ class ReportResponse(BaseModel):
     risk_items: Optional[List[Dict[str, Any]]] = None
     key_metrics: Optional[List[Dict[str, Any]]] = None
     analyst_traces: Optional[List[Dict[str, Any]]] = None
+    risk_flags: Optional[List[str]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     waiting_ahead_count: Optional[int] = None
@@ -1932,6 +1933,7 @@ async def _run_job_inner(
                 "confidence": resolved["confidence"],
                 "target_price": resolved["target_price"],
                 "stop_loss_price": resolved["stop_loss_price"],
+                "risk_flags": resolved.get("risk_flags", []),
             })
 
             # 自动保存报告到数据库
@@ -1972,6 +1974,7 @@ async def _run_job_inner(
                 "confidence": result["confidence"],
                 "target_price": result["target_price"],
                 "stop_loss_price": result["stop_loss_price"],
+                "risk_flags": result.get("risk_flags", []),
             })
             _log(f"Job completed successfully: {job_id}")
             _log(f"[Timer] TOTAL Job execution (dual_horizon) took {time.time() - job_start_t:.2f}s")
@@ -2170,6 +2173,7 @@ async def _run_job_inner(
             "confidence": resolved["confidence"],
             "target_price": resolved["target_price"],
             "stop_loss_price": resolved["stop_loss_price"],
+            "risk_flags": resolved.get("risk_flags", []),
         })
 
         # 自动保存/收口报告到数据库
@@ -2218,6 +2222,7 @@ async def _run_job_inner(
                 "confidence": result["confidence"],
                 "target_price": result["target_price"],
                 "stop_loss_price": result["stop_loss_price"],
+                "risk_flags": result.get("risk_flags", []),
             },
         )
         _log(f"Job completed successfully: {job_id}")

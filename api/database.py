@@ -271,6 +271,7 @@ class ReportDB(Base):
     risk_items = Column(JSON, nullable=True)   # [{"name": "...", "level": "high|medium|low", "description": "..."}]
     key_metrics = Column(JSON, nullable=True)  # [{"name": "...", "value": "...", "status": "good|neutral|bad"}]
     analyst_traces = Column(JSON, nullable=True) # [{"agent": "...", "verdict": "...", "key_finding": "..."}]
+    risk_flags = Column(JSON, nullable=True)   # ["liquidity_risk", "volatility_risk", ...] — aggregated from VERDICT + RISK_JUDGE
 
     # Individual reports (for quick access)
     market_report = Column(Text, nullable=True)
@@ -305,6 +306,7 @@ class ReportDB(Base):
             "risk_items": self.risk_items,
             "key_metrics": self.key_metrics,
             "analyst_traces": self.analyst_traces,
+            "risk_flags": self.risk_flags,
             "market_report": self.market_report,
             "sentiment_report": self.sentiment_report,
             "news_report": self.news_report,

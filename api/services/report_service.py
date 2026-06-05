@@ -32,6 +32,7 @@ REPORT_SUMMARY_COLUMNS = (
     ReportDB.risk_items,
     ReportDB.key_metrics,
     ReportDB.analyst_traces,
+    ReportDB.risk_flags,
     ReportDB.created_at,
     ReportDB.updated_at,
 )
@@ -84,6 +85,7 @@ class StructuredReport(BaseModel):
     stop_loss_price: Optional[float] = Field(None, description="止损价（数字，无单位）")
     risks: List[RiskItemSchema] = Field(default_factory=list, description="主要风险，最多5条")
     key_metrics: List[KeyMetricSchema] = Field(default_factory=list, description="关键指标，最多6条")
+    risk_flags: List[str] = Field(default_factory=list, description="风险标记数组：liquidity_risk, volatility_risk, concentration_risk, correlation_risk, macro_risk, event_risk, technical_risk")
 
     @field_validator("target_price", "stop_loss_price", mode="before")
     @classmethod
@@ -127,7 +129,8 @@ def extract_structured_data(
             "2. confidence：整体置信度（0-100整数），若文中未明确给出则根据语气判断\n"
             "3. target_price / stop_loss_price：纯数字，若未提及则为 null\n"
             "4. risks：最多5条主要风险，每条包含名称（15字内）、等级（high/medium/low）、一句话说明\n"
-            "5. key_metrics：最多6条关键财务/估值指标，每条包含名称、值（含单位）、优劣（good/neutral/bad）"
+            "5. key_metrics：最多6条关键财务/估值指标，每条包含名称、值（含单位）、优劣（good/neutral/bad）\n"
+            "6. risk_flags：风险标记数组，取值范围：liquidity_risk, volatility_risk, concentration_risk, correlation_risk, macro_risk, event_risk, technical_risk"
         )
 
         response = llm.invoke([HumanMessage(content=prompt)])
@@ -226,11 +229,34 @@ def resolve_report_fields(
     verdict = _extract_verdict(final_trade_decision)
     direction = verdict["direction"] if verdict else None
 
+    # Extract structured VERDICT data (confidence, signal, key_levels, risk_flags)
+    from tradingagents.graph.signal_processing import extract_verdict_data, extract_risk_judge_data
+    verdict_data = extract_verdict_data(final_trade_decision or "")
+    risk_judge_data = extract_risk_judge_data(final_trade_decision or "")
+
+    # Aggregate risk_flags from both VERDICT and RISK_JUDGE
+    verdict_risk_flags = verdict_data.get("risk_flags", [])
+    judge_risk_flags = risk_judge_data.get("risk_flags", [])
+    # Merge and deduplicate, preserving order
+    seen = set()
+    aggregated_risk_flags = []
+    for flag in verdict_risk_flags + judge_risk_flags:
+        if flag not in seen:
+            seen.add(flag)
+            aggregated_risk_flags.append(flag)
+
     confidence = confidence_override if confidence_override is not None else _extract_confidence_regex(final_trade_decision)
+    # Fallback to VERDICT confidence if regex didn't find it
+    if confidence is None and "confidence" in verdict_data:
+        conf_float = verdict_data["confidence"]
+        confidence = int(round(conf_float * 100))  # Convert 0-1 to 0-100
 
     target_price = target_price_override if target_price_override is not None else _extract_price_regex(final_trade_decision, "target")
     if target_price is None:
         target_price = _extract_price_regex(trader_investment_plan, "target")
+    # Fallback to VERDICT target_price
+    if target_price is None and "target_price" in verdict_data:
+        target_price = verdict_data["target_price"]
 
     stop_loss_price = stop_loss_override if stop_loss_override is not None else _extract_price_regex(final_trade_decision, "stop_loss")
     if stop_loss_price is None:
@@ -252,6 +278,7 @@ def resolve_report_fields(
         "confidence": confidence,
         "target_price": target_price,
         "stop_loss_price": stop_loss_price,
+        "risk_flags": aggregated_risk_flags,
     }
 
 
@@ -411,6 +438,7 @@ def create_report(
         db_report.risk_items = risk_items
         db_report.key_metrics = key_metrics
         db_report.analyst_traces = analyst_traces
+        db_report.risk_flags = resolved.get("risk_flags", [])
         db_report.market_report = resolved["market_report"]
         db_report.sentiment_report = resolved["sentiment_report"]
         db_report.news_report = resolved["news_report"]
@@ -440,6 +468,7 @@ def create_report(
             risk_items=risk_items,
             key_metrics=key_metrics,
             analyst_traces=analyst_traces,
+            risk_flags=resolved.get("risk_flags", []),
             market_report=resolved["market_report"],
             sentiment_report=resolved["sentiment_report"],
             news_report=resolved["news_report"],
