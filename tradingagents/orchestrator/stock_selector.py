@@ -513,10 +513,10 @@ class StockSelector:
                 current_price=data.get("price"),
                 market_cap=data.get("market_cap"),
                 pe_ratio=data.get("pe_ratio"),
-                momentum_score=dim_scores.get("momentum") or 0.5,
-                fundamental_score=dim_scores.get("fundamental") or 0.5,
-                sentiment_score=dim_scores.get("sentiment") or 0.5,
-                volume_score=dim_scores.get("volume") or 0.5,
+                momentum_score=dim_scores.get("momentum") if dim_scores.get("momentum") is not None else 0.5,
+                fundamental_score=dim_scores.get("fundamental") if dim_scores.get("fundamental") is not None else 0.5,
+                sentiment_score=dim_scores.get("sentiment") if dim_scores.get("sentiment") is not None else 0.5,
+                volume_score=dim_scores.get("volume") if dim_scores.get("volume") is not None else 0.5,
             )
 
             # Weighted composite score
