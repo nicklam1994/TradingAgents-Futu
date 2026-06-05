@@ -17,14 +17,14 @@
     {
       "id": "mimo",
       "label": "Xiaomi MiMo",
-      "provider": "Xiaomi",
+      "provider": "openai",
       "baseUrl": "https://api.xiaomimimo.com/v1",
       "protocol": "OpenAI 兼容"
     },
     {
       "id": "kimi",
       "label": "Kimi",
-      "provider": "Moonshot",
+      "provider": "openai",
       "baseUrl": "https://api.moonshot.cn/v1",
       "protocol": "OpenAI 兼容"
     },
