@@ -131,7 +131,7 @@ export default function Settings() {
             .catch(() => {})
     }, [])
 
-    // Load model list from provider's /v1/models endpoint
+    // Load model list via backend proxy
     const [modelListLoading, setModelListLoading] = useState(false)
     const loadModelList = async () => {
         const baseUrl = effectiveBaseUrl
@@ -139,14 +139,10 @@ export default function Settings() {
         if (!baseUrl || !key) { alert('请先填写 Base URL 和 API Key'); return }
         setModelListLoading(true)
         try {
-            // Try OpenAI-compatible /v1/models endpoint
-            const url = baseUrl.replace(/\/+$/, '') + '/models'
-            const r = await fetch(url, { headers: { 'Authorization': `Bearer ${key}` } })
-            if (!r.ok) throw new Error(`HTTP ${r.status}`)
-            const data = await r.json()
-            const models = (data.data || data).map((m: any) => m.id || m).filter(Boolean)
+            const data = await api.get(`/v1/models?base_url=${encodeURIComponent(baseUrl)}&api_key=${encodeURIComponent(key)}`)
+            const models: string[] = data.models || []
             if (models.length) {
-                const presets = models.sort().map((id: string) => ({ id, label: id, tier: 'quick' as const }))
+                const presets = models.map((id: string) => ({ id, label: id, tier: 'quick' as const }))
                 setModelPresets(presets)
                 setModelPresetsLoaded(true)
             } else {

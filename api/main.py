@@ -4141,6 +4141,29 @@ def update_futu_opend_config(
     return {"message": "Futu OpenD 配置已保存"}
 
 
+@app.get("/v1/models")
+def list_models(
+    base_url: str = "",
+    api_key: str = "",
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """Proxy /v1/models from any OpenAI-compatible provider."""
+    import httpx
+    if not base_url or not api_key:
+        raise HTTPException(400, "base_url and api_key required")
+    url = base_url.rstrip("/") + "/models"
+    try:
+        with httpx.Client(timeout=15) as client:
+            r = client.get(url, headers={"Authorization": f"Bearer {api_key}"})
+            if r.status_code != 200:
+                raise HTTPException(r.status_code, r.text[:500])
+            data = r.json()
+            models = [m["id"] for m in (data.get("data") or []) if m.get("id")]
+            return {"models": sorted(models)}
+    except httpx.RequestError as e:
+        raise HTTPException(502, f"Connection failed: {e}")
+
+
 @app.get("/v1/futu/status")
 def get_futu_status(
     current_user: UserDB = Depends(_require_web_user),
