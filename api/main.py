@@ -42,6 +42,7 @@ import pandas as pd
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
+from api.services.bot import BotManager, DingTalkBot, FeishuBot, DiscordBot, TelegramBot, BotCommandHandler
 
 def _get_real_ip(request: Request) -> Optional[str]:
     """Extract real client IP, preferring Cloudflare/proxy headers."""
@@ -201,6 +202,109 @@ async def _run_manual_trigger(
             scheduled_service.record_manual_test_result(db, task_id, "failed")
 
 
+# ── Bot platform manager ─────────────────────────────────────────────────────
+_bot_manager: Optional[BotManager] = None
+
+
+def _bot_analyze_fn_factory():
+    """Create the analyze coroutine for the bot command handler.
+
+    Returns an async function that triggers a TradingAgents analysis job
+    and waits for the result.
+    """
+    async def _analyze(symbol: str, **kwargs: Any) -> str:
+        """Trigger a TradingAgents analysis and return the result text."""
+        horizon = kwargs.get("horizon", "short")
+        from uuid import uuid4
+
+        trade_date = cn_today_str()
+        job_id = f"bot-{uuid4().hex[:8]}"
+
+        req = AnalyzeRequest(
+            symbol=symbol,
+            trade_date=trade_date,
+            horizons=[horizon],
+            query=f"Bot analysis {symbol}",
+            user_intent={
+                "ticker": symbol,
+                "horizons": [horizon],
+                "focus_areas": [],
+                "specific_questions": [],
+                "user_context": {},
+            },
+        )
+
+        store = get_job_store()
+        store.create(job_id, {"status": "running", "symbol": symbol, "source": "bot"})
+
+        await _run_job(job_id, req, user_id="bot", request_source="bot")
+
+        # Wait for job completion (poll)
+        for _ in range(600):  # 5 minutes max
+            state = store.get(job_id)
+            if state and state.get("status") in ("completed", "failed"):
+                break
+            await asyncio.sleep(0.5)
+
+        state = store.get(job_id) or {}
+        if state.get("status") == "completed":
+            report = state.get("report") or state.get("result", {})
+            # Extract the key parts of the analysis
+            parts = []
+            if isinstance(report, dict):
+                if report.get("decision"):
+                    parts.append(f"决策: {report['decision']}")
+                if report.get("direction"):
+                    parts.append(f"方向: {report['direction']}")
+                if report.get("confidence") is not None:
+                    parts.append(f"置信度: {report['confidence']}%")
+                summary = (
+                    report.get("final_trade_decision")
+                    or report.get("trader_investment_plan")
+                    or report.get("investment_plan")
+                    or ""
+                )
+                if summary:
+                    # Clip to reasonable length
+                    parts.append(f"\n{summary[:1500]}")
+            return "\n".join(parts) if parts else f"分析完成，但未生成摘要。Job ID: {job_id}"
+        else:
+            error = state.get("error", "unknown error")
+            return f"❌ 分析失败: {error}"
+
+    return _analyze
+
+
+def _init_bot_manager() -> BotManager:
+    """Initialize and configure the bot manager with all enabled platforms."""
+    manager = BotManager()
+
+    # Create the command handler
+    handler = BotCommandHandler(
+        analyze_fn=_bot_analyze_fn_factory(),
+    )
+    manager.on_message(handler.handle)
+
+    # Register platforms based on available credentials
+    if os.getenv("DINGTALK_APP_KEY") and os.getenv("DINGTALK_APP_SECRET"):
+        manager.register(DingTalkBot())
+        _log("DingTalk bot registered.")
+
+    if os.getenv("FEISHU_APP_ID") and os.getenv("FEISHU_APP_SECRET"):
+        manager.register(FeishuBot())
+        _log("Feishu bot registered.")
+
+    if os.getenv("DISCORD_BOT_TOKEN"):
+        manager.register(DiscordBot())
+        _log("Discord bot registered.")
+
+    if os.getenv("TELEGRAM_BOT_TOKEN"):
+        manager.register(TelegramBot())
+        _log("Telegram bot registered.")
+
+    return manager
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize resources on startup and cleanup on shutdown."""
@@ -258,8 +362,22 @@ async def lifespan(app: FastAPI):
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
+
+    # ── Bot platforms ────────────────────────────────────────────────────
+    global _bot_manager
+    _bot_manager = _init_bot_manager()
+    if _bot_manager.bots:
+        _log(f"Starting {len(_bot_manager.bots)} bot platforms...")
+        await _bot_manager.start_all()
+        _log(f"Bot platforms active: {', '.join(_bot_manager.list_active())}")
+    else:
+        _log("No bot platforms configured (set DINGTALK_APP_KEY / FEISHU_APP_ID / DISCORD_BOT_TOKEN / TELEGRAM_BOT_TOKEN to enable).")
+
     yield
     _log("Shutting down: Cleaning up resources...")
+    if _bot_manager and _bot_manager.bots:
+        _log("Stopping bot platforms...")
+        await _bot_manager.stop_all()
     _executor.shutdown(wait=True)
     if new_default_executor is not None:
         new_default_executor.shutdown(wait=False)
@@ -4860,6 +4978,77 @@ from fastapi.responses import FileResponse
 
 # Serve uploaded files (avatars etc.) from shared uploads directory
 _uploads_dir = Path(os.getenv("UPLOAD_DIR", str(Path(__file__).parent.parent / "uploads")))
+
+
+# ── Bot platform webhook endpoints ───────────────────────────────────────────
+
+@app.get("/v1/bots/status")
+async def bots_status():
+    """Return status of all registered bot platforms."""
+    if not _bot_manager:
+        return {"bots": [], "message": "Bot manager not initialized"}
+    return {
+        "bots": [
+            {
+                "name": name,
+                "platform": bot.platform_type.value,
+                "running": bot._running,
+            }
+            for name, bot in _bot_manager.bots.items()
+        ],
+        "active_count": len(_bot_manager.list_active()),
+    }
+
+
+@app.post("/v1/bots/dingtalk/webhook")
+async def dingtalk_webhook(request: Request):
+    """Webhook endpoint for DingTalk bot callbacks (webhook mode)."""
+    if not _bot_manager:
+        return {"error": "Bot manager not initialized"}
+    bot = _bot_manager.get_bot("dingtalk")
+    if not bot:
+        return {"error": "DingTalk bot not registered"}
+    payload = await request.json()
+    from api.services.bot.dingtalk import DingTalkBot
+    assert isinstance(bot, DingTalkBot)
+    response = await bot.handle_webhook_callback(payload)
+    if response:
+        return {"msgtype": "text", "text": {"content": response.text}}
+    return {"msgtype": "text", "text": {"content": ""}}
+
+
+@app.post("/v1/bots/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Webhook endpoint for Telegram bot callbacks (webhook mode)."""
+    if not _bot_manager:
+        return {"ok": False}
+    bot = _bot_manager.get_bot("telegram")
+    if not bot:
+        return {"ok": False, "error": "Telegram bot not registered"}
+    payload = await request.json()
+    from api.services.bot.telegram import TelegramBot
+    assert isinstance(bot, TelegramBot)
+    await bot.handle_webhook_update(payload)
+    return {"ok": True}
+
+
+@app.post("/v1/bots/feishu/webhook")
+async def feishu_webhook(request: Request):
+    """Webhook endpoint for Feishu bot event callbacks."""
+    if not _bot_manager:
+        return {"error": "Bot manager not initialized"}
+    bot = _bot_manager.get_bot("feishu")
+    if not bot:
+        return {"error": "Feishu bot not registered"}
+    payload = await request.json()
+
+    # Handle Feishu URL verification challenge
+    if "challenge" in payload:
+        return {"challenge": payload["challenge"]}
+
+    return {"code": 0, "msg": "ok"}
+
+
 if _uploads_dir.is_dir():
     app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
