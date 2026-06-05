@@ -24,6 +24,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+import pandas as pd
+from stockstats import StockDataFrame
+
 logger = logging.getLogger(__name__)
 
 
@@ -270,37 +274,93 @@ class StockSelector:
     def _analyze_momentum(
         self, symbol: str, data: Dict[str, Any]
     ) -> Tuple[float, str]:
-        """Analyze momentum indicators.
+        """Analyze momentum via FutuProvider technical indicators (P2-3~4).
+
+        Computes real MA crossover + RSI from K-line data:
+        - MA score (60%): 1.0 when MA5 > MA20, 0.0 otherwise
+        - RSI score (40%): RSI 30-70 mapped to 0-1
+
+        Falls back to change_pct-based score if FutuProvider is unavailable.
 
         Returns:
-            (score, reasoning_text) tuple
+            (score, reasoning_text) tuple — score in 0.0–1.0 range
         """
         try:
-            from tradingagents.dataflows.quant_metrics import QuantMetrics
+            from datetime import datetime, timedelta
 
-            metrics = QuantMetrics()
-            # Calculate RSI, MACD signals
-            price = data.get("price", 0)
-            if not price:
-                return 0.5, "No price data available"
+            from tradingagents.dataflows.providers.futu_provider import FutuProvider
 
-            # Use QuantMetrics for technical scoring
-            # Simplified: score based on available data
-            volume = data.get("volume", 0)
-            turnover = data.get("turnover", 0)
+            provider = FutuProvider()
+            market, code = provider._to_futu_code(symbol)
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=90)
 
-            # Momentum heuristic: higher volume + positive price action = higher score
-            score = 0.5  # Base score
-            if volume and volume > 0:
-                score += 0.1  # Has trading activity
-            if turnover and turnover > 0:
-                score += 0.1  # Has turnover
+            ctx = provider._get_quote_ctx()
+            try:
+                from futu import KLType, RET_OK
 
-            return min(1.0, score), f"Momentum analysis for {symbol}: volume={volume}"
+                ret, kdata, _ = ctx.request_history_kline(
+                    code,
+                    start=start_date.strftime("%Y-%m-%d"),
+                    end=end_date.strftime("%Y-%m-%d"),
+                    ktype=KLType.K_DAY,
+                    autype=None,
+                )
+                if ret != RET_OK or kdata is None or kdata.empty:
+                    raise RuntimeError(f"No K-line data for {symbol}")
+            finally:
+                ctx.close()
+
+            # Prepare OHLCV DataFrame for stockstats
+            df = kdata.rename(columns={
+                "time_key": "date", "open": "open", "high": "high",
+                "low": "low", "close": "close", "volume": "volume",
+            })[["date", "open", "high", "low", "close", "volume"]].copy()
+
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+
+            if len(df) < 20:
+                raise RuntimeError(f"Insufficient data for {symbol}: {len(df)} days")
+
+            # Compute indicators via stockstats
+            ss = StockDataFrame(df)
+            ma5_series = ss["close_5_sma"]
+            ma20_series = ss["close_20_sma"]
+            rsi_series = ss["rsi_14"]
+
+            ma5 = float(ma5_series.iloc[-1]) if not np.isnan(ma5_series.iloc[-1]) else None
+            ma20 = float(ma20_series.iloc[-1]) if not np.isnan(ma20_series.iloc[-1]) else None
+            rsi = float(rsi_series.iloc[-1]) if not np.isnan(rsi_series.iloc[-1]) else None
+
+            if ma5 is None or ma20 is None:
+                raise RuntimeError(f"MA data incomplete for {symbol}")
+
+            # MA crossover score: 1.0 when short MA above long MA
+            ma_score = 1.0 if ma5 > ma20 else 0.0
+            # RSI score: map 30-70 range to 0-1 (neutral zone normalization)
+            rsi_score = max(0.0, min(1.0, (rsi - 30) / 40)) if rsi is not None else 0.5
+
+            # Weighted momentum: MA trend (60%) + RSI (40%)
+            score = ma_score * 0.6 + rsi_score * 0.4
+            score = max(0.0, min(1.0, score))
+
+            parts = [f"MA5={ma5:.2f}", f"MA20={ma20:.2f}"]
+            if rsi is not None:
+                parts.append(f"RSI14={rsi:.1f}")
+            parts.append(f"{'bullish' if ma5 > ma20 else 'bearish'}")
+            return score, f"Momentum for {symbol}: {', '.join(parts)}"
 
         except Exception as e:
-            logger.debug("Momentum analysis error for %s: %s", symbol, e)
-            return 0.5, f"Momentum analysis failed: {e}"
+            logger.debug("Momentum fallback for %s: %s", symbol, e)
+            # Fallback: use change_pct from market data (original logic)
+            change_pct = data.get("change_pct", 0)
+            try:
+                change_pct = float(change_pct)
+            except (TypeError, ValueError):
+                change_pct = 0
+            score = max(0.0, min(1.0, 0.5 + change_pct / 100))
+            return score, f"Momentum fallback for {symbol}: change_pct={change_pct}%"
 
     def _analyze_fundamental(
         self, symbol: str, data: Dict[str, Any]
@@ -342,13 +402,73 @@ class StockSelector:
     def _analyze_sentiment(
         self, symbol: str, data: Dict[str, Any]
     ) -> Tuple[float, str]:
-        """Analyze sentiment indicators.
+        """Analyze social sentiment via SocialSentimentService (P2-1~2).
+
+        Fetches real sentiment scores from Reddit/X/Polymarket APIs.
+        Falls back to 0.5 (neutral) when the service is unavailable.
 
         Returns:
-            (score, reasoning_text) tuple
+            (score, reasoning_text) tuple — score in 0.0–1.0 range
         """
-        # Placeholder: would integrate news/social sentiment APIs
-        return 0.5, f"Sentiment analysis for {symbol} (placeholder)"
+        try:
+            from tradingagents.dataflows.social_sentiment import (
+                SocialSentimentService,
+            )
+
+            service = SocialSentimentService.from_env()
+            if not service.is_available:
+                logger.debug("Sentiment API not configured for %s", symbol)
+                return 0.5, f"Sentiment API not configured for {symbol}"
+
+            # Strip exchange prefix: "HK.00700" → "00700"
+            ticker = symbol.split(".")[-1] if "." in symbol else symbol
+            result = service.get_social_sentiment(ticker)
+
+            if not result.get("available"):
+                return 0.5, f"Sentiment unavailable for {symbol}"
+
+            # Extract sentiment components from Reddit data
+            reddit = result.get("reddit")
+            report = reddit.get("report", reddit) if isinstance(reddit, dict) else None
+            sentiment_score = None
+            buzz_score = None
+            mention_count = 0
+
+            if report and isinstance(report, dict):
+                # sentiment_score: API-provided (expected 0-1 range)
+                sentiment_score = report.get("sentiment_score")
+                # buzz_score: 0-100 scale from Reddit
+                raw_buzz = report.get("buzz_score") or report.get("buzz")
+                if raw_buzz is not None:
+                    try:
+                        buzz_score = float(raw_buzz) / 100.0
+                    except (TypeError, ValueError):
+                        pass
+                # Mention count for reasoning
+                mention_count = report.get("total_mentions") or report.get("mentions", 0)
+
+            # Combine available signals into 0-1 score
+            if sentiment_score is not None and buzz_score is not None:
+                try:
+                    score = (float(sentiment_score) + buzz_score) / 2.0
+                except (TypeError, ValueError):
+                    score = buzz_score  # fallback to buzz only
+            elif sentiment_score is not None:
+                score = float(sentiment_score)
+            elif buzz_score is not None:
+                score = buzz_score
+            else:
+                return 0.5, f"Sentiment data empty for {symbol}"
+
+            score = max(0.0, min(1.0, score))
+            parts = [f"sentiment={sentiment_score}", f"buzz={buzz_score:.0%}"]
+            if mention_count:
+                parts.append(f"mentions={mention_count}")
+            return score, f"Social sentiment for {symbol}: {', '.join(parts)}"
+
+        except Exception as e:
+            logger.debug("Sentiment fallback for %s: %s", symbol, e)
+            return 0.5, f"Sentiment fallback for {symbol}: {e}"
 
     def _analyze_volume(
         self, symbol: str, data: Dict[str, Any]
