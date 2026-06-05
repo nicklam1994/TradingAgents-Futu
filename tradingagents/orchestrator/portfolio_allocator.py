@@ -23,6 +23,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from collections import defaultdict
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,7 +155,11 @@ class PortfolioAllocator:
             )
 
         # Step 1: Calculate raw Kelly fractions
-        kelly_fracs = self._calculate_kelly_fractions(candidates, custom_odds)
+        # L-1~2: use historical win_rate for Kelly calibration
+        win_rate = self._get_historical_win_rate()
+        kelly_fracs = self._calculate_kelly_fractions(
+            candidates, custom_odds, historical_win_rate=win_rate,
+        )
 
         # Step 2: Apply caps and normalize
         adjusted_fracs = self._adjust_fractions(kelly_fracs)
@@ -187,17 +193,22 @@ class PortfolioAllocator:
         self,
         candidates: List[Dict[str, Any]],
         custom_odds: Optional[Dict[str, float]] = None,
+        historical_win_rate: Optional[float] = None,
     ) -> Dict[str, float]:
         """Calculate raw Kelly fractions for each candidate.
 
-        Uses composite_score as a proxy for win probability.
+        Uses historical win_rate when available; falls back to composite_score.
         """
         fractions: Dict[str, float] = {}
 
         for c in candidates:
             symbol = c["symbol"]
-            # composite_score ∈ [0, 1] → treat as win probability
-            p = c.get("composite_score", 0.5)
+            # L-1: prefer historical win_rate over signal confidence
+            p = (
+                historical_win_rate
+                if historical_win_rate is not None
+                else c.get("composite_score", 0.5)
+            )
             # Clamp to reasonable range
             p = max(0.1, min(0.9, p))
 
@@ -309,3 +320,66 @@ class PortfolioAllocator:
             ))
 
         return allocations
+
+    def _get_historical_win_rate(self) -> float:
+        """L-2: Compute win rate from actual simulated trade history.
+
+        Fetches deals from sim_trading_service, FIFO-matches buy/sell pairs,
+        and calculates the fraction of profitable trades.
+
+        Returns:
+            Win rate in [0, 1]. Defaults to 0.5 when sample size < 5.
+        """
+        try:
+            from api.services.sim_trading_service import get_deals
+            deals = get_deals()
+            returns = self._calculate_trade_returns(deals)
+            if len(returns) < 5:
+                logger.info(
+                    "Historical win rate: insufficient samples (%d < 5), using default 0.5",
+                    len(returns),
+                )
+                return 0.5
+            from tradingagents.dataflows.quant_metrics import QuantMetrics
+            wr = QuantMetrics.win_rate(returns)
+            logger.info("Historical win rate: %.1f%% (%d trades)", wr * 100, len(returns))
+            return wr
+        except Exception as e:
+            logger.warning("Failed to compute historical win rate: %s — using default 0.5", e)
+            return 0.5
+
+    def _calculate_trade_returns(self, deals: list) -> List[float]:
+        """FIFO-match buy/sell deals into round-trip trades and compute returns.
+
+        Args:
+            deals: List of DealInfo objects with .code, .side, .price, .qty fields.
+
+        Returns:
+            List of per-trade simple returns (e.g. 0.05 = +5%).
+        """
+        # Group by symbol
+        buy_queues: Dict[str, list] = defaultdict(list)
+        returns: List[float] = []
+
+        for deal in deals:
+            symbol = deal.code
+            side = (deal.side or "").upper()
+            price = deal.price
+            qty = deal.qty
+
+            if side == "BUY":
+                buy_queues[symbol].append([price, qty])
+            elif side == "SELL":
+                remaining = qty
+                while remaining > 0 and buy_queues[symbol]:
+                    buy_price, buy_qty = buy_queues[symbol][0]
+                    matched = min(remaining, buy_qty)
+                    # Per-share return for this matched pair
+                    if buy_price > 0:
+                        returns.append((price - buy_price) / buy_price)
+                    buy_queues[symbol][0][1] -= matched
+                    remaining -= matched
+                    if buy_queues[symbol][0][1] <= 0:
+                        buy_queues[symbol].pop(0)
+
+        return returns
