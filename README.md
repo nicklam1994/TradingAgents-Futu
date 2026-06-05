@@ -17,8 +17,8 @@
 | 2 | 搜索 API 框架（7 引擎）+ 搜索服务配置 UI | ✅ 完成 | `4585fab` |
 | 3 | 社交舆情（Reddit/X/Poly）+ 配置 UI | ✅ 完成 | `fa64c69` |
 | 4 | 结构化输出 & 风控增强 | ✅ 完成 | `b389e2e` |
-| 5 | Futu 模拟交易服务（8 端点 + RSA 加密） | ✅ 完成 | `7d9945a` |
-| 6 | 量化绩效指标 | ⏳ 待开始 | — |
+| 5 | Futu 模拟交易服务（9 端点 + RSA 加密 + OpenD 配置 UI） | ✅ 完成 | `fc8ed41` |
+| 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | 🔄 进行中 | — |
 | 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
 | 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
 | 9 | 前端 5 新页面 | ⏳ 待开始 | — |
@@ -49,7 +49,7 @@ Tavily / Brave / SerpAPI / SearXNG / Bocha / Anspire / MiniMax — 多 Key 轮�
 - ✅ **SerpAPI** — Google 搜索代理
 - ✅ **Bocha** — 中文 AI 搜索
 
-**前端配置**：设置页 → 搜索服务接入 → 填入 API Key → 启用 → 保存配置
+**前端配置**：设置页 → 搜索服务接入 → 填入 API Key → toggle 启用 → 保存配置
 
 ### 社交舆情（美股）✅ Phase 3
 
@@ -70,7 +70,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 ### Futu 模拟交易服务 ✅ Phase 5
 
-8 个 REST 端点覆盖 7 个 Futu 交易 API + 1 个高级信号执行。
+9 个 REST 端点覆盖 Futu 交易 API + 高级信号执行。
 
 | 端点 | Futu API | 说明 |
 |------|----------|------|
@@ -79,11 +79,16 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 | `POST /v1/sim/order` | `place_order` | 模拟下单 |
 | `DELETE /v1/sim/order` | `modify_order` | 撤单 |
 | `GET /v1/sim/orders` | `order_list_query` | 当日订单 |
-| `GET /v1/sim/acc-list` | `get_acc_list` | 账户列表 |
+| `GET /v1/sim/acc-list` | `get_acc_list` | 账户列表（HK/US） |
 | `GET /v1/sim/trading-info` | `acctradinginfo_query` | 可买/可卖量 |
 | `GET /v1/sim/history-orders` | `history_order_list_query` | 历史订单 |
+| `POST /v1/sim/signal` | `execute_signal` | 高级信号执行（Kelly/置信度） |
 
-**关键技术**：RSA 加密跨网连接（PKCS#1）+ 统一 `_get_trade_ctx()` 工厂方法
+**关键技术**：
+- RSA 加密跨网连接（`_need_encrypt()` localhost 不加密，远程自动 RSA）
+- 统一 `_get_trade_ctx()` 工厂方法
+- `get_acc_list(trd_market)` 支持 HK/US 双市场
+- 前端 Futu OpenD 配置 UI（连接测试 + 用户信息 + 行情权限 + 账户列表）
 
 ### 自主交易闭环（OODA 循环）⏳ Phase 8
 
@@ -93,9 +98,9 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 用户只需一句话：*"futu 虚拟账户，给你 2w 美金，执行闭环模拟交易"*
 
-### 量化绩效指标 ⏳ Phase 6
+### 量化绩效指标 🔄 Phase 6
 
-最大回撤 / 夏普比率 / Sortino 比率 / 胜率 / Calmar 比率 — 全自动计算。
+最大回撤 / 夏普比率 / Sortino 比率 / 胜率 / Calmar 比率 — 纯 Python 实现，`GET /v1/sim/performance` 端点。
 
 ### 反思记忆系统 ⏳ Phase 7
 
@@ -129,6 +134,11 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 │                    模拟交易层 ✅ Phase 5                          │
 │  Futu SIMULATE: 下单/撤单/持仓/可买量/历史订单/账户列表           │
 │  RSA 加密 + 统一工厂方法 + HK/US 双市场                          │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                    量化绩效 🔄 Phase 6                           │
+│  max_drawdown / sharpe / sortino / win_rate / calmar            │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -221,19 +231,20 @@ uv run python -m uvicorn api.main:app --port 8000
 | SSE 事件流 | `GET /v1/jobs/{id}/events` |
 | 历史报告 | `GET /v1/reports` |
 
-### 搜索服务配置 ✅
+### 模型 & 配置
 
 | 操作 | 接口 |
 |------|------|
+| 获取运行时配置 | `GET /v1/config` |
+| 更新运行时配置 | `PUT /v1/config` |
 | 获取搜索配置 | `GET /v1/config/search` |
 | 保存搜索配置 | `PUT /v1/config/search` |
-
-### 社交舆情配置 ✅
-
-| 操作 | 接口 |
-|------|------|
 | 获取舆情配置 | `GET /v1/config/social-sentiment` |
 | 保存舆情配置 | `PUT /v1/config/social-sentiment` |
+| 获取 Futu 配置 | `GET /v1/config/futu-opend` |
+| 保存 Futu 配置 | `PUT /v1/config/futu-opend` |
+| Futu 连接测试 | `GET /v1/futu/status` |
+| 模型列表 | `GET /v1/models` |
 
 ### 模拟交易 ✅ Phase 5
 
@@ -249,7 +260,13 @@ uv run python -m uvicorn api.main:app --port 8000
 | 历史订单 | `GET /v1/sim/history-orders` |
 | 信号执行 | `POST /v1/sim/signal` |
 
-### 自主交易（Phase 8）
+### 量化绩效 🔄 Phase 6
+
+| 操作 | 接口 |
+|------|------|
+| 绩效指标 | `GET /v1/sim/performance` |
+
+### 自主交易 ⏳ Phase 8
 
 | 操作 | 接口 |
 |------|------|
@@ -293,7 +310,7 @@ tradingagents/
 │   ├── search_service.py      # ✅ 7 引擎搜索（Phase 2）
 │   ├── search_providers/      # ✅ 7 个搜索引擎实现
 │   ├── social_sentiment.py    # ✅ Reddit/X/Polymarket（Phase 3）
-│   └── quant_metrics.py       # 🆕 量化绩效指标（Phase 6）
+│   └── quant_metrics.py       # 🔄 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
 │   └── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
 ├── prompts/                   # 中英文提示词
@@ -308,6 +325,11 @@ api/                           # FastAPI 后端
     └── autonomous_service.py  # 🆕 自主任务管理（Phase 8）
 
 frontend/                      # React + Vite 前端
+├── public/
+│   └── providers.json         # ✅ API Provider 清单（动态加载）
+└── src/
+    └── pages/
+        └── Settings.tsx       # ✅ 模型接入 + Futu OpenD + 搜索 + 舆情配置
 ```
 
 ---
@@ -317,7 +339,7 @@ frontend/                      # React + Vite 前端
 | 层 | 技术 |
 |----|------|
 | **Agent 框架** | LangGraph + LangChain |
-| **LLM** | OpenAI / Anthropic / Gemini / DeepSeek / Moonshot |
+| **LLM** | OpenAI / Anthropic / Gemini / DeepSeek / Moonshot / MiMo |
 | **后端** | FastAPI + SQLite + SQLAlchemy |
 | **前端** | React + TypeScript + Vite + Tailwind |
 | **行情/交易** | Futu OpenD（港股 + 美股模拟交易） |
