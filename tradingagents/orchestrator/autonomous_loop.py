@@ -707,14 +707,14 @@ class AutonomousLoop:
         all_returns: List[float] = []
         tasks = self._store.list_tasks(limit=10)
 
+        # W4-1: positions lifted outside task loop for cross-task FIFO matching
+        positions: Dict[str, List[List[float]]] = defaultdict(list)
+
         for task in tasks:
             checkpoint = task.get("checkpoint") or {}
             if isinstance(checkpoint, str):
                 checkpoint = json.loads(checkpoint)
             state_data = checkpoint.get("state", {})
-
-            # Track positions for FIFO matching
-            positions: Dict[str, List[List[float]]] = defaultdict(list)
 
             executions = state_data.get("executions", [])
             for ex in executions:
