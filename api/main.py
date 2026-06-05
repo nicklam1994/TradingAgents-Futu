@@ -4066,6 +4066,7 @@ def update_social_sentiment_config(
 class FutuOpendConfigResponse(BaseModel):
     host: str = "127.0.0.1"
     port: int = 11111
+    rsa_key: str = ""
 
 
 @app.get("/v1/config/futu-opend", response_model=FutuOpendConfigResponse)
@@ -4077,7 +4078,8 @@ def get_futu_opend_config(
     env_vals = dotenv_values(".env")
     host = env_vals.get("FUTU_OPEND_HOST", "127.0.0.1")
     port = int(env_vals.get("FUTU_OPEND_PORT", "11111"))
-    return FutuOpendConfigResponse(host=host, port=port)
+    has_rsa = bool(env_vals.get("FUTU_RSA_KEY_PATH", "")) and os.path.exists(env_vals.get("FUTU_RSA_KEY_PATH", ""))
+    return FutuOpendConfigResponse(host=host, port=port, rsa_key="[SET]" if has_rsa else "")
 
 
 @app.put("/v1/config/futu-opend")
@@ -4114,6 +4116,28 @@ def update_futu_opend_config(
         f.writelines(new_lines)
     os.environ["FUTU_OPEND_HOST"] = request.host
     os.environ["FUTU_OPEND_PORT"] = str(request.port)
+    
+    # Save RSA key if provided
+    if request.rsa_key and "PRIVATE KEY" in request.rsa_key:
+        rsa_path = "config/rsa_key.txt"
+        os.makedirs("config", exist_ok=True)
+        with open(rsa_path, "w") as f:
+            f.write(request.rsa_key.strip() + chr(10))
+        # Update .env RSA path
+        rsa_lines = []
+        found = False
+        for line in new_lines:
+            if line.startswith("FUTU_RSA_KEY_PATH="):
+                rsa_lines.append(f"FUTU_RSA_KEY_PATH={rsa_path}" + chr(10))
+                found = True
+            else:
+                rsa_lines.append(line)
+        if not found:
+            rsa_lines.append(f"FUTU_RSA_KEY_PATH={rsa_path}" + chr(10))
+        with open(env_path, "w") as f:
+            f.writelines(rsa_lines)
+        os.environ["FUTU_RSA_KEY_PATH"] = rsa_path
+    
     return {"message": "Futu OpenD 配置已保存"}
 
 

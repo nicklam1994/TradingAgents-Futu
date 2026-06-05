@@ -97,6 +97,7 @@ export default function Settings() {
     const [futuSaved, setFutuSaved] = useState(false)
     const [futuStatus, setFutuStatus] = useState<{connected: boolean; host?: string; port?: number; server_ver?: string; error?: string; user?: any; accounts?: any[]}>({connected: false})
     const [futuTesting, setFutuTesting] = useState(false)
+    const [futuEncrypt, setFutuEncrypt] = useState(false)
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
@@ -245,6 +246,7 @@ export default function Settings() {
             const data = await api.get('/v1/config/futu-opend')
             setFutuHost(data.host || '127.0.0.1')
             setFutuPort(data.port || 11111)
+            setFutuEncrypt(data.host !== '127.0.0.1' && data.host !== 'localhost')
         } catch {}
     }
 
@@ -652,6 +654,52 @@ export default function Settings() {
                         />
                     </div>
                 </div>
+
+                {/* 跨网提示 */}
+                {futuHost !== '127.0.0.1' && futuHost !== 'localhost' && (
+                    <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-sm text-amber-700 dark:text-amber-400">
+                        <span>⚠️</span>
+                        <span>跨网通信，交易连接需要加密。如果无需跨网通信，可以将配置文件中的监听地址修改为 <code className="font-mono bg-amber-100 dark:bg-amber-500/20 px-1 rounded">127.0.0.1</code></span>
+                    </div>
+                )}
+
+                {/* 加密开关 */}
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 dark:border-slate-700/80 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">启用连接加密</div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">跨网连接 OpenD 时需要 RSA 加密（localhost 不需要）</div>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setFutuEncrypt(!futuEncrypt)}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                futuEncrypt ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${futuEncrypt ? 'translate-x-6' : 'translate-x-1'}`} />
+                        </button>
+                    </div>
+                    {futuEncrypt && (
+                        <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">RSA 私钥文件 (config/rsa_key.txt)</label>
+                            <input
+                                type="file"
+                                accept=".txt,.pem,.key"
+                                onChange={async (e) => {
+                                    const file = e.target.files?.[0]
+                                    if (!file) return
+                                    const text = await file.text()
+                                    try {
+                                        await api.put('/v1/config/futu-opend', { host: futuHost, port: futuPort, rsa_key: text })
+                                        alert('RSA 密钥已上传')
+                                    } catch { alert('上传失败') }
+                                }}
+                                className="block w-full text-sm text-slate-600 dark:text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-500/10 dark:file:text-blue-400 hover:file:bg-blue-100 dark:hover:file:bg-blue-500/20"
+                            />
+                        </div>
+                    )}
+                </div>
                 
                 <div className="flex justify-end gap-2 pt-2">
                     <button
@@ -832,13 +880,11 @@ export default function Settings() {
                                         updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled }
                                         setSearchProviders(updated)
                                     }}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                                        provider.enabled
-                                            ? 'bg-green-100 dark:bg-green-500/10 text-green-700 dark:text-green-400'
-                                            : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                        provider.enabled ? 'bg-blue-500' : 'bg-slate-300 dark:bg-slate-600'
                                     }`}
                                 >
-                                    {provider.enabled ? '启用' : '禁用'}
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${provider.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
                                 </button>
                             </div>
                         </div>
