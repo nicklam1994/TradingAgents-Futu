@@ -394,9 +394,36 @@ export default function Settings() {
         return response
     }
 
+    // Per-provider config persistence
+    const saveProviderConfig = () => {
+        try {
+            const key = `ta-provider-${providerPreset}`
+            localStorage.setItem(key, JSON.stringify({
+                baseUrl: customBaseUrl,
+                quickThinkLlm,
+                deepThinkLlm,
+            }))
+        } catch {}
+    }
+
+    const loadProviderConfig = (presetId: string) => {
+        try {
+            const stored = localStorage.getItem(`ta-provider-${presetId}`)
+            if (stored) {
+                const cfg = JSON.parse(stored)
+                if (cfg.baseUrl) setCustomBaseUrl(cfg.baseUrl)
+                if (cfg.quickThinkLlm) setQuickThinkLlm(cfg.quickThinkLlm)
+                if (cfg.deepThinkLlm) setDeepThinkLlm(cfg.deepThinkLlm)
+                return true
+            }
+        } catch {}
+        return false
+    }
+
     const handleSaveAll = async () => {
         setSaveAllSaving(true)
         try {
+            saveProviderConfig()
             await submitConfig({ includeEmail: true, includeWecom: true, successMessage: '全部设置已保存' })
             setSaveAllSaved(true)
             setTimeout(() => setSaveAllSaved(false), 3000)
@@ -508,7 +535,16 @@ export default function Settings() {
                         </label>
                         <select
                             value={providerPreset}
-                            onChange={e => setProviderPreset(e.target.value)}
+                            onChange={e => {
+                                const newPreset = e.target.value
+                                setProviderPreset(newPreset)
+                                // Try loading saved config for this provider
+                                if (!loadProviderConfig(newPreset)) {
+                                    // Use default baseUrl from preset
+                                    const preset = providerPresets.find(p => p.id === newPreset)
+                                    if (preset) setCustomBaseUrl(preset.baseUrl || '')
+                                }
+                            }}
                             className="input w-full"
                             disabled={configLoading}
                         >
