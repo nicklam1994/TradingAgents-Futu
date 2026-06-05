@@ -19,8 +19,8 @@
 | 4 | 结构化输出 & 风控增强 | ✅ 完成 | `b389e2e` |
 | 5 | Futu 模拟交易服务（9 端点 + RSA 加密 + OpenD 配置 UI） | ✅ 完成 | `fc8ed41` |
 | 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | ✅ 完成 | `f55a989` |
-| 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
-| 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
+| 7 | 模拟交易 Agent & 反思（SimExecutor + SimTradeReflector） | ✅ 完成 | `7df1e64` |
+| 8 | 自主 Orchestrator（OODA） | 🔄 进行中 | — |
 | 9 | 前端 5 新页面 | ⏳ 待开始 | — |
 | 10 | 止损/策略插件 | ⏳ 待开始 | — |
 | 11 | 通知系统移植（7 渠道 + Bot 平台） | ⏳ 待开始 | — |
@@ -104,17 +104,25 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 **实现**：FIFO 匹配买卖对，从模拟账户成交记录自动计算。
 
-### 自主交易闭环（OODA 循环）⏳ Phase 8
+### 模拟交易 Agent & 反思 ✅ Phase 7
+
+信号→下单 + 交易后反思→记忆，完整闭环。
+
+| 组件 | 说明 |
+|------|------|
+| **SimExecutor** | 信号过滤（confidence ≥ 0.7）+ Kelly 仓位分配 + 执行下单 |
+| **SimTradeReflector** | LLM 生成反思教训，存入 BM25 记忆 |
+| **POST /v1/sim/reflect** | 触发反思的 API 端点 |
+
+**Kelly 公式**：`f = (p * b - q) / b`，half-Kelly 保守策略。
+
+### 自主交易闭环（OODA 循环）🔄 Phase 8
 
 ```
 选股扫描 → 15 Agent 分析 → 历史回测 → Kelly 仓位分配 → Futu 模拟下单 → 持仓监控 → 反思教训 → 策略优化 → 下一轮
 ```
 
 用户只需一句话：*"futu 虚拟账户，给你 2w 美金，执行闭环模拟交易"*
-
-### 反思记忆系统 ⏳ Phase 7
-
-交易后 LLM 自动反思，生成教训存入 BM25 记忆，下次类似场景自动调取。5 个独立记忆实例（Bull/Bear/Trader/Judge/RiskJudge）。
 
 ---
 
@@ -124,7 +132,7 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Orchestrator（自主循环编排器）                  │
+│                    Orchestrator（自主循环编排器） 🔄 Phase 8      │
 │  Command Router → Stock Selector → Portfolio Allocator → Observer│
 └──────────────────────────────┬──────────────────────────────────┘
                                │
@@ -141,9 +149,9 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
-│                    模拟交易层 ✅ Phase 5                          │
-│  Futu SIMULATE: 下单/撤单/持仓/可买量/历史订单/账户列表           │
-│  RSA 加密 + 统一工厂方法 + HK/US 双市场                          │
+│                    模拟交易层 ✅ Phase 5-7                       │
+│  SimTradingService + SimExecutor + SimTradeReflector             │
+│  RSA 加密 + 统一工厂方法 + HK/US 双市场 + Kelly 仓位             │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -277,7 +285,13 @@ uv run python -m uvicorn api.main:app --port 8000
 |------|------|
 | 绩效指标 | `GET /v1/sim/performance` |
 
-### 自主交易 ⏳ Phase 8
+### 模拟反思 ✅ Phase 7
+
+| 操作 | 接口 |
+|------|------|
+| 触发反思 | `POST /v1/sim/reflect` |
+
+### 自主交易 🔄 Phase 8
 
 | 操作 | 接口 |
 |------|------|
@@ -311,6 +325,8 @@ tradingagents/
 │   ├── trader/                # Trader + SimExecutor + ExitStrategy
 │   └── utils/                 # 记忆、校准、工具
 ├── orchestrator/              # 🆕 自主编排层（OODA 循环）
+│   ├── sim_executor.py        # ✅ SimExecutor（Phase 7）
+│   └── autonomous_loop.py     # 🔄 OODA 编排（Phase 8）
 ├── dataflows/                 # 数据源（Provider Registry）
 │   ├── providers/
 │   │   ├── futu_provider.py   # ✅ Futu OpenD Provider（Phase 1）
@@ -323,7 +339,8 @@ tradingagents/
 │   ├── social_sentiment.py    # ✅ Reddit/X/Polymarket（Phase 3）
 │   └── quant_metrics.py       # ✅ 量化绩效指标（Phase 6）
 ├── graph/                     # LangGraph 状态机
-│   └── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
+│   ├── signal_processing.py   # ✅ VERDICT/RISK_JUDGE 结构化提取（Phase 4）
+│   └── reflection.py          # ✅ SimTradeReflector（Phase 7）
 ├── prompts/                   # 中英文提示词
 └── skills/                    # 🆕 可插拔策略插件（Phase 10）
 
@@ -333,7 +350,7 @@ api/                           # FastAPI 后端
 └── services/
     ├── report_service.py      # ✅ 结构化字段解析 + 存储（Phase 4）
     ├── sim_trading_service.py # ✅ Futu 模拟交易（Phase 5）
-    └── autonomous_service.py  # 🆕 自主任务管理（Phase 8）
+    └── autonomous_service.py  # 🔄 自主任务管理（Phase 8）
 
 frontend/                      # React + Vite 前端
 ├── public/
