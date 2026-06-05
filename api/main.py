@@ -4059,6 +4059,121 @@ def update_social_sentiment_config(
     return {"message": "社交舆情配置已保存"}
 
 
+# ---------------------------------------------------------------------------
+# Futu OpenD Configuration
+# ---------------------------------------------------------------------------
+
+class FutuOpendConfigResponse(BaseModel):
+    host: str = "127.0.0.1"
+    port: int = 11111
+
+
+@app.get("/v1/config/futu-opend", response_model=FutuOpendConfigResponse)
+def get_futu_opend_config(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    from dotenv import dotenv_values
+    env_vals = dotenv_values(".env")
+    host = env_vals.get("FUTU_OPEND_HOST", "127.0.0.1")
+    port = int(env_vals.get("FUTU_OPEND_PORT", "11111"))
+    return FutuOpendConfigResponse(host=host, port=port)
+
+
+@app.put("/v1/config/futu-opend")
+def update_futu_opend_config(
+    request: FutuOpendConfigResponse,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    import re
+    env_path = ".env"
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, "r") as f:
+            lines = f.readlines()
+    keys_to_update = {"FUTU_OPEND_HOST", "FUTU_OPEND_PORT"}
+    new_vals = {
+        "FUTU_OPEND_HOST": request.host,
+        "FUTU_OPEND_PORT": str(request.port),
+    }
+    updated_keys = set()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            key = stripped.split("=", 1)[0].strip()
+            if key in keys_to_update:
+                new_lines.append(f"{key}={new_vals[key]}\n")
+                updated_keys.add(key)
+                continue
+        new_lines.append(line)
+    for key in keys_to_update - updated_keys:
+        new_lines.append(f"{key}={new_vals[key]}\n")
+    with open(env_path, "w") as f:
+        f.writelines(new_lines)
+    os.environ["FUTU_OPEND_HOST"] = request.host
+    os.environ["FUTU_OPEND_PORT"] = str(request.port)
+    return {"message": "Futu OpenD 配置已保存"}
+
+
+@app.get("/v1/futu/status")
+def get_futu_status(
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """Test Futu OpenD connectivity and return account info."""
+    try:
+        from futu import OpenQuoteContext, SysConfig, SecurityFirm
+        from dotenv import dotenv_values
+        env_vals = dotenv_values(".env")
+        host = env_vals.get("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(env_vals.get("FUTU_OPEND_PORT", "11111"))
+        
+        # Enable RSA for remote connections
+        rsa_path = env_vals.get("FUTU_RSA_KEY_PATH", "")
+        need_encrypt = host not in ("127.0.0.1", "localhost")
+        
+        if need_encrypt and rsa_path:
+            SysConfig.enable_proto_encrypt(True)
+            SysConfig.set_init_rsa_file(rsa_path)
+        
+        # Test quote connection
+        quote_ctx = OpenQuoteContext(host=host, port=port)
+        ret, data = quote_ctx.get_global_state()
+        quote_ctx.close()
+        
+        if ret != 0:
+            return {"connected": False, "error": str(data)}
+        
+        # Get user info via trade context
+        from futu import OpenSecTradeContext, TrdEnv, TrdMarket
+        
+        trade_ctx = OpenSecTradeContext(host=host, port=port, filter_trdmarket=TrdMarket.HK, security_firm=SecurityFirm.FUTUSECURITIES)
+        ret, data = trade_ctx.get_acc_list()
+        trade_ctx.close()
+        
+        acc_info = []
+        if ret == 0 and not data.empty:
+            for _, row in data.iterrows():
+                acc_info.append({
+                    "acc_id": int(row.get("acc_id", 0)),
+                    "acc_type": str(row.get("acc_type", "")),
+                    "trd_env": str(row.get("trd_env", "")),
+                    "card_num": str(row.get("card_num", "")),
+                    "security_firm": str(row.get("security_firm", "")),
+                    "sim_acc_type": str(row.get("sim_acc_type", "")),
+                })
+        
+        return {
+            "connected": True,
+            "host": host,
+            "port": port,
+            "server_ver": str(data.get("server_ver", "")) if hasattr(data, 'get') else "",
+            "accounts": acc_info,
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
 
 @app.post("/v1/config/warmup", response_model=UserRuntimeWarmupResponse)
 def warmup_runtime_config(

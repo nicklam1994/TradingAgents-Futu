@@ -89,6 +89,14 @@ export default function Settings() {
 
     // Search config states
     const [searchProviders, setSearchProviders] = useState<SearchProvider[]>([])
+    
+    // Futu OpenD state
+    const [futuHost, setFutuHost] = useState('127.0.0.1')
+    const [futuPort, setFutuPort] = useState(11111)
+    const [futuSaving, setFutuSaving] = useState(false)
+    const [futuSaved, setFutuSaved] = useState(false)
+    const [futuStatus, setFutuStatus] = useState<{connected: boolean; host?: string; port?: number; server_ver?: string; error?: string; user?: any; accounts?: any[]}>({connected: false})
+    const [futuTesting, setFutuTesting] = useState(false)
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
@@ -164,6 +172,7 @@ export default function Settings() {
         fetchTokens()
         loadSearchConfig()
         loadSocialSentimentConfig()
+        loadFutuConfig()
     }, [])
 
     const fetchTokens = async () => {
@@ -228,6 +237,39 @@ export default function Settings() {
             setConfigError(e?.message || '保存失败')
         } finally {
             setSocialSaving(false)
+        }
+    }
+
+    async function loadFutuConfig() {
+        try {
+            const data = await api.get('/v1/config/futu-opend')
+            setFutuHost(data.host || '127.0.0.1')
+            setFutuPort(data.port || 11111)
+        } catch {}
+    }
+
+    async function saveFutuConfig() {
+        setFutuSaving(true)
+        try {
+            await api.put('/v1/config/futu-opend', { host: futuHost, port: futuPort })
+            setFutuSaved(true)
+            setTimeout(() => setFutuSaved(false), 3000)
+        } catch (e: any) {
+            setConfigError(e?.message || '保存失败')
+        } finally {
+            setFutuSaving(false)
+        }
+    }
+
+    async function testFutuConnection() {
+        setFutuTesting(true)
+        try {
+            const data = await api.get('/v1/futu/status')
+            setFutuStatus(data)
+        } catch (e: any) {
+            setFutuStatus({ connected: false, error: e?.message || '连接失败' })
+        } finally {
+            setFutuTesting(false)
         }
     }
 
@@ -578,6 +620,160 @@ export default function Settings() {
                         )}
                     </div>
                 </div>
+            </div>
+
+            {/* Futu OpenD 接入 */}
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <Link2 className="w-5 h-5 text-orange-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Futu OpenD 接入</h2>
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">配置 Futu OpenD 网关连接，用于港股/美股实时行情与模拟交易。</p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Host</label>
+                        <input
+                            type="text"
+                            value={futuHost}
+                            onChange={e => setFutuHost(e.target.value)}
+                            placeholder="127.0.0.1"
+                            className="input w-full"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
+                        <input
+                            type="number"
+                            value={futuPort}
+                            onChange={e => setFutuPort(parseInt(e.target.value) || 11111)}
+                            placeholder="11111"
+                            className="input w-full"
+                        />
+                    </div>
+                </div>
+                
+                <div className="flex justify-end gap-2 pt-2">
+                    <button
+                        onClick={testFutuConnection}
+                        disabled={futuTesting}
+                        className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                    >
+                        {futuTesting ? (
+                            <><Loader2 className="w-4 h-4 animate-spin inline mr-1" /> 测试中...</>
+                        ) : '测试连接'}
+                    </button>
+                    <button
+                        onClick={saveFutuConfig}
+                        disabled={futuSaving}
+                        style={futuSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                            futuSaved
+                                ? ''
+                                : 'btn-primary'
+                        }`}
+                    >
+                        {futuSaved ? '✓ 保存成功' : futuSaving ? '保存中...' : '保存配置'}
+                    </button>
+                </div>
+
+                {/* Connection Status */}
+                {futuStatus.connected !== undefined && (
+                    <div className={`p-4 rounded-lg border ${
+                        futuStatus.connected
+                            ? 'bg-green-50 dark:bg-green-500/10 border-green-200 dark:border-green-500/30'
+                            : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30'
+                    }`}>
+                        {futuStatus.connected ? (
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2">
+                                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                                    <span className="font-medium text-green-700 dark:text-green-400">OpenD 已连接</span>
+                                    <span className="text-sm text-slate-500">{futuStatus.host}:{futuStatus.port}</span>
+                                    <span className="text-xs text-slate-400">v{futuStatus.server_ver}</span>
+                                </div>
+                                
+                                {/* 牛牛号 & 额度 */}
+                                {futuStatus.user && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                {futuStatus.user.avatar_url && (
+                                                    <img src={futuStatus.user.avatar_url} className="w-6 h-6 rounded-full" alt="" />
+                                                )}
+                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{futuStatus.user.nick_name || '未知'}</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">牛牛号：{futuStatus.user.user_id}</div>
+                                        </div>
+                                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                                            <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">用户额度</div>
+                                            <div className="grid grid-cols-2 gap-1 text-xs">
+                                                <span className="text-slate-500">订阅</span>
+                                                <span className="font-mono text-slate-700 dark:text-slate-300">{futuStatus.user.sub_quota}</span>
+                                                <span className="text-slate-500">历史K线</span>
+                                                <span className="font-mono text-slate-700 dark:text-slate-300">{futuStatus.user.history_kl_quota}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* 行情权限 */}
+                                {futuStatus.user && (
+                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">行情权限</div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div>
+                                                <div className="text-xs text-slate-500 mb-1">🇭🇰 香港市场</div>
+                                                <div className="space-y-0.5 text-xs">
+                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_option_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期货</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_future_qot_right}</span></div>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <div className="text-xs text-slate-500 mb-1">🇺🇸 美国市场</div>
+                                                <div className="space-y-0.5 text-xs">
+                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.us_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.us_option_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期货</span><span className="font-mono text-slate-400">{futuStatus.user.us_future_qot_right || 'N/A'}</span></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* 账户列表 */}
+                                {futuStatus.accounts && futuStatus.accounts.length > 0 && (
+                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">交易账户</div>
+                                        <div className="space-y-1.5">
+                                            {futuStatus.accounts.filter((a: any) => a.acc_status === 'ACTIVE').map((acc: any, i: number) => (
+                                                <div key={i} className="flex items-center gap-2 text-xs">
+                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                        acc.trd_env === 'SIMULATE' 
+                                                            ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                                            : 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400'
+                                                    }`}>{acc.trd_env === 'SIMULATE' ? '模拟' : '实盘'}</span>
+                                                    <span className="font-mono text-slate-700 dark:text-slate-300">{acc.acc_id}</span>
+                                                    <span className="text-slate-500">{acc.acc_type}</span>
+                                                    {acc.sim_acc_type && acc.sim_acc_type !== 'N/A' && (
+                                                        <span className="text-slate-400">({acc.sim_acc_type})</span>
+                                                    )}
+                                                    <span className="text-slate-400 ml-auto">{acc.acc_status}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <span className="text-red-500">✗</span>
+                                <span className="text-red-700 dark:text-red-400">连接失败：{futuStatus.error || '无法连接到 OpenD'}</span>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* 搜索服务接入 */}
