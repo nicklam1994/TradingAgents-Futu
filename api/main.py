@@ -838,6 +838,24 @@ class UserRuntimeConfigUpdateRequest(BaseModel):
     default_analysts: Optional[List[str]] = None
 
 
+class SearchProviderConfig(BaseModel):
+    name: str
+    label: str
+    env_key: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    enabled: bool = True
+
+
+class SearchConfigResponse(BaseModel):
+    providers: List[SearchProviderConfig]
+    has_any_key: bool = False
+
+
+class SearchConfigUpdateRequest(BaseModel):
+    providers: List[SearchProviderConfig]
+
+
 class UserRuntimeWarmupRequest(UserRuntimeConfigUpdateRequest):
     prompt: str = "你好"
 
@@ -3779,6 +3797,71 @@ def update_runtime_config(
         "current": current_cfg,
         "warmup": warmup_payload,
     }
+
+
+@app.get("/v1/config/search", response_model=SearchConfigResponse)
+def get_search_config(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    search_config = {}
+    if user_cfg and hasattr(user_cfg, 'search_config') and user_cfg.search_config:
+        try:
+            search_config = json.loads(user_cfg.search_config)
+        except Exception:
+            pass
+
+    default_providers = [
+        {"name": "tavily", "label": "Tavily", "env_key": "TAVILY_API_KEY", "api_key": "", "enabled": True},
+        {"name": "brave", "label": "Brave Search", "env_key": "BRAVE_API_KEY", "api_key": "", "enabled": True},
+        {"name": "serpapi", "label": "SerpAPI", "env_key": "SERPAPI_API_KEY", "api_key": "", "enabled": True},
+        {"name": "bocha", "label": "Bocha", "env_key": "BOCHA_API_KEY", "api_key": "", "enabled": True},
+        {"name": "anspire", "label": "Anspire", "env_key": "ANSPIRE_API_KEY", "api_key": "", "enabled": True},
+        {"name": "minimax", "label": "MiniMax", "env_key": "MINIMAX_API_KEY", "api_key": "", "enabled": True},
+        {"name": "searxng", "label": "SearXNG", "env_key": "SEARXNG_BASE_URL", "api_key": "", "base_url": "", "enabled": True},
+    ]
+
+    providers = []
+    for dp in default_providers:
+        saved = search_config.get(dp["name"], {})
+        key = saved.get("api_key", "")
+        providers.append(SearchProviderConfig(
+            name=dp["name"],
+            label=dp["label"],
+            env_key=dp["env_key"],
+            api_key=_mask_secret_value(key) if key else "",
+            base_url=saved.get("base_url", dp.get("base_url", "")),
+            enabled=saved.get("enabled", True),
+        ))
+
+    has_any = any(p.api_key for p in providers)
+    return SearchConfigResponse(providers=providers, has_any_key=has_any)
+
+
+@app.put("/v1/config/search")
+def update_search_config(
+    request: SearchConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    from api.services import auth_service
+    config_data = {}
+    for p in request.providers:
+        config_data[p.name] = {
+            "api_key": p.api_key if p.api_key else "",
+            "base_url": p.base_url if p.base_url else "",
+            "enabled": p.enabled,
+        }
+
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    if user_cfg:
+        user_cfg.search_config = json.dumps(config_data)
+        db.commit()
+    else:
+        raise HTTPException(status_code=404, detail="User config not found")
+
+    return {"message": "搜索服务配置已保存", "providers_count": len(config_data)}
 
 
 @app.post("/v1/config/warmup", response_model=UserRuntimeWarmupResponse)

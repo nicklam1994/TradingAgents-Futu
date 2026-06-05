@@ -136,6 +136,9 @@ def _ensure_user_schema() -> None:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN wecom_webhook_encrypted TEXT"))
             if "default_analysts" not in llm_columns:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN default_analysts TEXT"))
+            search_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
+            if "search_config" not in search_cols:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN search_config TEXT"))
     except Exception as e:
         logger.error("Failed to ensure user schema: %s", e)
 
