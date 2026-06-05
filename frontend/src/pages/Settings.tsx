@@ -22,8 +22,8 @@ type SearchProvider = {
     enabled: boolean
 }
 
-// Loaded from /models.json at runtime
-let PROVIDER_PRESETS: ProviderPreset[] = [
+// Default providers (fallback if /models.json fails to load)
+const DEFAULT_PROVIDER_PRESETS: ProviderPreset[] = [
     { id: 'openai', label: 'OpenAI', provider: 'openai', baseUrl: 'https://api.openai.com/v1', protocol: 'OpenAI' },
     { id: 'custom-openai', label: '自定义 OpenAI 兼容', provider: 'openai', baseUrl: '', protocol: 'OpenAI 兼容', editableBaseUrl: true },
 ]
@@ -35,13 +35,12 @@ type ModelPreset = {
     provider: string
 }
 
-// Loaded from /models.json at runtime
-let MODEL_PRESETS: ModelPreset[] = []
+const MODEL_PRESETS: ModelPreset[] = []
 
 function inferPreset(llmProvider: string, backendUrl: string): string {
     const normalizedProvider = (llmProvider || '').toLowerCase()
     const normalizedUrl = (backendUrl || '').replace(/\/$/, '')
-    const matched = PROVIDER_PRESETS.find((preset) => {
+    const matched = DEFAULT_PROVIDER_PRESETS.find((preset) => {
         if (preset.provider !== normalizedProvider) return false
         if (!preset.baseUrl && preset.id !== 'custom-openai') return true
         return preset.baseUrl.replace(/\/$/, '') === normalizedUrl
@@ -104,6 +103,7 @@ export default function Settings() {
     const [futuTesting, setFutuTesting] = useState(false)
     const [futuEncrypt, setFutuEncrypt] = useState(false)
     const [modelPresetsLoaded, setModelPresetsLoaded] = useState(false)
+    const [providerPresets, setProviderPresets] = useState<ProviderPreset[]>(DEFAULT_PROVIDER_PRESETS)
     const [searchConfigLoading, setSearchConfigLoading] = useState(false)
     const [searchSaving, setSearchSaving] = useState(false)
 
@@ -116,20 +116,21 @@ export default function Settings() {
     const [socialSaved, setSocialSaved] = useState(false)
 
     const selectedPreset = useMemo(
-        () => PROVIDER_PRESETS.find((item) => item.id === providerPreset) || PROVIDER_PRESETS[0],
-        [providerPreset],
+        () => providerPresets.find((item) => item.id === providerPreset) || providerPresets[0],
+        [providerPreset, providerPresets],
     )
 
     const effectiveProvider = selectedPreset.provider
     const effectiveBaseUrl = selectedPreset.editableBaseUrl ? customBaseUrl.trim() : selectedPreset.baseUrl
 
-    // Load models.json on demand
+    // Load providers from /models.json on demand
     const loadModelPresets = async () => {
         try {
             const r = await fetch('/models.json')
             const data = await r.json()
-            if (data.providers?.length) { PROVIDER_PRESETS.length = 0; data.providers.forEach((p: any) => PROVIDER_PRESETS.push(p)) }
-            if (data.models?.length) { MODEL_PRESETS.length = 0; data.models.forEach((m: any) => MODEL_PRESETS.push(m)) }
+            if (data.providers?.length) {
+                setProviderPresets(data.providers)
+            }
             setModelPresetsLoaded(true)
         } catch { console.warn('Failed to load models.json') }
     }
@@ -491,7 +492,7 @@ export default function Settings() {
                             className="input w-full"
                             disabled={configLoading}
                         >
-                            {PROVIDER_PRESETS.map((preset) => (
+                            {providerPresets.map((preset) => (
                                 <option key={preset.id} value={preset.id}>{preset.label}</option>
                             ))}
                         </select>
