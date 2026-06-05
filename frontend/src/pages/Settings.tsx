@@ -557,25 +557,20 @@ export default function Settings() {
                             常规模型
                             <span className="ml-1 text-xs text-slate-400 font-normal">用于意图识别、JSON 提取等轻量任务</span>
                         </label>
-                        <div className="flex gap-2">
-                            <select
-                                value={quickThinkLlm}
-                                onChange={e => setQuickThinkLlm(e.target.value)}
-                                className="input flex-1"
-                                disabled={configLoading}
-                            >
-                                <option value="">{quickThinkLlm || '选择或手动输入'}</option>
-                                {MODEL_PRESETS.filter(m => m.tier === 'quick').map(m => (
-                                    <option key={m.id} value={m.id}>{m.label}</option>
-                                ))}
-                            </select>
-                            <button
-                                type="button"
-                                onClick={() => setQuickThinkLlm(prompt('输入模型名称') || quickThinkLlm)}
-                                className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm"
-                                title="手动输入模型名"
-                            >✏️</button>
-                        </div>
+                        <input
+                            type="text"
+                            list="quick-models"
+                            value={quickThinkLlm}
+                            onChange={e => setQuickThinkLlm(e.target.value)}
+                            className="input w-full"
+                            placeholder="输入或从列表选择"
+                            disabled={configLoading}
+                        />
+                        <datalist id="quick-models">
+                            {MODEL_PRESETS.filter(m => m.tier === 'quick').map(m => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                        </datalist>
                     </div>
 
                     {/* 推理模型 */}
@@ -584,25 +579,20 @@ export default function Settings() {
                             推理模型
                             <span className="ml-1 text-xs text-slate-400 font-normal">用于深度分析、辩论等复杂任务</span>
                         </label>
-                        <div className="flex gap-2">
-                            <select
-                                value={deepThinkLlm}
-                                onChange={e => setDeepThinkLlm(e.target.value)}
-                                className="input flex-1"
-                                disabled={configLoading}
-                            >
-                                <option value="">{deepThinkLlm || '选择或手动输入'}</option>
-                                {MODEL_PRESETS.filter(m => m.tier === 'deep').map(m => (
-                                    <option key={m.id} value={m.id}>{m.label}</option>
-                                ))}
-                            </select>
-                            <button
-                                type="button"
-                                onClick={() => setDeepThinkLlm(prompt('输入模型名称') || deepThinkLlm)}
-                                className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 text-sm"
-                                title="手动输入模型名"
-                            >✏️</button>
-                        </div>
+                        <input
+                            type="text"
+                            list="deep-models"
+                            value={deepThinkLlm}
+                            onChange={e => setDeepThinkLlm(e.target.value)}
+                            className="input w-full"
+                            placeholder="输入或从列表选择"
+                            disabled={configLoading}
+                        />
+                        <datalist id="deep-models">
+                            {MODEL_PRESETS.filter(m => m.tier === 'deep').map(m => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                        </datalist>
                     </div>
 
 
