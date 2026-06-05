@@ -139,6 +139,8 @@ def _ensure_user_schema() -> None:
             search_cols = {row[1] for row in conn.execute(text("PRAGMA table_info(user_llm_configs)"))}
             if "search_config" not in search_cols:
                 conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN search_config TEXT"))
+            if "notification_config" not in search_cols:
+                conn.execute(text("ALTER TABLE user_llm_configs ADD COLUMN notification_config TEXT"))
     except Exception as e:
         logger.error("Failed to ensure user schema: %s", e)
 
@@ -363,6 +365,7 @@ class UserLLMConfigDB(Base):
     wecom_webhook_encrypted = Column(Text, nullable=True)
     default_analysts = Column(Text, nullable=True)  # JSON list, e.g. '["market","social",...]'
     search_config = Column(Text, nullable=True)  # JSON: {"tavily":{"api_key":"...","enabled":true}, ...}
+    notification_config = Column(Text, nullable=True)  # JSON: per-channel notification settings + routing
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
