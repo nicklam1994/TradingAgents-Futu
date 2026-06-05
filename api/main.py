@@ -4156,24 +4156,39 @@ def get_futu_status(
         server_ver = str(state.get("server_ver", "")) if isinstance(state, dict) else ""
         quote_ctx.close()
         
-        # Get trade accounts
+        # Get trade accounts (HK + US)
         from futu import OpenSecTradeContext, TrdEnv, TrdMarket
-        trade_ctx = OpenSecTradeContext(host=host, port=port, filter_trdmarket=TrdMarket.HK, security_firm=SecurityFirm.FUTUSECURITIES)
-        ret3, acc_data = trade_ctx.get_acc_list()
-        trade_ctx.close()
-        
         acc_info = []
-        if ret3 == 0 and not acc_data.empty:
-            for _, row in acc_data.iterrows():
-                acc_info.append({
-                    "acc_id": int(row.get("acc_id", 0)),
-                    "acc_type": str(row.get("acc_type", "")),
-                    "trd_env": str(row.get("trd_env", "")),
-                    "card_num": str(row.get("card_num", "")),
-                    "security_firm": str(row.get("security_firm", "")),
-                    "sim_acc_type": str(row.get("sim_acc_type", "")),
-                    "acc_status": str(row.get("acc_status", "")),
-                })
+        seen_ids = set()
+        
+        for market in [TrdMarket.HK, TrdMarket.US]:
+            trade_ctx = OpenSecTradeContext(host=host, port=port, filter_trdmarket=market, security_firm=SecurityFirm.FUTUSECURITIES)
+            ret3, acc_data = trade_ctx.get_acc_list()
+            trade_ctx.close()
+            if ret3 == 0 and not acc_data.empty:
+                for _, row in acc_data.iterrows():
+                    aid = int(row.get("acc_id", 0))
+                    if aid in seen_ids:
+                        # Update market auth for duplicate accounts
+                        for a in acc_info:
+                            if a["acc_id"] == aid:
+                                auth = str(row.get("trdmarket_auth", ""))
+                                if auth and market == TrdMarket.US and "US" in auth:
+                                    a["markets"] = list(set(a.get("markets", []) + ["US"]))
+                        continue
+                    seen_ids.add(aid)
+                    auth = str(row.get("trdmarket_auth", ""))
+                    markets = []
+                    if "HK" in auth: markets.append("HK")
+                    if "US" in auth: markets.append("US")
+                    acc_info.append({
+                        "acc_id": aid,
+                        "acc_type": str(row.get("acc_type", "")),
+                        "trd_env": str(row.get("trd_env", "")),
+                        "sim_acc_type": str(row.get("sim_acc_type", "")),
+                        "acc_status": str(row.get("acc_status", "")),
+                        "markets": markets or [str(market).split(".")[-1]],
+                    })
         
         user_detail = {}
         if ret2 == 0 and isinstance(user_info, dict):

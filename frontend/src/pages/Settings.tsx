@@ -686,32 +686,47 @@ export default function Settings() {
                     }`}>
                         {futuStatus.connected ? (
                             <div className="space-y-4">
-                                <div className="flex items-center gap-2">
+                                {/* 连接状态 */}
+                                <div className="flex items-center gap-3">
                                     <CheckCircle2 className="w-5 h-5 text-green-500" />
-                                    <span className="font-medium text-green-700 dark:text-green-400">OpenD 已连接</span>
+                                    <span className="text-base font-semibold text-green-700 dark:text-green-400">OpenD 已连接</span>
                                     <span className="text-sm text-slate-500">{futuStatus.host}:{futuStatus.port}</span>
-                                    <span className="text-xs text-slate-400">v{futuStatus.server_ver}</span>
+                                    <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400">v{futuStatus.server_ver}</span>
                                 </div>
                                 
-                                {/* 牛牛号 & 额度 */}
+                                {/* 用户信息 + 额度 */}
                                 {futuStatus.user && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 space-y-1">
-                                            <div className="flex items-center gap-2">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                        {/* 牛牛号 */}
+                                        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                                            <div className="flex items-center gap-3">
                                                 {futuStatus.user.avatar_url && (
-                                                    <img src={futuStatus.user.avatar_url} className="w-6 h-6 rounded-full" alt="" />
+                                                    <img src={futuStatus.user.avatar_url} className="w-10 h-10 rounded-full ring-2 ring-green-200 dark:ring-green-500/30" alt="" />
                                                 )}
-                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{futuStatus.user.nick_name || '未知'}</span>
+                                                <div>
+                                                    <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">{futuStatus.user.nick_name || '未知'}</div>
+                                                    <div className="text-xs text-slate-500">牛牛号 {futuStatus.user.user_id}</div>
+                                                </div>
                                             </div>
-                                            <div className="text-xs text-slate-500">牛牛号：{futuStatus.user.user_id}</div>
                                         </div>
-                                        <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-                                            <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">用户额度</div>
-                                            <div className="grid grid-cols-2 gap-1 text-xs">
+                                        {/* 股票/期货额度 */}
+                                        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                                            <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">📊 股票 / 期货</div>
+                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                                                 <span className="text-slate-500">订阅</span>
-                                                <span className="font-mono text-slate-700 dark:text-slate-300">{futuStatus.user.sub_quota}</span>
+                                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{futuStatus.user.sub_quota}</span>
                                                 <span className="text-slate-500">历史K线</span>
-                                                <span className="font-mono text-slate-700 dark:text-slate-300">{futuStatus.user.history_kl_quota}</span>
+                                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">{futuStatus.user.history_kl_quota}</span>
+                                            </div>
+                                        </div>
+                                        {/* 期权额度 */}
+                                        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                                            <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">📈 期权</div>
+                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                                                <span className="text-slate-500">订阅</span>
+                                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">—</span>
+                                                <span className="text-slate-500">历史K线</span>
+                                                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">—</span>
                                             </div>
                                         </div>
                                     </div>
@@ -719,22 +734,22 @@ export default function Settings() {
                                 
                                 {/* 行情权限 */}
                                 {futuStatus.user && (
-                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-                                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">行情权限</div>
-                                        <div className="grid grid-cols-2 gap-2">
+                                    <div className="p-4 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                                        <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">行情权限</div>
+                                        <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <div className="text-xs text-slate-500 mb-1">🇭🇰 香港市场</div>
-                                                <div className="space-y-0.5 text-xs">
-                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_qot_right}</span></div>
-                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_option_qot_right}</span></div>
-                                                    <div className="flex justify-between"><span className="text-slate-500">期货</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.hk_future_qot_right}</span></div>
+                                                <div className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">🇭🇰 香港市场</div>
+                                                <div className="space-y-1 text-sm">
+                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono font-semibold text-green-600 dark:text-green-400">{futuStatus.user.hk_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono font-semibold text-green-600 dark:text-green-400">{futuStatus.user.hk_option_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期货</span><span className="font-mono font-semibold text-green-600 dark:text-green-400">{futuStatus.user.hk_future_qot_right}</span></div>
                                                 </div>
                                             </div>
                                             <div>
-                                                <div className="text-xs text-slate-500 mb-1">🇺🇸 美国市场</div>
-                                                <div className="space-y-0.5 text-xs">
-                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.us_qot_right}</span></div>
-                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono text-green-600 dark:text-green-400">{futuStatus.user.us_option_qot_right}</span></div>
+                                                <div className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-2">🇺🇸 美国市场</div>
+                                                <div className="space-y-1 text-sm">
+                                                    <div className="flex justify-between"><span className="text-slate-500">股票</span><span className="font-mono font-semibold text-green-600 dark:text-green-400">{futuStatus.user.us_qot_right}</span></div>
+                                                    <div className="flex justify-between"><span className="text-slate-500">期权</span><span className="font-mono font-semibold text-green-600 dark:text-green-400">{futuStatus.user.us_option_qot_right}</span></div>
                                                     <div className="flex justify-between"><span className="text-slate-500">期货</span><span className="font-mono text-slate-400">{futuStatus.user.us_future_qot_right || 'N/A'}</span></div>
                                                 </div>
                                             </div>
@@ -742,24 +757,25 @@ export default function Settings() {
                                     </div>
                                 )}
                                 
-                                {/* 账户列表 */}
+                                {/* 交易账户 */}
                                 {futuStatus.accounts && futuStatus.accounts.length > 0 && (
-                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50">
-                                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">交易账户</div>
-                                        <div className="space-y-1.5">
+                                    <div className="p-4 rounded-lg bg-green-50 dark:bg-green-500/5 border border-green-200 dark:border-green-500/20">
+                                        <div className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">交易账户</div>
+                                        <div className="space-y-2">
                                             {futuStatus.accounts.filter((a: any) => a.acc_status === 'ACTIVE').map((acc: any, i: number) => (
-                                                <div key={i} className="flex items-center gap-2 text-xs">
-                                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                                <div key={i} className="flex items-center gap-3 text-sm">
+                                                    <span className="text-base">{(acc.markets || []).includes('HK') ? '🇭🇰' : '🇺🇸'}</span>
+                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                                                         acc.trd_env === 'SIMULATE' 
                                                             ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400'
                                                             : 'bg-blue-100 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400'
                                                     }`}>{acc.trd_env === 'SIMULATE' ? '模拟' : '实盘'}</span>
-                                                    <span className="font-mono text-slate-700 dark:text-slate-300">{acc.acc_id}</span>
-                                                    <span className="text-slate-500">{acc.acc_type}</span>
+                                                    <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{acc.acc_id}</span>
+                                                    <span className="text-slate-600 dark:text-slate-400">{acc.acc_type}</span>
                                                     {acc.sim_acc_type && acc.sim_acc_type !== 'N/A' && (
-                                                        <span className="text-slate-400">({acc.sim_acc_type})</span>
+                                                        <span className="text-xs text-slate-500">({acc.sim_acc_type})</span>
                                                     )}
-                                                    <span className="text-slate-400 ml-auto">{acc.acc_status}</span>
+                                                    <span className="text-xs text-slate-400 ml-auto">{(acc.markets || []).join(' + ')}</span>
                                                 </div>
                                             ))}
                                         </div>
