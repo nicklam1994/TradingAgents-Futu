@@ -17,7 +17,7 @@
 | 2 | 搜索 API 框架（7 引擎）+ 搜索服务配置 UI | ✅ 完成 | `4585fab` |
 | 3 | 社交舆情（Reddit/X/Poly）+ 配置 UI | ✅ 完成 | `fa64c69` |
 | 4 | 结构化输出 & 风控增强 | ✅ 完成 | `b389e2e` |
-| 5 | Futu 模拟交易服务 | ⏳ 待开始 | — |
+| 5 | Futu 模拟交易服务（8 端点 + RSA 加密） | ✅ 完成 | `7d9945a` |
 | 6 | 量化绩效指标 | ⏳ 待开始 | — |
 | 7 | 模拟交易 Agent & 反思 | ⏳ 待开始 | — |
 | 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
@@ -68,6 +68,23 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 - **信号处理**：`extract_verdict_data` + `extract_risk_judge_data` 结构化提取
 - **DB 存储**：confidence (0-100) + target_price + risk_flags 聚合
 
+### Futu 模拟交易服务 ✅ Phase 5
+
+8 个 REST 端点覆盖 7 个 Futu 交易 API + 1 个高级信号执行。
+
+| 端点 | Futu API | 说明 |
+|------|----------|------|
+| `GET /v1/sim/account` | `accinfo_query` | 账户资金 |
+| `GET /v1/sim/positions` | `position_list_query` | 持仓查询 |
+| `POST /v1/sim/order` | `place_order` | 模拟下单 |
+| `DELETE /v1/sim/order` | `modify_order` | 撤单 |
+| `GET /v1/sim/orders` | `order_list_query` | 当日订单 |
+| `GET /v1/sim/acc-list` | `get_acc_list` | 账户列表 |
+| `GET /v1/sim/trading-info` | `acctradinginfo_query` | 可买/可卖量 |
+| `GET /v1/sim/history-orders` | `history_order_list_query` | 历史订单 |
+
+**关键技术**：RSA 加密跨网连接（PKCS#1）+ 统一 `_get_trade_ctx()` 工厂方法
+
 ### 自主交易闭环（OODA 循环）⏳ Phase 8
 
 ```
@@ -106,6 +123,12 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 │                    数据源层（Provider Registry + Fallback）       │
 │  Futu(港美股) → yfinance(全球) → Alpha Vantage(备用)            │
 │  Search Service (7引擎) ✅ + Social Sentiment (Reddit/X/Poly) ✅ │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                    模拟交易层 ✅ Phase 5                          │
+│  Futu SIMULATE: 下单/撤单/持仓/可买量/历史订单/账户列表           │
+│  RSA 加密 + 统一工厂方法 + HK/US 双市场                          │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
@@ -165,6 +188,9 @@ TA_LLM_DEEP=gpt-4o
 FUTU_OPEND_HOST=127.0.0.1
 FUTU_OPEND_PORT=11111
 
+# RSA 密钥（跨网连接需要）
+FUTU_RSA_KEY_PATH=config/rsa_key.txt
+
 # 搜索引擎（也可在前端设置页配置）
 TAVILY_API_KEY=your-tavily-key
 
@@ -209,18 +235,19 @@ uv run python -m uvicorn api.main:app --port 8000
 | 获取舆情配置 | `GET /v1/config/social-sentiment` |
 | 保存舆情配置 | `PUT /v1/config/social-sentiment` |
 
-### 模拟交易（Phase 5）
+### 模拟交易 ✅ Phase 5
 
 | 操作 | 接口 |
 |------|------|
 | 账户资金 | `GET /v1/sim/account` |
 | 持仓查询 | `GET /v1/sim/positions` |
 | 模拟下单 | `POST /v1/sim/order` |
-| 撤销订单 | `DELETE /v1/sim/order/{id}` |
+| 撤销订单 | `DELETE /v1/sim/order` |
 | 订单列表 | `GET /v1/sim/orders` |
-| 成交记录 | `GET /v1/sim/deals` |
-| 量化绩效 | `GET /v1/sim/performance` |
-| 触发反思 | `POST /v1/sim/reflect` |
+| 账户列表 | `GET /v1/sim/acc-list` |
+| 可买/可卖量 | `GET /v1/sim/trading-info` |
+| 历史订单 | `GET /v1/sim/history-orders` |
+| 信号执行 | `POST /v1/sim/signal` |
 
 ### 自主交易（Phase 8）
 
@@ -277,7 +304,7 @@ api/                           # FastAPI 后端
 ├── database.py                # ✅ ReportDB 新增 confidence/target_price/risk_flags（Phase 4）
 └── services/
     ├── report_service.py      # ✅ 结构化字段解析 + 存储（Phase 4）
-    ├── sim_trading_service.py # 🆕 Futu 模拟交易（Phase 5）
+    ├── sim_trading_service.py # ✅ Futu 模拟交易（Phase 5）
     └── autonomous_service.py  # 🆕 自主任务管理（Phase 8）
 
 frontend/                      # React + Vite 前端
