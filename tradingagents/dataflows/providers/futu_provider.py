@@ -5,6 +5,7 @@ Configure via FUTU_OPEND_HOST / FUTU_OPEND_PORT environment variables.
 """
 
 import json
+import logging
 import os
 from typing import Any, Dict, Optional
 from datetime import datetime, timedelta
@@ -13,6 +14,8 @@ import pandas as pd
 from stockstats import wrap
 
 from .base import BaseMarketDataProvider
+
+logger = logging.getLogger(__name__)
 
 
 def _opend_host() -> str:
@@ -31,6 +34,8 @@ class FutuProvider(BaseMarketDataProvider):
     Supports US and HK equities. A-share (SH/SZ) symbols are not supported
     by Futu and will raise NotImplementedError.
     """
+
+    _encrypt_done = False  # Class-level flag for one-time RSA setup
 
     # ── Futu supported indicators (same set as cn_akshare) ──
     INDICATOR_DESCRIPTIONS = {
@@ -78,27 +83,63 @@ class FutuProvider(BaseMarketDataProvider):
                 "Use cn_akshare or cn_baostock for SH/SZ stocks."
             )
 
-        # Explicit HK suffix
+        # Explicit HK suffix (e.g., 00700.HK)
         if s.endswith(".HK"):
             ticker = s[:-3]
             return (Market.HK, ticker)
 
-        # Explicit US suffix
+        # Explicit US suffix (e.g., NVDA.US)
         if s.endswith(".US"):
             ticker = s[:-3]
             return (Market.US, ticker)
 
+        # Futu prefix format: HK.00700
+        if s.startswith("HK."):
+            return (Market.HK, s[3:])
+
+        # Futu prefix format: US.AAPL
+        if s.startswith("US."):
+            return (Market.US, s[3:])
+
         # No suffix → assume US market
         return (Market.US, s)
+
+    @staticmethod
+    def _full_code(market, code: str) -> str:
+        """Construct full Futu code like 'US.AAPL' or 'HK.00700'."""
+        from futu import Market
+        if market == Market.US:
+            return f"US.{code}"
+        elif market == Market.HK:
+            return f"HK.{code}"
+        return code
+
+    @staticmethod
+    def _need_encrypt() -> bool:
+        """Check if RSA encryption is needed (remote host)."""
+        host = _opend_host()
+        return host not in ("127.0.0.1", "localhost")
 
     def _get_quote_ctx(self):
         """Create a new Futu OpenQuoteContext.
 
         Caller MUST close the context when done (use try/finally pattern).
+        Encryption is handled globally via SysConfig in _ensure_encrypt().
         """
         from futu import OpenQuoteContext
 
+        self._ensure_encrypt()
         return OpenQuoteContext(host=_opend_host(), port=_opend_port())
+
+    @staticmethod
+    def _ensure_encrypt():
+        """Set up RSA encryption once (idempotent)."""
+        if FutuProvider._need_encrypt() and not FutuProvider._encrypt_done:
+            from futu import SysConfig
+            rsa_path = os.getenv("FUTU_RSA_KEY_PATH", "config/rsa_key.txt")
+            SysConfig.enable_proto_encrypt(is_encrypt=True)
+            SysConfig.set_init_rsa_file(rsa_path)
+            FutuProvider._encrypt_done = True
 
     # ── 1.3 get_stock_data — K 线 ──
 
@@ -115,21 +156,32 @@ class FutuProvider(BaseMarketDataProvider):
 
         Returns CSV string with columns: Date,Open,High,Low,Close,Volume.
         """
-        from futu import KLType, RET_OK, SubType
+        from futu import KLType, RET_OK, SubType, AuType
 
         market, code = self._to_futu_code(symbol)
         ctx = self._get_quote_ctx()
         try:
+            # Map autype string to Futu AuType enum
+            autype_map = {
+                None: AuType.NONE,
+                "qfq": AuType.QFQ,
+                "hfq": AuType.HFQ,
+                "NONE": AuType.NONE,
+                "QFQ": AuType.QFQ,
+                "HFQ": AuType.HFQ,
+            }
+            futu_autype = autype_map.get(autype, AuType.NONE)
+
             ret, data, _ = ctx.request_history_kline(
-                code,
+                self._full_code(market, code),
                 start=start_date,
                 end=end_date,
                 ktype=KLType.K_DAY,
-                autype=autype or "NONE",
+                autype=futu_autype,
             )
             if ret != RET_OK:
                 raise RuntimeError(
-                    f"Futu API request_history_kline failed for {symbol}: {ret}"
+                    f"Futu API request_history_kline failed for {self._full_code(market, code)}: {ret}"
                 )
 
             if data is None or data.empty:
@@ -176,7 +228,7 @@ class FutuProvider(BaseMarketDataProvider):
                 f"Please choose from: {list(self.INDICATOR_DESCRIPTIONS.keys())}"
             )
 
-        from futu import KLType, RET_OK
+        from futu import KLType, RET_OK, AuType
 
         market, code = self._to_futu_code(symbol)
         curr_dt = datetime.strptime(curr_date, "%Y-%m-%d")
@@ -186,15 +238,15 @@ class FutuProvider(BaseMarketDataProvider):
         ctx = self._get_quote_ctx()
         try:
             ret, data, _ = ctx.request_history_kline(
-                code,
+                self._full_code(market, code),
                 start=start_dt.strftime("%Y-%m-%d"),
                 end=curr_date,
                 ktype=KLType.K_DAY,
-                autype=None,
+                autype=AuType.NONE,
             )
             if ret != RET_OK:
                 raise RuntimeError(
-                    f"Futu API request_history_kline failed for {symbol} "
+                    f"Futu API request_history_kline failed for {self._full_code(market, code)} "
                     f"(indicator {indicator}): {ret}"
                 )
 
@@ -259,16 +311,17 @@ class FutuProvider(BaseMarketDataProvider):
         from futu import RET_OK
 
         market, code = self._to_futu_code(ticker)
+        full = self._full_code(market, code)
         ctx = self._get_quote_ctx()
         try:
-            ret, data = ctx.get_market_snapshot([code])
+            ret, data = ctx.get_market_snapshot([full])
             if ret != RET_OK:
                 raise RuntimeError(
-                    f"Futu API get_market_snapshot failed for {ticker}: {ret}"
+                    f"Futu API get_market_snapshot failed for {full}: {ret}"
                 )
 
             if data is None or data.empty:
-                return f"No fundamental data found for {ticker}"
+                return f"No fundamental data found for {full}"
 
             row = data.iloc[0]
 
@@ -308,11 +361,12 @@ class FutuProvider(BaseMarketDataProvider):
         from futu import RET_OK
 
         market, code = self._to_futu_code(ticker)
+        full = self._full_code(market, code)
         ctx = self._get_quote_ctx()
         try:
-            ret, data = ctx.get_market_snapshot([code])
+            ret, data = ctx.get_market_snapshot([full])
             if ret != RET_OK or data is None or data.empty:
-                logger.warning("get_fundamentals_dict failed for %s: %s", ticker, ret)
+                logger.warning("get_fundamentals_dict failed for %s: %s", full, ret)
                 return {}
 
             row = data.iloc[0]
@@ -383,8 +437,9 @@ class FutuProvider(BaseMarketDataProvider):
         code_map = {}  # futu_code → original_symbol
         for sym in symbols:
             try:
-                _, futu_code = self._to_futu_code(sym)
-                code_map[futu_code] = sym
+                market, code = self._to_futu_code(sym)
+                full = self._full_code(market, code)
+                code_map[full] = sym
             except NotImplementedError:
                 # Skip unsupported symbols (e.g., A-share)
                 continue
