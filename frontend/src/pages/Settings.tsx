@@ -97,6 +97,8 @@ export default function Settings() {
     const [socialBaseUrl, setSocialBaseUrl] = useState('https://api.adanos.org')
     const [socialSaving, setSocialSaving] = useState(false)
     const [socialHasKey, setSocialHasKey] = useState(false)
+    const [searchSaved, setSearchSaved] = useState(false)
+    const [socialSaved, setSocialSaved] = useState(false)
 
     const selectedPreset = useMemo(
         () => PROVIDER_PRESETS.find((item) => item.id === providerPreset) || PROVIDER_PRESETS[0],
@@ -203,9 +205,8 @@ export default function Settings() {
         setSearchSaving(true)
         try {
             await api.put('/v1/config/search', { providers: searchProviders })
-            setSaved(true)
-            setSaveMessage('搜索服务配置已保存')
-            setTimeout(() => setSaved(false), 3000)
+            setSearchSaved(true)
+            setTimeout(() => setSearchSaved(false), 3000)
         } catch (e: any) {
             setConfigError(e?.message || '保存失败')
         } finally {
@@ -220,10 +221,9 @@ export default function Settings() {
                 api_key: socialApiKey,
                 base_url: socialBaseUrl,
             })
-            setSaved(true)
-            setSaveMessage('社交舆情配置已保存')
+            setSocialSaved(true)
             setSocialHasKey(!!socialApiKey)
-            setTimeout(() => setSaved(false), 3000)
+            setTimeout(() => setSocialSaved(false), 3000)
         } catch (e: any) {
             setConfigError(e?.message || '保存失败')
         } finally {
@@ -642,6 +642,7 @@ export default function Settings() {
                         {searchSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         保存搜索配置
                     </button>
+                    {searchSaved && <span className="ml-3 text-sm text-green-600 dark:text-green-400">✓ 已保存</span>}
                 </div>
             </div>
 
@@ -691,6 +692,7 @@ export default function Settings() {
                         {socialSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                         保存舆情配置
                     </button>
+                    {socialSaved && <span className="ml-3 text-sm text-green-600 dark:text-green-400">✓ 已保存</span>}
                 </div>
             </div>
 
