@@ -23,6 +23,7 @@
 | 8 | 自主 Orchestrator（OODA） | ⏳ 待开始 | — |
 | 9 | 前端 5 新页面 | ⏳ 待开始 | — |
 | 10 | 止损/策略插件 | ⏳ 待开始 | — |
+| 11 | 通知系统移植（7 渠道 + Bot 平台） | ⏳ 待开始 | — |
 
 ---
 
@@ -87,6 +88,8 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 
 ## 架构总览
 
+> 📊 **[点击查看交互式架构图](https://htmlpreview.github.io/?https://github.com/nicklam1994/TradingAgents-Futu/blob/main/assets/web/architecture.html)**
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Orchestrator（自主循环编排器）                  │
@@ -103,6 +106,12 @@ Reddit / X (Twitter) / Polymarket 情绪数据，通过 `api.adanos.org` 获取�
 │                    数据源层（Provider Registry + Fallback）       │
 │  Futu(港美股) → yfinance(全球) → Alpha Vantage(备用)            │
 │  Search Service (7引擎) ✅ + Social Sentiment (Reddit/X/Poly) ✅ │
+└──────────────────────────────┬──────────────────────────────────┘
+                               │
+┌──────────────────────────────▼──────────────────────────────────┐
+│                    通知系统（7 渠道 + Bot 平台） ⏳ Phase 11      │
+│  Email / 企业微信 / 飞书 / Telegram / Discord / Slack / Webhook  │
+│  DingTalk Bot / Feishu Bot / Discord Bot / Telegram Bot          │
 └──────────────────────────────┬──────────────────────────────────┘
                                │
 ┌──────────────────────────────▼──────────────────────────────────┐
