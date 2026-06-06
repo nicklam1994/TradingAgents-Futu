@@ -587,6 +587,59 @@ class FutuProvider(BaseMarketDataProvider):
                 ctx.close()
 
 
+def _canonical_to_futu(code: str) -> str:
+    """Convert canonical code (00700.HK, AAPL) to Futu format (HK.00700, US.AAPL)."""
+    if code.endswith(".HK"):
+        return f"HK.{code[:-3]}"
+    # Numeric-only codes are HK (stock_resolver stores them without .HK)
+    if code.isdigit():
+        return f"HK.{code}"
+    return f"US.{code}"
+
+
+def get_market_state(symbols: list[str]) -> dict[str, str]:
+    """Get market state for a list of canonical symbols.
+
+    Returns dict mapping canonical symbol -> market state string
+    (e.g. 'TRADING', 'CLOSED', 'PRE_MARKET', 'AFTER_HOURS', etc.)
+    """
+    if not symbols:
+        return {}
+    try:
+        from futu import OpenQuoteContext, SecurityFirm
+    except ImportError:
+        return {}
+
+    ctx = None
+    try:
+        ctx = OpenQuoteContext(
+            host=_opend_host(),
+            port=_opend_port(),
+            security_firm=SecurityFirm.FUTUSECURITIES,
+        )
+        futu_codes = [_canonical_to_futu(s) for s in symbols]
+        result = {}
+        code_to_canonical = {}
+        for i in range(0, len(futu_codes), 100):
+            batch = futu_codes[i:i+100]
+            for fc, sym in zip(batch, symbols[i:i+100]):
+                code_to_canonical[fc] = sym
+            ret, data = ctx.get_market_state(batch)
+            if ret != 0:
+                continue
+            for _, row in data.iterrows():
+                fc = row.get("code", "")
+                canonical = code_to_canonical.get(fc, fc)
+                result[canonical] = row.get("market_state", "")
+        return result
+    except Exception as exc:
+        logger.warning("[futu] get_market_state failed: %s", exc)
+        return {}
+    finally:
+        if ctx:
+            ctx.close()
+
+
 def _futu_code_to_canonical(futu_code: str) -> str:
     """Convert Futu code (HK.00700, US.AAPL) to canonical (00700.HK, AAPL)."""
     if "." not in futu_code:

@@ -278,7 +278,8 @@ function WatchlistTable({ items, refreshing, error, onAnalyze, onRemove }: {
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1200px]">
-                    <div className="grid grid-cols-[1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-wider text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+                    <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-wider text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+                        <div className="text-center">状态</div>
                         <div>名称 / 代码</div>
                         <div>当日 K 线</div>
                         <div>实时现价</div>
@@ -293,10 +294,10 @@ function WatchlistTable({ items, refreshing, error, onAnalyze, onRemove }: {
             <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between dark:border-slate-700 dark:text-slate-400">
                 <div className="flex items-center gap-2">
                     <span className={`inline-flex h-2.5 w-2.5 rounded-full ${error ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                    <span>{error ? `刷新异常：${error}` : '实时监控中'}</span>
+                    <span>{error ? `刷新异常：${error}` : '实时报价中'}</span>
                     {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
                 </div>
-                <div className="text-slate-400">共 {items.length} 只标的</div>
+                <div className="text-slate-400">共 {items.length} 只</div>
             </div>
         </div>
     )
@@ -314,7 +315,10 @@ function WatchlistRow({ item }: {
     const priceColor = pct == null ? 'text-slate-800 dark:text-slate-200' : isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
 
     return (
-        <div className="grid grid-cols-[1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 px-5 py-4 last:border-b-0 dark:border-slate-700">
+        <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 px-5 py-4 last:border-b-0 dark:border-slate-700">
+            {/* Col 0: 状态 */}
+            <MarketStateBadge state={item.market_state} />
+
             {/* Col 1: 名称/代码 */}
             <div className="min-w-0">
                 <div className="truncate text-lg font-bold text-slate-900 dark:text-slate-100">{extractName(item.name)}</div>
@@ -433,6 +437,33 @@ function DayRange({ item }: { item: WatchlistBoardItem }) {
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-emerald-500" /><span className="text-slate-500 dark:text-slate-400">今开 {fmtPrice(open)}</span></span>
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-blue-500" /><span className="text-slate-500 dark:text-slate-400">现价 {fmtPrice(live)}</span></span>
             </div>
+        </div>
+    )
+}
+
+/* ─── Market State Badge ─────────────────────────────────────────────────── */
+
+const STATE_MAP: Record<string, { label: string; color: string }> = {
+    TRADING:        { label: '交易中', color: 'bg-emerald-500 text-white' },
+    MORNING:        { label: '早盘',   color: 'bg-emerald-500 text-white' },
+    AFTERNOON:      { label: '午盘',   color: 'bg-emerald-500 text-white' },
+    CLOSED:         { label: '休市',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    PRE_MARKET:     { label: '盘前',   color: 'bg-amber-400 text-white' },
+    AFTER_HOURS:    { label: '盘后',   color: 'bg-amber-400 text-white' },
+    AFTER_HOURS_END:{ label: '盘后结束', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    NIGHT:          { label: '夜盘',   color: 'bg-indigo-400 text-white' },
+}
+
+function MarketStateBadge({ state }: { state?: string | null }) {
+    if (!state) return <div className="self-center text-center text-xs text-slate-400">--</div>
+    const info = STATE_MAP[state]
+    const label = info?.label ?? state
+    const color = info?.color ?? 'bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+    return (
+        <div className="self-center text-center">
+            <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
+                {label}
+            </span>
         </div>
     )
 }

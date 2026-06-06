@@ -60,6 +60,10 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
         canonical = symbol_map.get(futu_code, futu_code)
         quotes[canonical] = q
 
+    # 3b. Fetch market state
+    from tradingagents.dataflows.providers.futu_provider import get_market_state
+    market_states = get_market_state(symbols)
+
     # 4. Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
 
@@ -85,6 +89,7 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
                 "amplitude": _to_float(quote.get("amplitude")),
                 "turnover_rate": _to_float(quote.get("turnover_rate")),
                 "turnover": _to_float(quote.get("turnover")),
+                "market_state": market_states.get(symbol, ""),
                 "quote_time": quote.get("quote_time"),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
