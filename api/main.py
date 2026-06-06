@@ -2374,6 +2374,98 @@ async def _run_job_inner(
         _shared_data_collector.evict(request.symbol, request.trade_date)
 
 
+def _regex_extract_ticker(text: str) -> Optional[str]:
+    """Extract an obvious stock/ETF ticker from natural language via regex.
+
+    Catches patterns the LLM might miss (e.g. obscure ETFs like SPCX, SOXL).
+    Returns a normalized symbol or None.
+
+    Strategy: regex candidate → stopwords filter → stock_universe validation.
+    Universe match = guaranteed valid.  Non-match = still returned (may be
+    obscure ticker not in our 35k universe).
+    """
+    # Lazy import to avoid circular deps and keep cold-start fast
+    try:
+        from tradingagents.dataflows.stock_resolver import is_known_ticker
+    except ImportError:
+        is_known_ticker = None  # type: ignore[assignment]
+
+    _STOPWORDS = {
+        'THE', 'AND', 'FOR', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER',
+        'WAS', 'ONE', 'OUR', 'OUT', 'HAS', 'HIS', 'HOW', 'MAN', 'NEW',
+        'NOW', 'OLD', 'SEE', 'WAY', 'WHO', 'BOY', 'DID', 'GET', 'HIM',
+        'LET', 'SAY', 'SHE', 'TOO', 'USE', 'DAD', 'MOM', 'MAY', 'TRY',
+        'ASK', 'MEN', 'RAN', 'SIX', 'TEN', 'TOP', 'YES', 'YET', 'ACE',
+        'ADD', 'AGE', 'AGO', 'AID', 'AIM', 'AIR', 'ART', 'BAD', 'BAG',
+        'BAR', 'BED', 'BIG', 'BIT', 'BOW', 'BOX', 'BUS', 'BUY', 'CAP',
+        'CAR', 'COP', 'CUP', 'CUT', 'DIE', 'DOG', 'DRY', 'EAR', 'EAT',
+        'END', 'EYE', 'FAN', 'FAR', 'FAT', 'FEW', 'FIT', 'FLY', 'FOG',
+        'FUN', 'FUR', 'GAS', 'GOD', 'GOT', 'GUN', 'GUT', 'GUY', 'HAD',
+        'HAT', 'HIT', 'HOT', 'HUGE', 'HUT', 'ICE', 'ILL', 'ITS', 'JET',
+        'JOB', 'JOY', 'KEY', 'KID', 'LAW', 'LAY', 'LED', 'LIE', 'LIP',
+        'LOG', 'LOT', 'LOW', 'MAP', 'MET', 'MIX', 'MOB', 'MUD', 'NET',
+        'ODD', 'OIL', 'OWN', 'PAD', 'PAN', 'PAY', 'PEN', 'PET', 'PIE',
+        'PIN', 'PIT', 'POT', 'PUT', 'RAN', 'RAW', 'RED', 'RIB', 'RID',
+        'ROW', 'RUB', 'RUG', 'SAD', 'SAT', 'SET', 'SIT', 'SKI', 'SKY',
+        'SON', 'SPA', 'SUM', 'SUN', 'TAB', 'TAN', 'TAP', 'TAX',
+        'TIE', 'TIN', 'TIP', 'TOE', 'TON', 'TOY', 'TUB', 'TWO', 'VAN',
+        'WAR', 'WET', 'WHY', 'WIN', 'WON', 'ZOO', 'TALK', 'LOOK',
+        'GOOD', 'BEST', 'THAT', 'THIS', 'WITH', 'FROM', 'HAVE', 'WILL',
+        'BEEN', 'CALL', 'COME', 'EACH', 'FIND', 'GIVE', 'GOES', 'HELD',
+        'HELP', 'HERE', 'HIGH', 'HOME', 'HOPE', 'IDEA', 'INTO', 'JUST',
+        'KEEP', 'LAST', 'LATE', 'LIKE', 'LINE', 'LONG', 'MADE', 'MAKE',
+        'MORE', 'MOST', 'MUCH', 'MUST', 'NEED', 'NEXT', 'ONLY', 'OVER',
+        'PART', 'READ', 'REAL', 'SAID', 'SAME', 'SEEM', 'SHOW', 'SIDE',
+        'SOME', 'SURE', 'TAKE', 'TELL', 'THAN', 'THEM', 'THEN', 'THEY',
+        'TIME', 'TURN', 'USED', 'VERY', 'WANT', 'WELL', 'WENT', 'WERE',
+        'WHAT', 'WHEN', 'WHOM', 'WORK', 'YEAR', 'YOUR', 'VIEW', 'OPEN',
+        'FEAR', 'GOLD', 'LOVE', 'LIFE', 'CARE', 'COST', 'DEAL', 'EARN',
+        'FAIL', 'FALL', 'FEAR', 'FILE', 'FIRM', 'FUND', 'GAIN', 'HOLD',
+        'MOVE', 'NOTE', 'OFFER', 'PLAN', 'RATE', 'RISK', 'ROLE', 'RULE',
+        'SELL', 'SIGN', 'SIZE', 'STEP', 'STOP', 'TEST', 'TURN', 'TYPE',
+        'UNIT', 'VEST', 'VOTE', 'WAGE', 'ZERO',
+        'ABOUT', 'AFTER', 'AGAIN', 'ALONG', 'ALSO', 'BACK', 'BEEN',
+        'BEING', 'BELOW', 'BETWEEN', 'BOTH', 'CAME', 'CASE', 'COME',
+        'COULD', 'DOES', 'DONE', 'DOWN', 'EVEN', 'EVER', 'FAR', 'FEEL',
+        'FEW', 'FIVE', 'FOUR', 'FREE', 'GAVE', 'GIVE', 'GOES', 'GONE',
+        'GREAT', 'GREW', 'GROW', 'HALF', 'HARD', 'HAVE', 'HEAD', 'HEAR',
+        'HELD', 'HOURS', 'HUNDRED', 'INTO', 'JUST', 'KNOW', 'LAND',
+        'LARGE', 'LATER', 'LEAST', 'LEAVE', 'LEFT', 'LESS', 'LEVEL',
+        'LIGHT', 'LIVES', 'LOOK', 'MADE', 'MAIN', 'MAKE', 'MANY',
+        'MEAN', 'MIGHT', 'MONEY', 'MONTHS', 'MORNING', 'MOTHER',
+        'NAMES', 'NEVER', 'NIGHT', 'NORTH', 'OFTEN', 'ORDER', 'OTHER',
+        'PIECE', 'PLACE', 'POINT', 'POWER', 'PRESS', 'QUICK', 'QUITE',
+        'REACH', 'RIGHT', 'ROUND', 'SENSE', 'SEVERAL', 'SHORT',
+        'SHOWN', 'SINCE', 'SMALL', 'SOUND', 'SOUTH', 'STAND', 'START',
+        'STATE', 'STILL', 'STOOD', 'STREET', 'STRONG', 'SYSTEM',
+        'TABLE', 'THINK', 'THIRD', 'THOUGH', 'THREE', 'TIMES', 'TOTAL',
+        'TOWER', 'TRACK', 'TRADE', 'TREAT', 'TRIED', 'TRULY', 'UNDER',
+        'UNTIL', 'UPON', 'USING', 'USUAL', 'VALUE', 'WATER', 'WEIGHT',
+        'WHOLE', 'WHOSE', 'WOMEN', 'WORLD', 'WOULD', 'WRITE', 'YOUNG',
+        'USD', 'HKD', 'CNY', 'RMB', 'ETF', 'IPO', 'CEO', 'CFO', 'CTO',
+        'API', 'LLM', 'GPT', 'FAQ', 'PDF', 'URL', 'XML', 'CSS', 'HTML',
+        'HTTP', 'HTTPS', 'SSH', 'FTP', 'SMTP', 'JSON', 'YAML',
+    }
+    # Prefer longer tickers first (5>4>3>2) to reduce false positives like "AI" vs "OPEN"
+    for length in (5, 4, 3, 2):
+        for m in re.finditer(
+            r'(?<![A-Za-z])([A-Z]{' + str(length) + r'})(?:\.(NYSE|NASDAQ|AMEX))?(?![A-Za-z])',
+            text.upper(),
+        ):
+            ticker = m.group(1)
+            if ticker in _STOPWORDS:
+                continue
+            canonical = _normalize_symbol(ticker)
+            # Universe validation: confirmed ticker → return immediately
+            if is_known_ticker and is_known_ticker(canonical):
+                _log(f"[RegexExtract] Universe-confirmed: '{ticker}' → {canonical}")
+                return canonical
+            # Not in universe but passed stopwords → still return (may be obscure)
+            _log(f"[RegexExtract] Regex-only match (not in universe): '{ticker}' → {canonical}")
+            return canonical
+    return None
+
+
 def _normalize_symbol(raw: str) -> str:
     s = raw.strip().upper()
     # Priority: 6-digit CN stock code
@@ -3011,7 +3103,12 @@ async def _ai_extract_symbol_and_date_streaming(
     except Exception as e:
         _log(f"[StockExtract streaming] LLM failed: {e}")
 
+    # ── Step 1b: If LLM returned no stock_name, try regex fallback ─────────────
     if not llm_name:
+        regex_symbol = _regex_extract_ticker(text)
+        if regex_symbol:
+            _log(f"[StockExtract streaming] LLM returned null, regex fallback matched: '{regex_symbol}'")
+            return regex_symbol, llm_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] extracted name='{llm_name}', date={llm_date}, horizons={llm_horizons}")
@@ -3026,6 +3123,12 @@ async def _ai_extract_symbol_and_date_streaming(
     fallback = _normalize_symbol(llm_name)
     if fallback:
         return fallback, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+
+    # ── Step 5: Final regex fallback on original text ─────────────────────────
+    regex_symbol = _regex_extract_ticker(text)
+    if regex_symbol:
+        _log(f"[StockExtract streaming] Final regex fallback matched: '{regex_symbol}'")
+        return regex_symbol, llm_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     return None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
@@ -3106,7 +3209,12 @@ def _ai_extract_symbol_and_date(
     except Exception as e:
         _log(f"[StockExtract] LLM failed: {e}")
 
+    # ── Step 1b: If LLM returned no stock_name, try regex fallback ─────────────
     if not llm_name:
+        regex_symbol = _regex_extract_ticker(text)
+        if regex_symbol:
+            _log(f"[StockExtract] LLM returned null, regex fallback matched: '{regex_symbol}'")
+            return regex_symbol, llm_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
         _log(f"[StockExtract] LLM returned no stock name for: '{text[:40]}'")
         return None, None, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
@@ -3129,6 +3237,12 @@ def _ai_extract_symbol_and_date(
     if fallback:
         _log(f"[StockExtract] Fallback normalize: '{llm_name}' → {fallback}")
         return fallback, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
+
+    # ── Step 5: Final regex fallback on original text ─────────────────────────
+    regex_symbol = _regex_extract_ticker(text)
+    if regex_symbol:
+        _log(f"[StockExtract] Final regex fallback matched: '{regex_symbol}'")
+        return regex_symbol, llm_date or today, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     _log(f"[StockExtract] Could not resolve '{llm_name}' to a stock code")
     return None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context

@@ -101,7 +101,15 @@ class FutuProvider(BaseMarketDataProvider):
         if s.startswith("US."):
             return (Market.US, s[3:])
 
-        # No suffix → assume US market
+        # No suffix → try resolver to detect HK vs US
+        try:
+            from tradingagents.dataflows.stock_resolver import resolve_ticker
+            entry = resolve_ticker(s)
+            if entry and entry["market"] == "HK":
+                hk_code = entry["code"].replace(".HK", "")
+                return (Market.HK, hk_code)
+        except ImportError:
+            pass
         return (Market.US, s)
 
     @staticmethod

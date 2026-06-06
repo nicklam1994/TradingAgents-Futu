@@ -169,7 +169,13 @@ def _to_futu_trade_code(symbol: str) -> tuple:
     if s.endswith(".SH") or s.endswith(".SZ"):
         raise ValueError(f"Futu does not support A-shares ({symbol}). Use HK or US markets.")
 
-    # Bare ticker → assume US
+    # Bare ticker → try resolver first, then assume US
+    try:
+        from tradingagents.dataflows.stock_resolver import to_futu_trade
+        futu_code, market = to_futu_trade(s)
+        return (TrdMarket.HK if market == "HK" else TrdMarket.US, futu_code)
+    except ImportError:
+        pass
     return (TrdMarket.US, f"US.{s}")
 
 

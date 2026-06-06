@@ -337,7 +337,7 @@ class AlertWorker:
 def _to_futu_code(symbol: str) -> Optional[str]:
     """Convert a symbol string to Futu market code (e.g. 'AAPL' -> 'US.AAPL').
 
-    Handles common prefixes: US., HK., SH., SZ.
+    Uses stock_resolver (35k universe) as primary lookup, with heuristic fallback.
     """
     s = str(symbol or "").strip().upper()
     if not s:
@@ -345,7 +345,15 @@ def _to_futu_code(symbol: str) -> Optional[str]:
     # Already a Futu code
     if "." in s and s.split(".")[0] in ("US", "HK", "SH", "SZ"):
         return s
-    # Heuristic: 6-digit = A-share, otherwise US
+    # Try stock resolver first (covers US/ETF/HK)
+    try:
+        from tradingagents.dataflows.stock_resolver import to_futu
+        resolved = to_futu(s)
+        if resolved and "." in resolved:
+            return resolved
+    except ImportError:
+        pass
+    # Heuristic fallback: 6-digit = A-share, otherwise US
     if s.isdigit() and len(s) == 6:
         if s.startswith("6"):
             return f"SH.{s}"
