@@ -1,3 +1,14 @@
+"""A-share (CN) trade calendar utilities.
+
+.. deprecated::
+    This module is deprecated. The project (寰宇智盘 / OmniTerminal) focuses on
+    US and HK markets only. A-share trade calendar logic will be removed in a
+    future release. Do NOT add new code that depends on this module.
+
+    Replacement: use Futu OpenD's ``request_trading_days`` API for HK/US
+    trading-day queries, or yfinance for US market calendars.
+"""
+
 from __future__ import annotations
 
 import re
