@@ -204,8 +204,27 @@ def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
     if not symbols:
         return {}
     try:
-        result_json = route_to_vendor("get_realtime_quotes", symbols)
-        return json.loads(result_json)
+        result = route_to_vendor("get_realtime_quotes", symbols)
+        if not result:
+            return {}
+        # FutuProvider returns CSV, parse it
+        import csv
+        import io
+        reader = csv.DictReader(io.StringIO(result))
+        quotes = {}
+        for row in reader:
+            sym = row.get("symbol", "")
+            if sym:
+                quotes[sym] = {
+                    "price": row.get("price"),
+                    "change": row.get("change"),
+                    "change_pct": row.get("change_pct"),
+                    "volume": row.get("volume"),
+                    "high": row.get("high"),
+                    "low": row.get("low"),
+                    "open": row.get("open"),
+                }
+        return quotes
     except Exception as exc:
         logger.warning("[tracking-board] realtime quote fetch failed: %s", exc)
         return {}
