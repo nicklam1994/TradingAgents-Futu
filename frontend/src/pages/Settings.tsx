@@ -868,13 +868,10 @@ export default function Settings() {
                         onClick={saveFutuConfig}
                         disabled={futuSaving}
                         style={futuSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            futuSaved
-                                ? ''
-                                : 'btn-primary'
-                        }`}
+                        className="flex items-center gap-2 btn-primary"
                     >
-                        {futuSaved ? '✓ 保存成功' : futuSaving ? '保存中...' : '保存配置'}
+                        <Save className="w-4 h-4" />
+                        {futuSaved ? '保存成功' : '保存配置'}
                     </button>
                 </div>
 
@@ -990,7 +987,8 @@ export default function Settings() {
                             </div>
                         )}
                     </div>
-                )}\n            </div>
+                )}
+            </div>
 
             {/* 数据源接入 */}
             <div className="card space-y-4">
