@@ -87,7 +87,7 @@
 
 <div class="header">
   <h1>TradingAgents-Futu 全模块架构图</h1>
-  <p>15 Agent 协作 + Futu OpenD + 自主交易闭环 + 通知系统 · 所有模块关系一览</p>
+  <p>15 Agent 协作 + Futu OpenD + 8 数据 Provider + 设置面板 + 自主交易闭环 + 通知系统 · 所有模块关系一览</p>
 </div>
 
 <div class="legend">
@@ -100,6 +100,7 @@
   <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div>前端</div>
   <div class="legend-item"><div class="legend-dot" style="background:#facc15"></div>Orchestrator</div>
   <div class="legend-item"><div class="legend-dot" style="background:#facc15"></div>通知系统</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div>设置面板</div>
   <div class="legend-item"><span class="badge badge-exist" style="font-size:9px">已有</span></div>
   <div class="legend-item"><span class="badge badge-new" style="font-size:9px">新增</span></div>
   <div class="legend-item"><span class="badge badge-modify" style="font-size:9px">增强</span></div>
@@ -109,7 +110,7 @@
   <div class="stat"><div class="num" style="color:#60a5fa">15</div><div class="label">Agent 角色</div></div>
   <div class="stat"><div class="num" style="color:#a78bfa">2</div><div class="label">辩论层</div></div>
   <div class="stat"><div class="num" style="color:#4ade80">6</div><div class="label">状态机层</div></div>
-  <div class="stat"><div class="num" style="color:#fb923c">4</div><div class="label">数据 Provider</div></div>
+  <div class="stat"><div class="num" style="color:#fb923c">8</div><div class="label">数据 Provider</div></div>
   <div class="stat"><div class="num" style="color:#f472b6">7</div><div class="label">搜索 API</div></div>
   <div class="stat"><div class="num" style="color:#f87171">12</div><div class="label">前端页面</div></div>
   <div class="stat"><div class="num" style="color:#facc15">9</div><div class="label">闭环步骤</div></div>
@@ -524,32 +525,53 @@
   <div class="layer-title" style="color:#f472b6">🗄️ 数据源层（Provider Registry + Fallback Chain）</div>
   <div class="modules">
     <div class="module c-pink">
-      <span class="badge badge-new">新增</span>
+      <span class="badge badge-new">内置</span>
       <div class="tag">Provider</div>
       <div class="name">Futu Provider</div>
-      <div class="desc">US/HK K 线 + 实时行情 + Snapshot（最高优先级）</div>
+      <div class="desc">US/HK K 线 + 实时行情 + Snapshot（最高优先级，免费）</div>
       <div class="file">providers/futu_provider.py</div>
     </div>
     <div class="module c-pink">
-      <span class="badge badge-exist">已有</span>
-      <div class="tag">Provider</div>
-      <div class="name">CnAkshareProvider</div>
-      <div class="desc">A 股行情 + 新闻 + 基本面 + 资金流 + 龙虎榜</div>
-      <div class="file">providers/cn_akshare_provider.py</div>
-    </div>
-    <div class="module c-pink">
-      <span class="badge badge-exist">已有</span>
+      <span class="badge badge-new">内置</span>
       <div class="tag">Provider</div>
       <div class="name">YFinanceProvider</div>
-      <div class="desc">US/全球行情 + 新闻 + 基本面 + 内线交易</div>
+      <div class="desc">US/全球行情 + 新闻 + 基本面 + 内线交易（免费）</div>
       <div class="file">providers/yfinance_provider.py</div>
     </div>
     <div class="module c-pink">
-      <span class="badge badge-exist">已有</span>
+      <span class="badge badge-new">🔑</span>
       <div class="tag">Provider</div>
       <div class="name">AlphaVantageProvider</div>
       <div class="desc">US 新闻情绪 + 基本面 + 财报（备用）</div>
       <div class="file">providers/alpha_vantage_provider.py</div>
+    </div>
+    <div class="module c-pink">
+      <span class="badge badge-new">🔑</span>
+      <div class="tag">Provider</div>
+      <div class="name">FinnhubProvider</div>
+      <div class="desc">US 实时行情 + 新闻 + 基本面 + ESG</div>
+      <div class="file">providers/finnhub_provider.py</div>
+    </div>
+    <div class="module c-pink">
+      <span class="badge badge-new">🔑</span>
+      <div class="tag">Provider</div>
+      <div class="name">TiingoProvider</div>
+      <div class="desc">US 历史 K 线 + 新闻 + IEX 实时</div>
+      <div class="file">providers/tiingo_provider.py</div>
+    </div>
+    <div class="module c-pink">
+      <span class="badge badge-new">🔑</span>
+      <div class="tag">Provider</div>
+      <div class="name">AiTickProvider</div>
+      <div class="desc">HK 实时行情 + 逐笔 + 基本面</div>
+      <div class="file">providers/aitick_provider.py</div>
+    </div>
+    <div class="module c-pink">
+      <span class="badge badge-new">🔑</span>
+      <div class="tag">Provider</div>
+      <div class="name">ITickProvider</div>
+      <div class="desc">HK 实时行情 + K 线 + 深度</div>
+      <div class="file">providers/itick_provider.py</div>
     </div>
     <div class="module c-pink">
       <span class="badge badge-new">新增</span>
@@ -736,10 +758,54 @@
   </div>
 </div>
 
+<hr class="section-divider">
+
+<!-- ═══════════════ LAYER: 设置面板 ═══════════════ -->
+<div class="layer">
+  <div class="layer-title" style="color:#38bdf8">⚙️ 设置面板（Settings Page · 5 大配置区）</div>
+  <div class="modules">
+    <div class="module c-blue">
+      <span class="badge badge-new">配置</span>
+      <div class="tag">LLM</div>
+      <div class="name">模型接入</div>
+      <div class="desc">Provider 选择 · API Key · Base URL · Quick/Deep 模型 · 预设模板</div>
+      <div class="file">frontend Settings.tsx · /v1/config</div>
+    </div>
+    <div class="module c-blue">
+      <span class="badge badge-new">配置</span>
+      <div class="tag">Futu</div>
+      <div class="name">Futu OpenD 接入</div>
+      <div class="desc">Host/Port · RSA · 连接测试 · 牛牛号/额度/权限/账户一览</div>
+      <div class="file">/v1/config/futu-opend · /v1/futu/status</div>
+    </div>
+    <div class="module c-blue">
+      <span class="badge badge-new">新增</span>
+      <div class="tag">数据源</div>
+      <div class="name">数据源接入</div>
+      <div class="desc">5 家 API Key 配置（AlphaVantage/Finnhub/Tiingo/AiTick/iTick）+ 启用开关</div>
+      <div class="file">/v1/config/data-sources</div>
+    </div>
+    <div class="module c-blue">
+      <span class="badge badge-new">配置</span>
+      <div class="tag">搜索</div>
+      <div class="name">搜索服务接入</div>
+      <div class="desc">7 家搜索引擎 API Key（Tavily/Brave/SerpAPI/SearXNG/Bocha/Anspire/MiniMax）</div>
+      <div class="file">/v1/config/search</div>
+    </div>
+    <div class="module c-blue">
+      <span class="badge badge-new">配置</span>
+      <div class="tag">舆情</div>
+      <div class="name">社交舆情接入</div>
+      <div class="desc">Social Sentiment API Key + Base URL（Reddit/X/Polymarket）</div>
+      <div class="file">/v1/config/social-sentiment</div>
+    </div>
+  </div>
+</div>
+
 </div>
 
 <div style="text-align:center; padding:20px; color:#475569; font-size:12px; border-top:1px solid #1e293b;">
-  TradingAgents-Futu Architecture · Generated 2026-06-05 · 15 Agents + Futu OpenD + Autonomous Loop + Notification System
+  TradingAgents-Futu Architecture · Generated 2026-06-07 · 15 Agents + Futu OpenD + 8 Providers + Settings Panel + Notification System
 </div>
 
 </body>
