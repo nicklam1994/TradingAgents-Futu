@@ -521,3 +521,78 @@ class FutuProvider(BaseMarketDataProvider):
             return result_df.to_csv(index=False)
         finally:
             ctx.close()
+
+    def get_positions(self) -> list[dict[str, Any]]:
+        """Fetch real portfolio positions from FutuOpenD.
+
+        Returns list of dicts with keys:
+            code, stock_name, qty, can_sell_qty, cost_price, average_cost,
+            market_val, pl_ratio, pl_val, currency, position_side
+        """
+        try:
+            from futu import OpenSecTradeContext, TrdEnv, SecurityFirm
+        except ImportError:
+            logger.warning("[futu] futu-api not installed, cannot fetch positions")
+            return []
+
+        ctx = None
+        try:
+            ctx = OpenSecTradeContext(
+                host=_opend_host(),
+                port=_opend_port(),
+                security_firm=SecurityFirm.FUTUSECURITIES,
+            )
+            ret, data = ctx.position_list_query(trd_env=TrdEnv.REAL)
+            if ret != 0:
+                logger.warning("[futu] position_list_query failed: %s", ret)
+                return []
+            if data is None or data.empty:
+                return []
+
+            positions = []
+            for _, row in data.iterrows():
+                qty = row.get("qty", 0)
+                if qty <= 0:
+                    continue
+                # Convert Futu code (HK.00700) to canonical (00700.HK)
+                futu_code = row.get("code", "")
+                canonical = _futu_code_to_canonical(futu_code)
+                positions.append({
+                    "symbol": canonical,
+                    "futu_code": futu_code,
+                    "stock_name": row.get("stock_name", ""),
+                    "qty": float(qty),
+                    "can_sell_qty": float(row.get("can_sell_qty", 0)),
+                    "cost_price": float(row.get("cost_price", 0)),
+                    "average_cost": float(row.get("average_cost", 0)),
+                    "market_val": float(row.get("market_val", 0)),
+                    "nominal_price": float(row.get("nominal_price", 0)),
+                    "pl_ratio": float(row.get("pl_ratio", 0)),
+                    "pl_val": float(row.get("pl_val", 0)),
+                    "unrealized_pl": float(row.get("unrealized_pl", 0)),
+                    "realized_pl": float(row.get("realized_pl", 0)),
+                    "currency": row.get("currency", ""),
+                    "position_side": row.get("position_side", "LONG"),
+                })
+            return positions
+        except Exception as exc:
+            logger.warning("[futu] get_positions failed: %s", exc)
+            return []
+        finally:
+            if ctx:
+                ctx.close()
+
+
+def _futu_code_to_canonical(futu_code: str) -> str:
+    """Convert Futu code (HK.00700, US.AAPL) to canonical (00700.HK, AAPL)."""
+    if "." not in futu_code:
+        return futu_code
+    parts = futu_code.split(".", 1)
+    if len(parts) != 2:
+        return futu_code
+    market, code = parts
+    if market == "HK":
+        return f"{code}.HK"
+    elif market == "US":
+        return code  # US tickers are bare
+    return futu_code

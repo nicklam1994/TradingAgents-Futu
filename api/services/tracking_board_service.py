@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import re
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from api.database import ImportedPortfolioPositionDB, ReportDB
+from api.database import ReportDB
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.market_calendar import today_str, previous_trading_day
 
@@ -15,45 +18,85 @@ from tradingagents.dataflows.market_calendar import today_str, previous_trading_
 REFRESH_INTERVAL_SECONDS = 20
 logger = logging.getLogger(__name__)
 
+# ── Position Cache ────────────────────────────────────────────────────────────
+# Cache Futu positions so the board works even when OpenD is temporarily down.
+# _position_cache stores the last successful fetch result.
+# _position_cache_ts stores the timestamp of the last successful fetch.
+# _POSITION_CACHE_TTL seconds before we consider the cache stale (but still usable).
+_POSITION_CACHE_TTL = 300  # 5 minutes
+_position_cache: list[dict[str, Any]] = []
+_position_cache_ts: float = 0.0
+
+
+def _fetch_futu_positions() -> list[dict[str, Any]]:
+    """Fetch real positions from FutuOpenD. Returns cached data on failure."""
+    global _position_cache, _position_cache_ts
+
+    try:
+        from tradingagents.dataflows.providers.futu_provider import FutuProvider
+        provider = FutuProvider()
+        positions = provider.get_positions()
+        if positions:
+            _position_cache = positions
+            _position_cache_ts = time.time()
+            logger.info("[tracking-board] fetched %d positions from FutuOpenD", len(positions))
+            return positions
+        else:
+            # OpenD returned empty — might be disconnected, use cache
+            logger.info("[tracking-board] FutuOpenD returned empty, using cache (%d items)", len(_position_cache))
+            return _position_cache
+    except Exception as exc:
+        logger.warning("[tracking-board] FutuOpenD fetch failed: %s, using cache (%d items)", exc, len(_position_cache))
+        return _position_cache
+
+
+def _is_cache_fresh() -> bool:
+    """Check if cached positions are still fresh."""
+    return _position_cache and (time.time() - _position_cache_ts) < _POSITION_CACHE_TTL
+
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
     previous_trade_date = previous_trading_day(today_str("HK"), "HK")
-    rows = _list_imported_position_rows(db, user_id)
-    symbols = [row.symbol for row in rows]
+
+    # Fetch positions from Futu (with cache fallback)
+    positions = _fetch_futu_positions()
+    symbols = [p["symbol"] for p in positions]
+
+    # Fetch live quotes for all symbols
     quotes = _fetch_live_quotes(symbols)
+
+    # Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
 
     items: list[dict[str, Any]] = []
-    for row in rows:
-        quote = quotes.get(row.symbol, {})
-        live_price = _to_float(quote.get("price"))
-        current_position = _to_float(row.current_position)
-        average_cost = _to_float(row.average_cost)
-        live_market_value = (
-            round(live_price * current_position, 2)
-            if live_price is not None and current_position is not None
-            else _to_float(row.market_value)
-        )
-        floating_pnl = (
-            round((live_price - average_cost) * current_position, 2)
-            if live_price is not None and average_cost is not None and current_position is not None
-            else None
-        )
-        floating_pnl_pct = (
-            round(((live_price - average_cost) / average_cost) * 100, 2)
-            if live_price is not None and average_cost not in (None, 0)
-            else None
-        )
+    for pos in positions:
+        symbol = pos["symbol"]
+        quote = quotes.get(symbol, {})
+        live_price = _to_float(quote.get("price")) or _to_float(pos.get("nominal_price"))
+        qty = _to_float(pos.get("qty"))
+        cost_price = _to_float(pos.get("cost_price"))
+        market_val = _to_float(pos.get("market_val"))
+        pl_ratio = _to_float(pos.get("pl_ratio"))
+        pl_val = _to_float(pos.get("pl_val"))
+
+        # Recalculate with live price if available
+        if live_price and qty and cost_price:
+            live_market_value = round(live_price * qty, 2)
+            floating_pnl = round((live_price - cost_price) * qty, 2)
+            floating_pnl_pct = round(((live_price - cost_price) / cost_price) * 100, 2) if cost_price else None
+        else:
+            live_market_value = market_val
+            floating_pnl = pl_val
+            floating_pnl_pct = pl_ratio
 
         items.append(
             {
-                "symbol": row.symbol,
-                "name": row.security_name or row.symbol,
-                "current_position": _to_float(row.current_position),
-                "available_position": _to_float(row.available_position),
-                "average_cost": average_cost,
-                "market_value": _to_float(row.market_value),
-                "current_position_pct": _to_float(row.current_position_pct),
+                "symbol": symbol,
+                "name": pos.get("stock_name", symbol),
+                "current_position": qty,
+                "available_position": _to_float(pos.get("can_sell_qty")),
+                "average_cost": cost_price,
+                "market_value": market_val,
                 "live_market_value": live_market_value,
                 "floating_pnl": floating_pnl,
                 "floating_pnl_pct": floating_pnl_pct,
@@ -68,30 +111,19 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
                 "amount": _to_float(quote.get("amount")),
                 "quote_time": quote.get("quote_time"),
                 "quote_source": quote.get("source"),
-                "last_imported_at": row.last_imported_at.isoformat() if row.last_imported_at else None,
-                "analysis": _serialize_report_summary(reports.get(row.symbol), previous_trade_date),
+                "currency": pos.get("currency", ""),
+                "position_side": pos.get("position_side", "LONG"),
+                "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
             }
         )
 
     return {
         "previous_trade_date": previous_trade_date,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS,
+        "cache_fresh": _is_cache_fresh(),
+        "last_sync_ts": _position_cache_ts,
         "items": items,
     }
-
-
-def _list_imported_position_rows(db: Session, user_id: str) -> list[ImportedPortfolioPositionDB]:
-    """Return all imported positions for a user regardless of source."""
-    return (
-        db.query(ImportedPortfolioPositionDB)
-        .filter(ImportedPortfolioPositionDB.user_id == user_id)
-        .order_by(
-            ImportedPortfolioPositionDB.market_value.desc(),
-            ImportedPortfolioPositionDB.current_position.desc(),
-            ImportedPortfolioPositionDB.symbol,
-        )
-        .all()
-    )
 
 
 def _select_reports_for_symbols(
@@ -208,8 +240,6 @@ def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
         if not result:
             return {}
         # FutuProvider returns CSV, parse it
-        import csv
-        import io
         reader = csv.DictReader(io.StringIO(result))
         quotes = {}
         for row in reader:
