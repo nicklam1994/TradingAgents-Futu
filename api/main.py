@@ -358,8 +358,8 @@ async def lifespan(app: FastAPI):
     _report_version_stats()
     # Trade calendar: using Futu OpenD on-demand (no pre-load needed)
     _log("Trade calendar: using Futu OpenD on-demand.")
-    # Pre-load stock + ETF name map
-    await asyncio.to_thread(_load_cn_stock_map)
+    # Pre-load stock resolver universe (US/ETF/HK, 35k+ entries)
+    await asyncio.to_thread(_load_stock_resolver)
     _log("Stock map pre-loaded on startup.")
 
     # ── Bot platforms ────────────────────────────────────────────────────
@@ -441,10 +441,8 @@ _CONFIG_OVERRIDES_ALLOWLIST = {
 # Hold references to fire-and-forget tasks so they are not garbage collected
 _background_tasks: set = set()
 
-# ── A-share stock name → code cache ──────────────────────────────────────────
-_cn_stock_map: Optional[Dict[str, str]] = None  # name -> "XXXXXX.SH/SZ"
-_cn_stock_reverse_map: Optional[Dict[str, str]] = None  # code -> name
-_cn_stock_map_lock = Lock()
+# ── Stock name/code resolver (US/HK/ETF via stock_resolver) ───────────────────
+# Replaces deprecated _cn_stock_map (A-share via akshare).
 
 
 def _utcnow_iso() -> str:
@@ -482,102 +480,42 @@ def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
     return value.isoformat()
 
 
-_cn_stock_map_loaded_at: float = 0  # timestamp of last load
-_STOCK_MAP_TTL = 7 * 86400  # 7 days
-
-
-def _load_cn_stock_map() -> Dict[str, str]:
-    """Lazy-load and cache A-share stock + ETF/fund name→code mapping (7-day TTL).
-
-    Uses akshare stock_info_a_code_name (static list, no anti-crawl) for A-shares,
-    plus fund_name_em for ETFs/funds.
-    """
-    global _cn_stock_map, _cn_stock_reverse_map, _cn_stock_map_loaded_at
-    import time as _time
-    now = _time.time()
-    if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) > _STOCK_MAP_TTL:
-        _cn_stock_map = None  # expire cache
-        _cn_stock_reverse_map = None
-    if _cn_stock_map is not None:
-        return _cn_stock_map
-    with _cn_stock_map_lock:
-        if _cn_stock_map is not None and (now - _cn_stock_map_loaded_at) <= _STOCK_MAP_TTL:
-            return _cn_stock_map
-        result: Dict[str, str] = {}
-        try:
-            import akshare as ak
-            # A-share stocks (static list, no anti-crawl issue)
-            df = ak.stock_info_a_code_name()
-            for _, row in df.iterrows():
-                name = str(row.get("name", "")).strip()
-                code = str(row.get("code", "")).strip()
-                if name and code:
-                    result[name] = _normalize_symbol(code)
-            stock_count = len(result)
-            # ETF / funds
-            fund_count = 0
-            try:
-                fund_df = ak.fund_name_em()
-                existing_codes = set(result.values())
-                for _, row in fund_df.iterrows():
-                    code = str(row.get("基金代码", "")).strip()
-                    name = str(row.get("基金简称", "")).strip()
-                    if name and code and len(code) == 6 and code.isdigit():
-                        normalized = _normalize_symbol(code)
-                        if normalized not in existing_codes:
-                            result[name] = normalized
-                            existing_codes.add(normalized)
-                fund_count = len(result) - stock_count
-            except Exception as fe:
-                _log(f"[StockMap] ETF/fund load skipped: {fe}")
-            _cn_stock_map = result
-            _cn_stock_reverse_map = {code: name for name, code in result.items()}
-            _cn_stock_map_loaded_at = now
-            _log(f"[StockMap] Loaded {stock_count} stocks + {fund_count} ETFs/funds = {len(result)} total.")
-        except Exception as e:
-            _log(f"[StockMap] Failed to load: {e}")
-            if _cn_stock_map is None:
-                _cn_stock_map = {}
-                _cn_stock_reverse_map = {}
-    return _cn_stock_map
+def _load_stock_resolver():
+    """Pre-load the stock_resolver universe (US/ETF/HK, 35k+ entries)."""
+    try:
+        from tradingagents.dataflows.stock_resolver import _load
+        _load()
+    except Exception as e:
+        _log(f"[StockResolver] Pre-load failed: {e}")
 
 
 def _get_reverse_stock_map() -> Dict[str, str]:
-    """Return code→name mapping."""
-    _load_cn_stock_map()
-    return dict(_cn_stock_reverse_map or {})
+    """Return code→name mapping from stock_resolver (US/ETF/HK)."""
+    try:
+        from tradingagents.dataflows.stock_resolver import _get_by_upper
+        universe = _get_by_upper()
+        return {entry["code"]: entry["name"] for entry in universe.values()}
+    except Exception:
+        return {}
 
 
 def _get_reverse_stock_map_cached_only() -> Dict[str, str]:
-    """Return code→name mapping only from already-warmed cache.
-
-    For list pages we prefer a fast response over blocking on a cold AkShare lookup.
-    When the cache is cold we simply return an empty mapping and let the UI fall back
-    to stock codes. Search endpoints can still call _load_cn_stock_map() explicitly.
-    """
-    if _cn_stock_map is None or _cn_stock_reverse_map is None:
-        return {}
-    return dict(_cn_stock_reverse_map)
+    """Return code→name mapping only from already-warmed cache."""
+    return _get_reverse_stock_map()
 
 
-def _search_cn_stock_by_name(query: str) -> Optional[str]:
-    """Look up A-share stock code by company name (exact then partial match)."""
+def _search_stock_by_name(query: str) -> Optional[str]:
+    """Look up stock code by name/ticker using stock_resolver (US/ETF/HK)."""
     query = query.strip()
     if not query:
         return None
-    stock_map = _load_cn_stock_map()
-    # 1. Exact match
-    if query in stock_map:
-        return stock_map[query]
-    # 2. Partial match: query is substring of a stock name or vice versa
-    candidates = [(name, code) for name, code in stock_map.items()
-                  if query in name or name in query]
-    if len(candidates) == 1:
-        return candidates[0][1]
-    # 3. If multiple partial matches, pick the one with shortest name (closest match)
-    if candidates:
-        candidates.sort(key=lambda x: len(x[0]))
-        return candidates[0][1]
+    try:
+        from tradingagents.dataflows.stock_resolver import resolve_ticker
+        result = resolve_ticker(query)
+        if result:
+            return result
+    except Exception:
+        pass
     return None
 
 
@@ -587,18 +525,23 @@ def _split_watchlist_batch_text(text: str) -> List[str]:
 
 def _resolve_watchlist_identifier(
     raw: str,
-    name_to_code: Dict[str, str],
-    code_to_name: Dict[str, str],
 ) -> tuple[Optional[str], Optional[str], Optional[str]]:
     token = raw.strip()
     if not token:
         return None, None, "输入为空"
-    if token in name_to_code:
-        symbol = name_to_code[token]
-        return symbol, code_to_name.get(symbol, token), None
+    # Try stock_resolver first
+    try:
+        from tradingagents.dataflows.stock_resolver import resolve_ticker, to_display, is_known_ticker
+        resolved = resolve_ticker(token)
+        if resolved:
+            display = to_display(resolved) or token
+            return resolved, display, None
+    except Exception:
+        pass
+    # Fallback to normalize
     symbol = _normalize_symbol(token)
-    if symbol in code_to_name:
-        return symbol, code_to_name.get(symbol, symbol), None
+    if symbol and symbol != token:
+        return symbol, symbol, None
     return None, None, f"未识别的股票代码或名称: {token}"
 
 
@@ -2502,10 +2445,14 @@ def _normalize_symbol(raw: str) -> str:
     if m2:
         return m2.group(1)
         
-    # Final Fallback: Check Chinese Name Map (e.g. "三花智控" -> "002050.SZ")
-    stock_map = _load_cn_stock_map()
-    if s in stock_map:
-        return stock_map[s]
+    # Final Fallback: Check stock resolver (US/ETF/HK)
+    try:
+        from tradingagents.dataflows.stock_resolver import resolve_ticker
+        resolved = resolve_ticker(s)
+        if resolved:
+            return resolved
+    except Exception:
+        pass
         
     return s
 
@@ -2584,20 +2531,7 @@ def _parse_stock_csv(raw: str) -> List[Dict[str, Any]]:
     return candles
 
 
-CN_INDEX_SYMBOL_MAP = {
-    "000001.SH": "sh000001",
-    "399001.SZ": "sz399001",
-    "399006.SZ": "sz399006",
-    "000300.SH": "sh000300",
-    "000688.SH": "sh000688",
-    "000905.SH": "sh000905",
-    "000852.SH": "sh000852",
-    "899050.BJ": "bj899050",
-}
 
-
-def _is_cn_index_symbol(symbol: str) -> bool:
-    return symbol.upper() in CN_INDEX_SYMBOL_MAP
 
 
 def _normalize_kline_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -2644,13 +2578,6 @@ def _normalize_kline_df(df: pd.DataFrame) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def _fetch_index_kline(symbol: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-    import akshare as ak  # type: ignore
-
-    symbol_key = symbol.upper()
-    vendor_symbol = CN_INDEX_SYMBOL_MAP.get(symbol_key)
-    if not vendor_symbol:
-        return []
 
     yyyymmdd_start = start_date.replace("-", "")
     yyyymmdd_end = end_date.replace("-", "")
@@ -2778,39 +2705,36 @@ def get_kline(
     else:
         start = (datetime.strptime(end, "%Y-%m-%d") - timedelta(days=120)).strftime("%Y-%m-%d")
 
-    if _is_cn_index_symbol(symbol):
-        candles = _fetch_index_kline(symbol, start, end)
+    # Normalize symbol
+    original = symbol
+    symbol = _normalize_symbol(symbol)
+    # HK index symbols → yfinance format (^HSI, ^HSCE)
+    _HK_INDEX_MAP = {"800000": "^HSI", "800100": "^HSCE", "^HSI": "^HSI", "^HSCE": "^HSCE"}
+    yf_symbol = _HK_INDEX_MAP.get(symbol.upper())
+    if yf_symbol:
+        symbol = yf_symbol
+    # US index symbols → yfinance format (^DJI, ^IXIC, ^GSPC)
+    _US_INDEX_MAP = {".DJI": "^DJI", ".IXIC": "^IXIC", ".SPX": "^GSPC", "^DJI": "^DJI", "^IXIC": "^IXIC", "^GSPC": "^GSPC"}
+    yf_symbol = _US_INDEX_MAP.get(symbol.upper())
+    if yf_symbol:
+        symbol = yf_symbol
+    if not _RESOLVABLE_SYMBOL_RE.match(symbol):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"unrecognized symbol {original!r} (normalized to {symbol!r}); "
+                f"expected formats: 'AAPL' / '00700.HK'"
+            ),
+        )
+    config = _build_runtime_config({})
+    set_config(config)
+    # Index symbols (^HSI, ^DJI etc.) → use yfinance directly, skip Futu
+    if symbol.startswith("^"):
+        from tradingagents.dataflows.providers.yfinance_provider import YFinanceProvider
+        raw = YFinanceProvider().get_stock_data(symbol, start, end)
     else:
-        # Normalize symbol (convert "阳光电源" -> "300274.SZ")
-        original = symbol
-        symbol = _normalize_symbol(symbol)
-        # HK index symbols → yfinance format (^HSI, ^HSCE)
-        _HK_INDEX_MAP = {"800000": "^HSI", "800100": "^HSCE", "^HSI": "^HSI", "^HSCE": "^HSCE"}
-        yf_symbol = _HK_INDEX_MAP.get(symbol.upper())
-        if yf_symbol:
-            symbol = yf_symbol
-        # US index symbols → yfinance format (^DJI, ^IXIC, ^GSPC)
-        _US_INDEX_MAP = {".DJI": "^DJI", ".IXIC": "^IXIC", ".SPX": "^GSPC", "^DJI": "^DJI", "^IXIC": "^IXIC", "^GSPC": "^GSPC"}
-        yf_symbol = _US_INDEX_MAP.get(symbol.upper())
-        if yf_symbol:
-            symbol = yf_symbol
-        if not _RESOLVABLE_SYMBOL_RE.match(symbol):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"unrecognized symbol {original!r} (normalized to {symbol!r}); "
-                    f"expected formats: '300394.SZ' / 'AAPL' / '00700.HK'"
-                ),
-            )
-        config = _build_runtime_config({})
-        set_config(config)
-        # Index symbols (^HSI, ^DJI etc.) → use yfinance directly, skip Futu
-        if symbol.startswith("^"):
-            from tradingagents.dataflows.providers.yfinance_provider import YFinanceProvider
-            raw = YFinanceProvider().get_stock_data(symbol, start, end)
-        else:
-            raw = route_to_vendor("get_stock_data", symbol, start, end)
-        candles = _parse_stock_csv(raw)
+        raw = route_to_vendor("get_stock_data", symbol, start, end)
+    candles = _parse_stock_csv(raw)
     if not candles:
         raise HTTPException(status_code=404, detail="no kline data")
     return KlineResponse(
@@ -2821,125 +2745,16 @@ def get_kline(
     )
 
 
-def _normalize_ths_code(code: str) -> str:
-    """Convert THS/XQ code like SH601xxx → 601xxx.SH"""
-    code = str(code).strip()
-    if code.upper().startswith("SH"):
-        return f"{code[2:]}.SH"
-    if code.upper().startswith("SZ"):
-        return f"{code[2:]}.SZ"
-    if code.upper().startswith("BJ") or code.upper().startswith("NQ"):
-        return f"{code[2:]}.BJ"
-    # Bare 6-digit code — guess exchange
-    if code.startswith(("6", "5")):
-        return f"{code}.SH"
-    if code.startswith(("0", "3", "2")):
-        return f"{code}.SZ"
-    return code
 
 
 @app.get("/v1/market/hot-stocks")
 def get_hot_stocks(source: str = "em", limit: int = 30) -> Dict:
-    """Return hot A-share stocks from different sources.
-    
-    Args:
-        source: Data source selection
-            - 'em': 东方财富热榜 (EastMoney hot stocks)
-            - 'xq': 雪球热门 (Xueqiu most-followed stocks)
-            - 'ths': 连涨榜 (Consecutive rising stocks, not general hot list)
-        limit: Maximum number of stocks to return
-    
-    Returns:
-        Dict with stocks list, total count, source info, and fallback status
+    """Return hot stocks from available sources.
+
+    Note: A-share hot stock sources (EastMoney/Xueqiu/THS) removed.
+    This endpoint now returns an empty list. Use stock-search instead.
     """
-    import akshare as ak
-
-    # 定义数据源尝试顺序（如果主数据源失败，自动尝试备用源）
-    source_configs = {
-        "em": ("stock_hot_rank_em", None, "东方财富热榜"),
-        "xq": ("stock_hot_follow_xq", "最热门", "雪球热门"),
-        "ths": ("stock_rank_lxsz_ths", None, "连涨榜"),
-    }
-
-    if source not in source_configs:
-        raise HTTPException(status_code=400, detail=f"Unknown source: {source}")
-
-    # 尝试主数据源，失败则尝试其他源
-    sources_to_try = [source] + [s for s in ["xq", "em", "ths"] if s != source]
-    last_error = None
-
-    for src in sources_to_try:
-        try:
-            func_name, param, desc = source_configs[src]
-            func = getattr(ak, func_name)
-
-            # 调用 akshare 函数
-            if param:
-                df = func(symbol=param).head(limit)
-            else:
-                df = func().head(limit)
-
-            stocks = []
-
-            if src == "em":
-                for i, (_, row) in enumerate(df.iterrows()):
-                    stocks.append({
-                        "rank": i + 1,
-                        "symbol": _normalize_ths_code(str(row.get("代码", ""))),
-                        "name": str(row.get("股票名称", "")),
-                        "price": float(row.get("最新价", 0) or 0),
-                        "change": float(row.get("涨跌额", 0) or 0),
-                        "change_pct": float(row.get("涨跌幅", 0) or 0),
-                        "extra": "",
-                    })
-
-            elif src == "xq":
-                for i, (_, row) in enumerate(df.iterrows()):
-                    stocks.append({
-                        "rank": i + 1,
-                        "symbol": _normalize_ths_code(str(row.get("股票代码", ""))),
-                        "name": str(row.get("股票简称", "")),
-                        "price": float(row.get("最新价", 0) or 0),
-                        "change": 0.0,
-                        "change_pct": 0.0,
-                        "extra": f"关注 {int(row.get('关注', 0)):,}",
-                    })
-
-            elif src == "ths":
-                for i, (_, row) in enumerate(df.iterrows()):
-                    days = int(row.get("连涨天数", 0) or 0)
-                    change_pct = float(row.get("连续涨跌幅", 0) or 0)
-                    stocks.append({
-                        "rank": i + 1,
-                        "symbol": _normalize_ths_code(str(row.get("股票代码", ""))),
-                        "name": str(row.get("股票简称", "")),
-                        "price": float(row.get("收盘价", 0) or 0),
-                        "change": 0.0,
-                        "change_pct": change_pct,
-                        "extra": f"连涨{days}天",
-                    })
-
-            # 成功获取数据
-            fallback_msg = f" (fallback from {source_configs[source][2]})" if src != source else ""
-            _log(f"Hot stocks: successfully fetched from {desc}{fallback_msg}")
-            return {
-                "stocks": stocks,
-                "total": len(stocks),
-                "source": src,
-                "requested_source": source,
-                "fallback": src != source,
-            }
-
-        except Exception as e:
-            last_error = e
-            _log(f"Hot stocks: {desc} failed - {type(e).__name__}: {str(e)[:100]}")
-            continue
-
-    # 所有数据源都失败
-    raise HTTPException(
-        status_code=503,
-        detail=f"All data sources failed. Last error: {type(last_error).__name__}: {str(last_error)[:200]}"
-    )
+    return {"stocks": [], "total": 0, "source": "none", "fallback": False, "message": "Hot stocks endpoint deprecated. Use /v1/market/stock-search instead."}
 
 
 @app.post("/v1/analyze", response_model=AnalyzeResponse)
@@ -3134,7 +2949,7 @@ async def _ai_extract_symbol_and_date_streaming(
         symbol = _normalize_symbol(llm_name)
         return symbol or None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
-    local_code = await asyncio.to_thread(_search_cn_stock_by_name, llm_name)
+    local_code = await asyncio.to_thread(_search_stock_by_name, llm_name)
     if local_code:
         return local_code, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
@@ -3244,10 +3059,10 @@ def _ai_extract_symbol_and_date(
         _log(f"[StockExtract] Direct code: {symbol}")
         return symbol or None, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
-    # ── Step 3: Search akshare A-share name database ──────────────────────────
-    local_code = _search_cn_stock_by_name(llm_name)
+    # ── Step 3: Search stock resolver (US/ETF/HK) ─────────────────────────────
+    local_code = _search_stock_by_name(llm_name)
     if local_code:
-        _log(f"[StockExtract] akshare match: '{llm_name}' → {local_code}")
+        _log(f"[StockExtract] resolver match: '{llm_name}' → {local_code}")
         return local_code, llm_date, llm_horizons, llm_focus_areas, llm_specific_questions, llm_user_context
 
     # ── Step 4: Last resort — treat LLM name as a raw code ────────────────────
@@ -4545,8 +4360,7 @@ def search_stocks(
 ):
     """Search stocks by code prefix or name substring.
 
-    Searches the stock universe (US/ETF/HK, 35k+ entries) first, then
-    falls back to the CN stock map (A-share via akshare).
+    Searches the stock universe (US/ETF/HK, 35k+ entries).
     """
     q = q.strip()
     if not q:
@@ -4556,7 +4370,7 @@ def search_stocks(
     seen_symbols: set[str] = set()
     q_upper = q.upper()
 
-    # ── 1. Search stock universe (US/ETF/HK) ──────────────────────────────────
+    # ── Search stock universe (US/ETF/HK) ──────────────────────────────────
     try:
         from tradingagents.dataflows.stock_resolver import _get_by_upper, _load
         _load()
@@ -4583,27 +4397,6 @@ def search_stocks(
                     seen_symbols.add(code)
     except Exception:
         pass
-
-    # ── 2. Search CN stock map (A-share fallback) ─────────────────────────────
-    if len(results) < 20:
-        name_to_code = _load_cn_stock_map()
-        code_to_name = _get_reverse_stock_map()
-
-        for code, name in code_to_name.items():
-            if len(results) >= 20:
-                break
-            if code.upper().startswith(q_upper) or code.split(".")[0].startswith(q):
-                if code not in seen_symbols:
-                    results.append({"symbol": code, "name": name})
-                    seen_symbols.add(code)
-
-        if len(results) < 20:
-            for name, code in name_to_code.items():
-                if len(results) >= 20:
-                    break
-                if q in name and code not in seen_symbols:
-                    results.append({"symbol": code, "name": name})
-                    seen_symbols.add(code)
 
     return {"results": results}
 
@@ -4750,13 +4543,10 @@ def add_to_watchlist(
     if not tokens:
         raise HTTPException(400, "至少提供一个股票代码或名称")
 
-    name_to_code = _load_cn_stock_map()
-    code_to_name = _get_reverse_stock_map()
-
     resolved_entries: List[Dict[str, Any]] = []
     results: List[Dict[str, Any]] = []
     for idx, token in enumerate(tokens):
-        symbol, name, error = _resolve_watchlist_identifier(token, name_to_code, code_to_name)
+        symbol, name, error = _resolve_watchlist_identifier(token)
         if error:
             results.append({
                 "_order": idx,

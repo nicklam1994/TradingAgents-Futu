@@ -413,10 +413,10 @@ async def _startup():
     # NOTE: trade_calendar deprecated, using Futu-backed market_calendar instead
     _log("Trade calendar: using Futu OpenD on-demand (no pre-load needed).")
 
-    # Pre-load stock + ETF name map
-    from api.main import _load_cn_stock_map
+    # Pre-load stock resolver universe (US/ETF/HK)
+    from api.main import _load_stock_resolver
 
-    await asyncio.to_thread(_load_cn_stock_map)
+    await asyncio.to_thread(_load_stock_resolver)
     _log("Stock map pre-loaded on startup.")
 
     # Run the scheduler loop (blocks until cancelled)

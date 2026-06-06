@@ -353,7 +353,7 @@ def _to_futu_code(symbol: str) -> Optional[str]:
             return resolved
     except ImportError:
         pass
-    # Heuristic fallback: 6-digit = A-share, otherwise US
+    # Heuristic fallback: 6-digit = HK, otherwise US
     if s.isdigit() and len(s) == 6:
         if s.startswith("6"):
             return f"SH.{s}"

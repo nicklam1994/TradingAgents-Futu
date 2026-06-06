@@ -140,8 +140,8 @@ class CommandParser:
             "\n"
             "支持的代码格式：\n"
             "  美股: AAPL, TSLA, NVDA\n"
-            "  港股: 00700, 09988\n"
-            "  A股: 600519, 000001"
+            "  港股: 00700.HK, 09988.HK\n"
+            "  ETF: SPY, QQQ"
         )
 
 

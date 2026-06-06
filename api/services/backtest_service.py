@@ -66,9 +66,8 @@ def _get_trading_dates(start: str, end: str, interval_days: int) -> List[str]:
 
 
 def _get_price_after(symbol: str, base_date: str, hold_days: int) -> Optional[float]:
-    """Fetch closing price hold_days trading days after base_date using akshare."""
+    """Fetch closing price hold_days trading days after base_date using route_to_vendor."""
     try:
-        import akshare as ak
         from tradingagents.dataflows.interface import route_to_vendor
         import pandas as pd
 
