@@ -534,8 +534,7 @@ def _resolve_watchlist_identifier(
         from tradingagents.dataflows.stock_resolver import resolve_ticker, to_display, is_known_ticker
         resolved = resolve_ticker(token)
         if resolved:
-            display = to_display(resolved) or token
-            return resolved, display, None
+            return resolved["code"], to_display(resolved["code"]), None
     except Exception:
         pass
     # Fallback to normalize
