@@ -282,7 +282,7 @@ function WatchlistTable({ items, refreshing, error, onAnalyze, onRemove }: {
                         <div>名称 / 代码</div>
                         <div>当日 K 线</div>
                         <div>实时现价</div>
-                        <div>涨跌幅</div>
+                        <div className="text-center">涨跌幅</div>
                         <div>当日区间</div>
                         <div>振幅 / 换手</div>
                         <div>成交额 / 成交量</div>
