@@ -4,6 +4,10 @@ from .base import BaseMarketDataProvider
 from .futu_provider import FutuProvider
 from .yfinance_provider import YFinanceProvider
 from .alpha_vantage_provider import AlphaVantageProvider
+from .finnhub_provider import FinnhubProvider
+from .tiingo_provider import TiingoProvider
+from .aitick_provider import AiTickProvider
+from .itick_provider import ITickProvider
 from .search_news_provider import SearchNewsProvider
 
 
@@ -29,6 +33,11 @@ def build_default_registry() -> DataProviderRegistry:
     registry.register(FutuProvider())
     registry.register(YFinanceProvider())
     registry.register(AlphaVantageProvider())
+    # Placeholder providers (require API keys)
+    registry.register(FinnhubProvider())
+    registry.register(TiingoProvider())
+    registry.register(AiTickProvider())
+    registry.register(ITickProvider())
     # Search-based news provider (web search fallback)
     registry.register(SearchNewsProvider())
     return registry

@@ -974,6 +974,26 @@ class SearchConfigUpdateRequest(BaseModel):
     providers: List[SearchProviderConfig]
 
 
+# ── Data source provider config (行情数据源) ─────────────────────────────────
+
+class DataSourceProviderConfig(BaseModel):
+    name: str
+    label: str
+    env_key: str
+    market: str  # "US" | "HK" | "both"
+    api_key: Optional[str] = None
+    enabled: bool = True
+
+
+class DataSourceConfigResponse(BaseModel):
+    providers: List[DataSourceProviderConfig]
+    has_any_key: bool = False
+
+
+class DataSourceConfigUpdateRequest(BaseModel):
+    providers: List[DataSourceProviderConfig]
+
+
 class SocialSentimentConfigResponse(BaseModel):
     api_key: str = ""
     base_url: str = "https://api.adanos.org"
@@ -4125,6 +4145,81 @@ def update_search_config(
     db.commit()
 
     return {"message": "搜索服务配置已保存", "providers_count": len(config_data)}
+
+
+# ── Data source config endpoints ──────────────────────────────────────────────
+
+_DEFAULT_DATA_SOURCES = [
+    {"name": "alpha_vantage", "label": "Alpha Vantage", "env_key": "ALPHA_VANTAGE_API_KEY", "market": "US"},
+    {"name": "finnhub", "label": "Finnhub.io", "env_key": "FINNHUB_API_KEY", "market": "US"},
+    {"name": "tiingo", "label": "Tiingo", "env_key": "TIINGO_API_KEY", "market": "US"},
+    {"name": "aitick", "label": "AiTick", "env_key": "AITICK_API_KEY", "market": "HK"},
+    {"name": "itick", "label": "iTick", "env_key": "ITICK_API_KEY", "market": "HK"},
+]
+
+
+@app.get("/v1/config/data-sources", response_model=DataSourceConfigResponse)
+def get_data_source_config(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    ds_config = {}
+    if user_cfg and hasattr(user_cfg, 'search_config') and user_cfg.search_config:
+        try:
+            all_cfg = json.loads(user_cfg.search_config)
+            ds_config = all_cfg.get("data_sources", {})
+        except Exception:
+            pass
+
+    providers = []
+    for dp in _DEFAULT_DATA_SOURCES:
+        saved = ds_config.get(dp["name"], {})
+        key = saved.get("api_key", "")
+        providers.append(DataSourceProviderConfig(
+            name=dp["name"],
+            label=dp["label"],
+            env_key=dp["env_key"],
+            market=dp["market"],
+            api_key=_mask_secret_value(key) if key else "",
+            enabled=saved.get("enabled", True),
+        ))
+
+    has_any = any(p.api_key for p in providers)
+    return DataSourceConfigResponse(providers=providers, has_any_key=has_any)
+
+
+@app.put("/v1/config/data-sources")
+def update_data_source_config(
+    request: DataSourceConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    config_data = {}
+    for p in request.providers:
+        config_data[p.name] = {
+            "api_key": p.api_key if p.api_key else "",
+            "enabled": p.enabled,
+        }
+
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    if not user_cfg:
+        user_cfg = UserLLMConfigDB(user_id=current_user.id)
+        db.add(user_cfg)
+        db.flush()
+
+    # Merge into existing search_config JSON (data_sources is a nested key)
+    existing = {}
+    if user_cfg.search_config:
+        try:
+            existing = json.loads(user_cfg.search_config)
+        except Exception:
+            pass
+    existing["data_sources"] = config_data
+    user_cfg.search_config = json.dumps(existing)
+    db.commit()
+
+    return {"message": "数据源配置已保存", "providers_count": len(config_data)}
 
 
 @app.get("/v1/config/social-sentiment", response_model=SocialSentimentConfigResponse)

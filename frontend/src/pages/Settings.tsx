@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search, MessageCircle } from 'lucide-react'
+import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search, MessageCircle, BarChart3 } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
@@ -19,6 +19,15 @@ type SearchProvider = {
     env_key: string
     api_key: string
     base_url?: string
+    enabled: boolean
+}
+
+type DataSourceProvider = {
+    name: string
+    label: string
+    env_key: string
+    market: string  // "US" | "HK" | "both"
+    api_key: string
     enabled: boolean
 }
 
@@ -92,6 +101,12 @@ export default function Settings() {
 
     // Search config states
     const [searchProviders, setSearchProviders] = useState<SearchProvider[]>([])
+    
+    // Data source config states
+    const [dataSources, setDataSources] = useState<DataSourceProvider[]>([])
+    const [dataSourceSaving, setDataSourceSaving] = useState(false)
+    const [dataSourceSaved, setDataSourceSaved] = useState(false)
+    const [dataSourceLoading, setDataSourceLoading] = useState(false)
     
     // Futu OpenD state
     const [futuHost, setFutuHost] = useState('127.0.0.1')
@@ -211,6 +226,7 @@ export default function Settings() {
         // Fetch tokens
         fetchTokens()
         loadSearchConfig()
+        loadDataSourceConfig()
         loadSocialSentimentConfig()
         loadFutuConfig()
     }, [])
@@ -236,6 +252,31 @@ export default function Settings() {
             console.error('Failed to load search config', e)
         } finally {
             setSearchConfigLoading(false)
+        }
+    }
+
+    async function loadDataSourceConfig() {
+        setDataSourceLoading(true)
+        try {
+            const data = await api.get('/v1/config/data-sources')
+            setDataSources(data.providers || [])
+        } catch (e) {
+            console.error('Failed to load data source config', e)
+        } finally {
+            setDataSourceLoading(false)
+        }
+    }
+
+    async function saveDataSourceConfig() {
+        setDataSourceSaving(true)
+        try {
+            await api.put('/v1/config/data-sources', { providers: dataSources })
+            setDataSourceSaved(true)
+            setTimeout(() => setDataSourceSaved(false), 3000)
+        } catch (e: any) {
+            setConfigError(e?.message || '保存失败')
+        } finally {
+            setDataSourceSaving(false)
         }
     }
 
@@ -949,7 +990,70 @@ export default function Settings() {
                             </div>
                         )}
                     </div>
-                )}
+                )}\n            </div>
+
+            {/* 数据源接入 */}
+            <div className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-green-500" />
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">数据源接入</h2>
+                    {dataSourceLoading && <Loader2 className="ml-auto w-4 h-4 animate-spin text-slate-400" />}
+                </div>
+                <p className="text-sm text-slate-500 dark:text-slate-400">配置行情数据源 API Key，用于增强实时行情和历史数据覆盖。Futu 和 YFinance 为内置免费源，无需配置。</p>
+                
+                <div className="space-y-3">
+                    {dataSources.map((provider, idx) => (
+                        <div key={provider.name} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                            <div className="md:col-span-3">
+                                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                                    {provider.label}
+                                    <span className="ml-1 text-xs text-slate-400">({provider.market})</span>
+                                </label>
+                            </div>
+                            <div className="md:col-span-7">
+                                <input
+                                    type="password"
+                                    placeholder={`输入 ${provider.label} API Key`}
+                                    value={provider.api_key || ''}
+                                    onChange={e => {
+                                        const updated = [...dataSources]
+                                        updated[idx] = { ...updated[idx], api_key: e.target.value }
+                                        setDataSources(updated)
+                                    }}
+                                    className="input w-full"
+                                    disabled={dataSourceLoading}
+                                />
+                            </div>
+                            <div className="md:col-span-2 flex justify-end">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const updated = [...dataSources]
+                                        updated[idx] = { ...updated[idx], enabled: !updated[idx].enabled }
+                                        setDataSources(updated)
+                                    }}
+                                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                        provider.enabled ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
+                                    }`}
+                                >
+                                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${provider.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                
+                <div className="flex justify-end pt-2">
+                    <button
+                        onClick={saveDataSourceConfig}
+                        disabled={dataSourceSaving}
+                        style={dataSourceSaved ? { backgroundColor: '#22c55e', backgroundImage: 'none', borderColor: '#22c55e', color: '#fff', cursor: 'default' } : undefined}
+                        className="flex items-center gap-2 btn-primary"
+                    >
+                        <Save className="w-4 h-4" />
+                        {dataSourceSaved ? '保存成功' : '保存配置'}
+                    </button>
+                </div>
             </div>
 
             {/* 搜索服务接入 */}
