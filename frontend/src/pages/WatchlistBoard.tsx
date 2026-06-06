@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-    ImagePlus,
     Loader2,
     Plus,
     RefreshCw,
@@ -32,7 +31,6 @@ export default function WatchlistBoard() {
     const [searchLoading, setSearchLoading] = useState(false)
     const [showDropdown, setShowDropdown] = useState(false)
     const [adding, setAdding] = useState(false)
-    const [vlmParsing, setVlmParsing] = useState(false)
     const [feedback, setFeedback] = useState<{
         tone: 'success' | 'warning' | 'error'
         message: string
@@ -40,7 +38,6 @@ export default function WatchlistBoard() {
     } | null>(null)
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
     const dropdownRef = useRef<HTMLDivElement>(null)
-    const fileInputRef = useRef<HTMLInputElement>(null)
 
     const trimmedQuery = searchQuery.trim()
     const isBatchInput = trimmedQuery.length > 0 && WATCHLIST_BATCH_SPLIT_RE.test(trimmedQuery)
@@ -144,27 +141,6 @@ export default function WatchlistBoard() {
         }
     }
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0]
-        if (!file) return
-        e.target.value = ''
-        setVlmParsing(true)
-        setFeedback(null)
-        try {
-            const result = await api.parsePositionImage(file)
-            if (result.positions.length === 0) {
-                setFeedback({ tone: 'error', message: '未从截图中识别到股票代码', details: [] })
-                return
-            }
-            setSearchQuery(result.positions.map(p => p.symbol).join(','))
-            setFeedback({ tone: 'success', message: `已识别 ${result.positions.length} 只，请确认后添加`, details: [] })
-        } catch (err) {
-            setFeedback({ tone: 'error', message: err instanceof Error ? err.message : '图片解析失败', details: [] })
-        } finally {
-            setVlmParsing(false)
-        }
-    }
-
     const removeWatchlist = async (symbol: string) => {
         try {
             await api.removeFromWatchlist(symbol)
@@ -204,16 +180,10 @@ export default function WatchlistBoard() {
                                 onChange={e => setSearchQuery(e.target.value)}
                                 onFocus={() => searchResults.length > 0 && !isBatchInput && setShowDropdown(true)}
                                 onKeyDown={e => e.key === 'Enter' && trimmedQuery && void submitInput()}
-                                placeholder="搜索代码/名称，批量粘贴，或点右侧📷上传截图识别"
+                                placeholder="搜索代码/名称，批量粘贴"
                                 className="input pl-9 pr-10 w-full"
                             />
-                            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={vlmParsing}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 transition-colors disabled:opacity-40 dark:hover:bg-indigo-500/10"
-                                title="上传截图批量添加">
-                                {vlmParsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-                            </button>
-                            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                            {searchLoading && !vlmParsing && <Loader2 className="absolute right-9 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />}
+                            {searchLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-slate-400" />}
                         </div>
                         <button type="button" onClick={() => void submitInput()} disabled={!trimmedQuery || adding}
                             className="btn-primary inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0">
