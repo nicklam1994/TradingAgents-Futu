@@ -476,6 +476,10 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     }),
     merge: (persistedState, currentState) => {
         const persisted = (persistedState ?? {}) as Partial<AnalysisState>
+        // If persisted symbol is old CN index, reset to new default
+        if (persisted.currentSymbol && persisted.currentSymbol.endsWith('.SH') || persisted.currentSymbol?.endsWith('.SZ') || persisted.currentSymbol?.endsWith('.BJ')) {
+            persisted.currentSymbol = '^HSI'
+        }
         return {
             ...currentState,
             ...persisted,
