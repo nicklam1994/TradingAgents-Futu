@@ -565,6 +565,10 @@ export interface WatchlistBoardItem {
     day_low?: number | null
     volume?: number | null
     amount?: number | null
+    turnover?: number | null
+    prev_close?: number | null
+    amplitude?: number | null
+    turnover_rate?: number | null
     quote_time?: string | null
     created_at?: string | null
     analysis?: TrackingBoardAnalysis | null

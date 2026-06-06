@@ -511,9 +511,13 @@ class FutuProvider(BaseMarketDataProvider):
                         "change": round(change, 4),
                         "change_pct": round(change_pct, 4),
                         "volume": row.get("volume", 0),
+                        "turnover": row.get("turnover", 0),
                         "high": row.get("high_price", 0),
                         "low": row.get("low_price", 0),
                         "open": row.get("open_price", 0),
+                        "prev_close": prev_close,
+                        "amplitude": row.get("amplitude", 0),
+                        "turnover_rate": row.get("turnover_rate", 0),
                     }
                 )
 

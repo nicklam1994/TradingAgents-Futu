@@ -81,6 +81,10 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
                 "day_low": _to_float(quote.get("low")),
                 "volume": _to_float(quote.get("volume")),
                 "amount": _to_float(quote.get("amount")),
+                "prev_close": _to_float(quote.get("prev_close")),
+                "amplitude": _to_float(quote.get("amplitude")),
+                "turnover_rate": _to_float(quote.get("turnover_rate")),
+                "turnover": _to_float(quote.get("turnover")),
                 "quote_time": quote.get("quote_time"),
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
@@ -214,9 +218,13 @@ def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
                     "change": row.get("change"),
                     "change_pct": row.get("change_pct"),
                     "volume": row.get("volume"),
+                    "turnover": row.get("turnover"),
                     "high": row.get("high"),
                     "low": row.get("low"),
                     "open": row.get("open"),
+                    "prev_close": row.get("prev_close"),
+                    "amplitude": row.get("amplitude"),
+                    "turnover_rate": row.get("turnover_rate"),
                 }
         return quotes
     except Exception as exc:
