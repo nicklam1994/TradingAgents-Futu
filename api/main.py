@@ -4450,28 +4450,67 @@ def search_stocks(
     q: str = Query("", min_length=1, max_length=20),
     current_user: UserDB = Depends(_require_api_user),
 ):
-    """Search stocks by code prefix or name substring."""
+    """Search stocks by code prefix or name substring.
+
+    Searches the stock universe (US/ETF/HK, 35k+ entries) first, then
+    falls back to the CN stock map (A-share via akshare).
+    """
     q = q.strip()
     if not q:
         return {"results": []}
 
-    name_to_code = _load_cn_stock_map()
-    code_to_name = _get_reverse_stock_map()
     results = []
+    seen_symbols: set[str] = set()
     q_upper = q.upper()
 
-    for code, name in code_to_name.items():
-        if code.upper().startswith(q_upper) or code.split(".")[0].startswith(q):
-            results.append({"symbol": code, "name": name})
+    # ── 1. Search stock universe (US/ETF/HK) ──────────────────────────────────
+    try:
+        from tradingagents.dataflows.stock_resolver import _get_by_upper, _load
+        _load()
+        universe = _get_by_upper()
+        # Search by code prefix
+        for key, entry in universe.items():
             if len(results) >= 20:
                 break
-
-    if len(results) < 20:
-        for name, code in name_to_code.items():
-            if q in name and not any(r["symbol"] == code for r in results):
-                results.append({"symbol": code, "name": name})
+            code = entry["code"]
+            name = entry["name"]
+            if code.upper().startswith(q_upper) or q_upper in key:
+                if code not in seen_symbols:
+                    results.append({"symbol": code, "name": name})
+                    seen_symbols.add(code)
+        # Search by name substring
+        if len(results) < 20:
+            for key, entry in universe.items():
                 if len(results) >= 20:
                     break
+                code = entry["code"]
+                name = entry["name"]
+                if q in name and code not in seen_symbols:
+                    results.append({"symbol": code, "name": name})
+                    seen_symbols.add(code)
+    except Exception:
+        pass
+
+    # ── 2. Search CN stock map (A-share fallback) ─────────────────────────────
+    if len(results) < 20:
+        name_to_code = _load_cn_stock_map()
+        code_to_name = _get_reverse_stock_map()
+
+        for code, name in code_to_name.items():
+            if len(results) >= 20:
+                break
+            if code.upper().startswith(q_upper) or code.split(".")[0].startswith(q):
+                if code not in seen_symbols:
+                    results.append({"symbol": code, "name": name})
+                    seen_symbols.add(code)
+
+        if len(results) < 20:
+            for name, code in name_to_code.items():
+                if len(results) >= 20:
+                    break
+                if q in name and code not in seen_symbols:
+                    results.append({"symbol": code, "name": name})
+                    seen_symbols.add(code)
 
     return {"results": results}
 
