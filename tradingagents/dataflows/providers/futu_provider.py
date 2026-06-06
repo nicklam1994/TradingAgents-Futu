@@ -19,13 +19,41 @@ logger = logging.getLogger(__name__)
 
 
 def _opend_host() -> str:
-    """Read FutuOpenD host from env, default to localhost."""
-    return os.getenv("FUTU_OPEND_HOST", "172.17.160.1")
+    """Read FutuOpenD host from .env or environment variable."""
+    # 1. Check environment variable first
+    host = os.getenv("FUTU_OPEND_HOST")
+    if host:
+        return host
+    # 2. Read from .env file
+    try:
+        from dotenv import dotenv_values
+        env_vals = dotenv_values(".env")
+        host = env_vals.get("FUTU_OPEND_HOST")
+        if host:
+            return host
+    except Exception:
+        pass
+    # 3. Default
+    return "127.0.0.1"
 
 
 def _opend_port() -> int:
-    """Read FutuOpenD port from env, default to 11111."""
-    return int(os.getenv("FUTU_OPEND_PORT", "11111"))
+    """Read FutuOpenD port from .env or environment variable."""
+    # 1. Check environment variable first
+    port = os.getenv("FUTU_OPEND_PORT")
+    if port:
+        return int(port)
+    # 2. Read from .env file
+    try:
+        from dotenv import dotenv_values
+        env_vals = dotenv_values(".env")
+        port = env_vals.get("FUTU_OPEND_PORT")
+        if port:
+            return int(port)
+    except Exception:
+        pass
+    # 3. Default
+    return 11111
 
 
 class FutuProvider(BaseMarketDataProvider):
