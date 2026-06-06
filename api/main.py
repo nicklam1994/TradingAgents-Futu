@@ -514,7 +514,7 @@ def _search_stock_by_name(query: str) -> Optional[str]:
         from tradingagents.dataflows.stock_resolver import resolve_ticker
         result = resolve_ticker(query)
         if result:
-            return result
+            return result["code"]
     except Exception:
         pass
     return None
@@ -2450,7 +2450,7 @@ def _normalize_symbol(raw: str) -> str:
         from tradingagents.dataflows.stock_resolver import resolve_ticker
         resolved = resolve_ticker(s)
         if resolved:
-            return resolved
+            return resolved["code"]
     except Exception:
         pass
         
