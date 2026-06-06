@@ -29,6 +29,8 @@ export default function WatchlistBoard() {
     const [refreshing, setRefreshing] = useState(false)
     const [sortKey, setSortKey] = useState<'name' | 'pct' | null>(null)
     const [sortAsc, setSortAsc] = useState(true)
+    const [wsConnected, setWsConnected] = useState(false)
+    const wsRef = useRef<WebSocket | null>(null)
     const [error, setError] = useState<string | null>(null)
 
     const [searchQuery, setSearchQuery] = useState('')
@@ -47,7 +49,6 @@ export default function WatchlistBoard() {
     const trimmedQuery = searchQuery.trim()
     const isBatchInput = trimmedQuery.length > 0 && WATCHLIST_BATCH_SPLIT_RE.test(trimmedQuery)
     const items = board?.items || []
-    const refreshSeconds = board?.refresh_interval_seconds || 20
 
     const toggleSort = (key: 'name' | 'pct') => {
         if (sortKey === key) setSortAsc(!sortAsc)
@@ -64,6 +65,13 @@ export default function WatchlistBoard() {
         const vb = b.price_change_pct ?? -Infinity
         return sortAsc ? va - vb : vb - va
     })
+
+    // Send subscribe message when items change
+    useEffect(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN && items.length > 0) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: items.map(i => i.symbol) }))
+        }
+    }, [items.map(i => i.symbol).join(',')])
 
     const loadBoard = async (silent: boolean) => {
         if (silent) setRefreshing(true)
@@ -82,13 +90,59 @@ export default function WatchlistBoard() {
 
     useEffect(() => {
         if (!user?.id) return
-        let cancelled = false
+
+        // Initial load via REST
         void loadBoard(false)
-        const intervalId = window.setInterval(() => {
-            if (!cancelled) void loadBoard(true)
-        }, refreshSeconds * 1000)
-        return () => { cancelled = true; window.clearInterval(intervalId) }
-    }, [refreshSeconds, user?.id])
+
+        // Connect WebSocket for real-time updates
+        const token = localStorage.getItem('token') || ''
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/quotes?token=${token}`)
+        wsRef.current = ws
+
+        ws.onopen = () => {
+            setWsConnected(true)
+        }
+
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data)
+                if (msg.type === 'quotes' && msg.data) {
+                    setBoard(prev => {
+                        if (!prev) return prev
+                        const updatedItems = prev.items.map(item => {
+                            const q = msg.data[item.symbol]
+                            const state = msg.states?.[item.symbol]
+                            if (!q && !state) return item
+                            return {
+                                ...item,
+                                ...(q ? {
+                                    live_price: q.price ?? item.live_price,
+                                    price_change: q.change ?? item.price_change,
+                                    price_change_pct: q.change_pct ?? item.price_change_pct,
+                                    day_open: q.open ?? item.day_open,
+                                    day_high: q.high ?? item.day_high,
+                                    day_low: q.low ?? item.day_low,
+                                    prev_close: q.prev_close ?? item.prev_close,
+                                    volume: q.volume ?? item.volume,
+                                    turnover: q.turnover ?? item.turnover,
+                                    amplitude: q.amplitude ?? item.amplitude,
+                                    turnover_rate: q.turnover_rate ?? item.turnover_rate,
+                                } : {}),
+                                ...(state ? { market_state: state } : {}),
+                            }
+                        })
+                        return { ...prev, items: updatedItems }
+                    })
+                }
+            } catch {}
+        }
+
+        ws.onclose = () => setWsConnected(false)
+        ws.onerror = () => setWsConnected(false)
+
+        return () => { ws.close() }
+    }, [user?.id])
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
@@ -179,9 +233,11 @@ export default function WatchlistBoard() {
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">添加关注标的，实时跟踪行情与分析</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">自动刷新：{refreshSeconds}s</span>
                     <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">上一交易日：{board?.previous_trade_date || '--'}</span>
-                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">共 {items.length} 只</span>
+                    <span className={`rounded-full px-3 py-1 ${wsConnected ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400'}`}>
+                        {wsConnected ? '實時連接中' : '離線'}
+                    </span>
+                    <span className="rounded-full bg-blue-50 px-3 py-1 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">訂閱額度 {board?.subscription_used ?? items.length}/{board?.subscription_limit ?? 300}</span>
                 </div>
             </div>
 
@@ -250,7 +306,7 @@ export default function WatchlistBoard() {
                 </div>
             ) : (
                 <WatchlistTable items={sortedItems} refreshing={refreshing} error={error}
-                    sortKey={sortKey} sortAsc={sortAsc} onToggleSort={toggleSort}
+                    wsConnected={wsConnected} sortKey={sortKey} sortAsc={sortAsc} onToggleSort={toggleSort}
                     onAnalyze={s => navigate(`/analysis?symbol=${s}`)} onRemove={s => void removeWatchlist(s)} />
             )}
         </div>
@@ -259,10 +315,11 @@ export default function WatchlistBoard() {
 
 /* ─── 7-Column Table ───────────────────────────────────────────────────── */
 
-function WatchlistTable({ items, refreshing, error, sortKey, sortAsc, onToggleSort, onAnalyze, onRemove }: {
+function WatchlistTable({ items, refreshing, error, wsConnected, sortKey, sortAsc, onToggleSort, onAnalyze, onRemove }: {
     items: WatchlistBoardItem[]
     refreshing: boolean
     error: string | null
+    wsConnected: boolean
     sortKey: 'name' | 'pct' | null
     sortAsc: boolean
     onToggleSort: (key: 'name' | 'pct') => void
@@ -289,7 +346,7 @@ function WatchlistTable({ items, refreshing, error, sortKey, sortAsc, onToggleSo
             <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between dark:border-slate-700 dark:text-slate-400">
                 <div className="flex items-center gap-2">
                     <span className={`inline-flex h-2.5 w-2.5 rounded-full ${error ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                    <span>{error ? `刷新异常：${error}` : '实时报价中'}</span>
+<span>{wsConnected ? '實時報價中' : error ? `連接異常：${error}` : '正在連接...'}</span>
                     {refreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
                 </div>
                 <div className="text-slate-400">共 {items.length} 只</div>

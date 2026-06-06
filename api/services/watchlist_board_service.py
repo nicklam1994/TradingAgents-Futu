@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from api.database import ReportDB, WatchlistItemDB
+from api.services.quote_ws_manager import quote_ws_manager
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.market_calendar import today_str, previous_trading_day
 
@@ -52,17 +53,20 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
         futu_symbols.append(display_code)
         symbol_map[display_code] = sym
 
-    # 3. Fetch live quotes
-    raw_quotes = _fetch_live_quotes(futu_symbols)
-    # Remap back to canonical symbols
-    quotes = {}
-    for futu_code, q in raw_quotes.items():
-        canonical = symbol_map.get(futu_code, futu_code)
-        quotes[canonical] = q
-
-    # 3b. Fetch market state
-    from tradingagents.dataflows.providers.futu_provider import get_market_state
-    market_states = get_market_state(symbols)
+    # 3. Use WebSocket cached quotes if available, otherwise fetch directly
+    cached_quotes = quote_ws_manager.latest_quotes
+    cached_states = quote_ws_manager.latest_states
+    if cached_quotes and any(s in cached_quotes for s in symbols):
+        quotes = {s: cached_quotes[s] for s in symbols if s in cached_quotes}
+        market_states = {s: cached_states.get(s, "") for s in symbols}
+    else:
+        raw_quotes = _fetch_live_quotes(futu_symbols)
+        quotes = {}
+        for futu_code, q in raw_quotes.items():
+            canonical = symbol_map.get(futu_code, futu_code)
+            quotes[canonical] = q
+        from tradingagents.dataflows.providers.futu_provider import get_market_state
+        market_states = get_market_state(symbols)
 
     # 4. Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
@@ -99,6 +103,8 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
     return {
         "previous_trade_date": previous_trade_date,
         "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS,
+        "subscription_used": quote_ws_manager.subscription_count,
+        "subscription_limit": 300,
         "items": items,
     }
 

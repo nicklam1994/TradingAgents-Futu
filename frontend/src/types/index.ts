@@ -578,6 +578,8 @@ export interface WatchlistBoardItem {
 export interface WatchlistBoardResponse {
     previous_trade_date: string
     refresh_interval_seconds: number
+    subscription_used?: number
+    subscription_limit?: number
     items: WatchlistBoardItem[]
 }
 

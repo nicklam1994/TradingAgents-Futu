@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, File, HTTPException, Depends, Query, Request, UploadFile, status, BackgroundTasks
+from fastapi import FastAPI, File, HTTPException, Depends, Query, Request, UploadFile, status, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -42,6 +42,7 @@ import pandas as pd
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
 from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, watchlist_board_service, feedback_service, sponsor_service
+from api.services.quote_ws_manager import quote_ws_manager
 from api.services.bot import BotManager, DingTalkBot, FeishuBot, DiscordBot, TelegramBot, BotCommandHandler
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -4517,6 +4518,44 @@ def get_dashboard_tracking_board(
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws/quotes")
+async def websocket_quotes(ws: WebSocket, token: str = Query("")):
+    """WebSocket endpoint for real-time quote streaming.
+
+    Connect: ws://host:8088/ws/quotes?token=<jwt>
+    Receives: {"type":"quotes","data":{symbol:{price,...}},"states":{symbol:state},"ts":epoch}
+    Sends:   {"type":"subscribe","symbols":["AAPL","00700.HK"]}
+    """
+    # Authenticate via query param token
+    from api.database import SessionLocal, UserDB
+    from api.services import auth_service
+    db = SessionLocal()
+    try:
+        payload = auth_service.decode_access_token(token)
+        if not payload:
+            await ws.close(code=4001, reason="Invalid token")
+            return
+        user_id = payload.get("sub", "")
+        user = db.query(UserDB).filter(UserDB.id == user_id).first()
+        if not user:
+            await ws.close(code=4001, reason="User not found")
+            return
+    finally:
+        db.close()
+
+    await quote_ws_manager.connect(user_id, ws)
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("type") == "subscribe":
+                symbols = msg.get("symbols", [])
+                quote_ws_manager.update_symbols(symbols)
+    except WebSocketDisconnect:
+        quote_ws_manager.disconnect(user_id)
+    except Exception:
+        quote_ws_manager.disconnect(user_id)
+
 
 @app.get("/v1/watchlist")
 def list_watchlist(
