@@ -553,6 +553,29 @@ export interface TrackingBoardResponse {
     items: TrackingBoardItem[]
 }
 
+// Watchlist Board
+export interface WatchlistBoardItem {
+    symbol: string
+    name: string
+    live_price?: number | null
+    day_open?: number | null
+    price_change?: number | null
+    price_change_pct?: number | null
+    day_high?: number | null
+    day_low?: number | null
+    volume?: number | null
+    amount?: number | null
+    quote_time?: string | null
+    created_at?: string | null
+    analysis?: TrackingBoardAnalysis | null
+}
+
+export interface WatchlistBoardResponse {
+    previous_trade_date: string
+    refresh_interval_seconds: number
+    items: WatchlistBoardItem[]
+}
+
 // Runtime config
 export interface RuntimeConfig {
     llm_provider: string

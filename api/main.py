@@ -41,7 +41,7 @@ import pandas as pd
 
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
-from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, feedback_service, sponsor_service
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, watchlist_board_service, feedback_service, sponsor_service
 from api.services.bot import BotManager, DingTalkBot, FeishuBot, DiscordBot, TelegramBot, BotCommandHandler
 
 def _get_real_ip(request: Request) -> Optional[str]:
@@ -4526,6 +4526,14 @@ def list_watchlist(
     items = watchlist_service.list_watchlist(db, current_user.id)
     _attach_stock_names(items, _get_reverse_stock_map())
     return {"items": items}
+
+
+@app.get("/v1/dashboard/watchlist-board")
+def get_dashboard_watchlist_board(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    return watchlist_board_service.get_watchlist_board(db, current_user.id)
 
 
 @app.post("/v1/watchlist")
