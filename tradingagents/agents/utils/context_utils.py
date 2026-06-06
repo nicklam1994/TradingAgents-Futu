@@ -5,13 +5,12 @@ from datetime import datetime, timedelta, time
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
-from tradingagents.dataflows.trade_calendar import (
-    CN_TZ,
-    cn_market_phase,
-    cn_today_str,
-    is_cn_symbol,
-    is_cn_trading_day,
-    previous_cn_trading_day,
+from tradingagents.dataflows.market_calendar import (
+    HK_TZ,
+    is_trading_day,
+    market_phase,
+    today_str,
+    previous_trading_day,
 )
 
 US_TZ = ZoneInfo("America/New_York")
@@ -32,17 +31,20 @@ USER_CONTEXT_KEYS = (
 
 def infer_instrument_context(symbol: str) -> dict[str, Any]:
     normalized = (symbol or "").strip().upper()
-    if is_cn_symbol(normalized):
-        exchange = _infer_cn_exchange(normalized)
+
+    # HK stocks: 00700.HK, HK.00700, or 5-digit numeric
+    if normalized.endswith(".HK") or normalized.startswith("HK."):
+        code = normalized.replace(".HK", "").replace("HK.", "").zfill(5)
         return {
-            "symbol": normalized,
-            "security_name": normalized,
-            "market_country": "CN",
-            "exchange": exchange,
-            "currency": "CNY",
+            "symbol": f"{code}.HK",
+            "security_name": f"{code}.HK",
+            "market_country": "HK",
+            "exchange": "HKEX",
+            "currency": "HKD",
             "asset_type": "equity",
         }
 
+    # US stocks: letter tickers (AAPL, NVDA, SPY)
     if re.fullmatch(r"[A-Z]{1,6}(?:\.[A-Z]{1,4})?", normalized):
         exchange = normalized.split(".", 1)[1] if "." in normalized else "US"
         return {
@@ -68,8 +70,8 @@ def build_market_context(symbol: str, trade_date: str, now: datetime | None = No
     instrument_context = infer_instrument_context(symbol)
     market_country = instrument_context["market_country"]
 
-    if market_country == "CN":
-        context = _build_cn_market_context(trade_date, now)
+    if market_country == "HK":
+        context = _build_hk_market_context(trade_date, now)
     elif market_country == "US":
         context = _build_us_market_context(trade_date, now)
     else:
@@ -233,13 +235,13 @@ def build_agent_context_view(state: Mapping[str, Any], role: str) -> dict[str, s
     }
 
 
-def _build_cn_market_context(trade_date: str, now: datetime | None = None) -> dict[str, Any]:
-    now_dt = (now or datetime.now(CN_TZ)).astimezone(CN_TZ)
+def _build_hk_market_context(trade_date: str, now: datetime | None = None) -> dict[str, Any]:
+    now_dt = (now or datetime.now(HK_TZ)).astimezone(HK_TZ)
     today = now_dt.date().strftime("%Y-%m-%d")
-    is_trade_day = is_cn_trading_day(trade_date)
+    is_trade_day = is_trading_day(trade_date, "HK")
 
     if trade_date == today:
-        market_session = cn_market_phase(now_dt)
+        market_session = market_phase(now_dt, "HK")
     elif trade_date < today and is_trade_day:
         market_session = "post_close"
     elif trade_date > today and is_trade_day:
@@ -247,15 +249,15 @@ def _build_cn_market_context(trade_date: str, now: datetime | None = None) -> di
     else:
         market_session = "closed"
 
-    analysis_mode = _determine_cn_analysis_mode(trade_date, today, market_session)
+    analysis_mode = _determine_hk_analysis_mode(trade_date, today, market_session)
     return {
         "trade_date": trade_date,
-        "timezone": "Asia/Shanghai",
+        "timezone": "Asia/Hong_Kong",
         "market_session": market_session,
         "market_is_open": trade_date == today and market_session == "in_session",
         "analysis_mode": analysis_mode,
-        "data_as_of": _cn_data_as_of(trade_date, today, market_session),
-        "session_note": _cn_session_note(trade_date, today, market_session, is_trade_day),
+        "data_as_of": trade_date if trade_date <= today else today,
+        "session_note": _hk_session_note(trade_date, today, market_session, is_trade_day),
     }
 
 
@@ -318,6 +320,23 @@ def _determine_cn_analysis_mode(trade_date: str, today: str, market_session: str
     return "historical"
 
 
+def _determine_hk_analysis_mode(trade_date: str, today: str, market_session: str) -> str:
+    if trade_date == today:
+        if market_session == "pre_open":
+            return "pre_market"
+        if market_session in {"in_session", "lunch_break"}:
+            return "intraday"
+        if market_session == "post_close":
+            return "post_market"
+        return "closed"
+
+    if trade_date == previous_trading_day(today, "HK"):
+        return "t_plus_1"
+    if trade_date > today:
+        return "forward_look"
+    return "historical"
+
+
 def _determine_us_analysis_mode(trade_date: str, today: str, market_session: str) -> str:
     if trade_date == today:
         if market_session == "pre_open":
@@ -357,6 +376,22 @@ def _cn_session_note(trade_date: str, today: str, market_session: str, is_trade_
     if market_session == "in_session":
         return "A 股当前处于交易时段。"
     return "A 股已收盘，部分数据源可能仍在更新。"
+
+
+def _hk_session_note(trade_date: str, today: str, market_session: str, is_trade_day: bool) -> str:
+    if not is_trade_day:
+        return "请求日期为港股非交易日。"
+    if trade_date > today:
+        return "请求日期晚于当前日期，按最新可用市场状态推断。"
+    if trade_date < today:
+        return "请求日期为历史港股交易日，市场已收盘。"
+    if market_session == "pre_open":
+        return "港股盘前时段。"
+    if market_session == "lunch_break":
+        return "港股午间休市，盘中数据可能仍在变化。"
+    if market_session == "in_session":
+        return "港股当前处于交易时段。"
+    return "港股已收盘，部分数据源可能仍在更新。"
 
 
 def _is_us_trading_day(date_str: str) -> bool:

@@ -35,16 +35,6 @@ TOOLS_CATEGORIES = {
         "description": "Real-time market quotes",
         "tools": ["get_realtime_quotes"],
     },
-    "cn_market_data": {
-        "description": "China A-share market sentiment and fund flow data",
-        "tools": [
-            "get_board_fund_flow",
-            "get_individual_fund_flow",
-            "get_lhb_detail",
-            "get_zt_pool",
-            "get_hot_stocks_xq",
-        ],
-    },
     "social_sentiment": {
         "description": "Social media sentiment from Reddit, X (Twitter), and Polymarket",
         "tools": ["get_social_sentiment"],

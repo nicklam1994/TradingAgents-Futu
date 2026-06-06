@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from api.database import ImportedPortfolioPositionDB, ReportDB
 from tradingagents.dataflows.interface import route_to_vendor
-from tradingagents.dataflows.trade_calendar import cn_today_str, previous_cn_trading_day
+from tradingagents.dataflows.market_calendar import today_str, previous_trading_day
 
 
 REFRESH_INTERVAL_SECONDS = 20
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
-    previous_trade_date = previous_cn_trading_day(cn_today_str())
+    previous_trade_date = previous_trading_day(today_str("HK"), "HK")
     rows = _list_imported_position_rows(db, user_id)
     symbols = [row.symbol for row in rows]
     quotes = _fetch_live_quotes(symbols)

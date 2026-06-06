@@ -4,7 +4,6 @@ from dateutil.relativedelta import relativedelta
 import yfinance as yf
 import os
 from .stockstats_utils import StockstatsUtils
-from .trade_calendar import cn_no_data_reason, is_cn_symbol
 
 def get_YFin_data_online(
     symbol: Annotated[str, "ticker symbol of the company"],
@@ -300,10 +299,6 @@ def get_stockstats_indicator(
 
 
 def _missing_indicator_reason(symbol: str, date_str: str) -> str:
-    s = symbol.strip().upper()
-    normalized = s.replace(".SS", ".SH")
-    if is_cn_symbol(normalized):
-        return cn_no_data_reason(date_str)
     return "N/A：该日期暂无数据（可能未收盘、数据延迟或非交易日）"
 
 

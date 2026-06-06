@@ -65,7 +65,7 @@ from tradingagents.graph.data_collector import DataCollector
 
 # 全局共享 DataCollector：同一 ticker+date 的数据只拉一次，所有 job 复用缓存
 _shared_data_collector = DataCollector()
-from tradingagents.dataflows.trade_calendar import cn_today_str
+from tradingagents.dataflows.market_calendar import today_str as market_today_str
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.quant_metrics import QuantMetrics
@@ -112,10 +112,10 @@ def _report_version_stats() -> None:
 
 
 def _resolve_scheduled_trade_date(trade_date: str) -> str:
-    """Use the requested trading day, or fall back to the latest CN trading day."""
-    from tradingagents.dataflows.trade_calendar import is_cn_trading_day, previous_cn_trading_day
+    """Use the requested trading day, or fall back to the latest HK trading day."""
+    from tradingagents.dataflows.market_calendar import is_trading_day, previous_trading_day
 
-    return trade_date if is_cn_trading_day(trade_date) else previous_cn_trading_day(trade_date)
+    return trade_date if is_trading_day(trade_date, "HK") else previous_trading_day(trade_date, "HK")
 
 
 def _build_scheduled_analyze_request(
@@ -218,7 +218,7 @@ def _bot_analyze_fn_factory():
         horizon = kwargs.get("horizon", "short")
         from uuid import uuid4
 
-        trade_date = cn_today_str()
+        trade_date = market_today_str("HK")
         job_id = f"bot-{uuid4().hex[:8]}"
 
         req = AnalyzeRequest(
@@ -356,10 +356,8 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
-    # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
-    from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
-    _load_cn_trade_dates()
-    _log("Trade calendar pre-loaded.")
+    # Trade calendar: using Futu OpenD on-demand (no pre-load needed)
+    _log("Trade calendar: using Futu OpenD on-demand.")
     # Pre-load stock + ETF name map
     await asyncio.to_thread(_load_cn_stock_map)
     _log("Stock map pre-loaded on startup.")
@@ -702,7 +700,7 @@ class UserContextInput(BaseModel):
 
 class AnalyzeRequest(UserContextInput):
     symbol: str = Field(default="", description="股票代码，如 600519.SH（当 query 包含代码时可省略）")
-    trade_date: str = Field(default_factory=cn_today_str, description="交易日期 YYYY-MM-DD")
+    trade_date: str = Field(default_factory=lambda: market_today_str("HK"), description="交易日期 YYYY-MM-DD")
     selected_analysts: List[str] = Field(
         default_factory=lambda: ["market", "social", "news", "fundamentals", "macro", "smart_money", "volume_price"]
     )
@@ -2754,7 +2752,7 @@ def get_kline(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> KlineResponse:
-    end = end_date or cn_today_str()
+    end = end_date or market_today_str("HK")
     if start_date:
         start = start_date
     else:
@@ -3294,7 +3292,7 @@ async def chat_completions(
                 pre_intent["user_context"] = merged_user_context
                 analyze_req = AnalyzeRequest(
                     symbol=symbol,
-                    trade_date=trade_date or cn_today_str(),
+                    trade_date=trade_date or market_today_str("HK"),
                     selected_analysts=request.selected_analysts,
                     config_overrides=request.config_overrides,
                     dry_run=request.dry_run,
@@ -3374,7 +3372,7 @@ async def chat_completions(
     pre_intent["user_context"] = merged_user_context
     analyze_req = AnalyzeRequest(
         symbol=symbol,
-        trade_date=trade_date or cn_today_str(),
+        trade_date=trade_date or market_today_str("HK"),
         selected_analysts=request.selected_analysts,
         config_overrides=request.config_overrides,
         dry_run=request.dry_run,
@@ -4855,7 +4853,7 @@ async def trigger_scheduled_analyses_batch(
     if not body.item_ids:
         raise HTTPException(400, "请至少选择 1 个定时任务")
 
-    requested_trade_date = cn_today_str()
+    requested_trade_date = market_today_str("HK")
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
     code_to_name = _get_reverse_stock_map()
     jobs: List[Dict[str, Any]] = []
@@ -4949,7 +4947,7 @@ async def trigger_scheduled_analysis_once(
     if task is None:
         raise HTTPException(404, "未找到该定时任务")
 
-    requested_trade_date = cn_today_str()
+    requested_trade_date = market_today_str("HK")
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
     now = _utcnow_iso()
     job_id = uuid4().hex

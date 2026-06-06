@@ -153,7 +153,7 @@ class TestPortfolioImportService:
         with patch("api.main._run_job", side_effect=fake_run_job), patch(
             "api.main.get_db_ctx",
             return_value=FakeDbCtx(),
-        ), patch("tradingagents.dataflows.trade_calendar.is_cn_trading_day", return_value=True):
+        ), patch("tradingagents.dataflows.market_calendar.is_trading_day", return_value=True):
             asyncio.run(
                 _run_scheduled_job(
                     {
@@ -190,7 +190,7 @@ class TestPortfolioImportService:
         with patch("api.main._run_job", side_effect=fake_run_job), patch(
             "api.main.get_db_ctx",
             return_value=FakeDbCtx(),
-        ), patch("tradingagents.dataflows.trade_calendar.is_cn_trading_day", return_value=True):
+        ), patch("tradingagents.dataflows.market_calendar.is_trading_day", return_value=True):
             asyncio.run(
                 _run_scheduled_job(
                     {

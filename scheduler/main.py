@@ -89,8 +89,6 @@ from api.main import (
     get_job_store,
 )
 
-from tradingagents.dataflows.providers.cn_akshare_provider import set_scheduled_task_context
-
 
 # ── Semaphore-based concurrency slot ─────────────────────────────────────────
 
@@ -191,8 +189,6 @@ async def _run_scheduled_analysis_once(
     actual_trade_date = _resolve_scheduled_trade_date(requested_trade_date)
     _log(f"[Scheduler] {symbol} trade_date={actual_trade_date} (requested={requested_trade_date})")
 
-    set_scheduled_task_context(True)
-
     def _build_request_sync():
         with get_db_ctx() as db:
             scheduled_user_context = task.get("manual_user_context") or _build_imported_user_context(
@@ -282,7 +278,7 @@ async def _scheduler_loop():
     are triggered when current time >= task.trigger_time and the task hasn't
     run today yet.
     """
-    from tradingagents.dataflows.trade_calendar import is_cn_trading_day
+    from tradingagents.dataflows.market_calendar import is_trading_day
     from zoneinfo import ZoneInfo
 
     _log("[Scheduler] Loop started.")
@@ -293,7 +289,7 @@ async def _scheduler_loop():
             today = now.strftime("%Y-%m-%d")
             current_hhmm = now.strftime("%H:%M")
 
-            if not is_cn_trading_day(today):
+            if not is_trading_day(today, "HK"):
                 continue
             time_val = now.hour * 60 + now.minute
             if 8 * 60 < time_val < 20 * 60:
@@ -414,10 +410,8 @@ async def _startup():
     _recover_stale_tasks()
 
     # Pre-load trade calendar (uses mini_racer/V8 which is not thread-safe)
-    from tradingagents.dataflows.trade_calendar import _load_cn_trade_dates
-
-    _load_cn_trade_dates()
-    _log("Trade calendar pre-loaded.")
+    # NOTE: trade_calendar deprecated, using Futu-backed market_calendar instead
+    _log("Trade calendar: using Futu OpenD on-demand (no pre-load needed).")
 
     # Pre-load stock + ETF name map
     from api.main import _load_cn_stock_map

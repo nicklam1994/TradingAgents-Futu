@@ -37,7 +37,7 @@ class FutuProvider(BaseMarketDataProvider):
 
     _encrypt_done = False  # Class-level flag for one-time RSA setup
 
-    # ── Futu supported indicators (same set as cn_akshare) ──
+    # ── Futu supported indicators ──
     INDICATOR_DESCRIPTIONS = {
         "close_50_sma": "50 日均线（SMA）：中期趋势指标。",
         "close_200_sma": "200 日均线（SMA）：长期趋势基准。",
@@ -80,7 +80,7 @@ class FutuProvider(BaseMarketDataProvider):
         if s.endswith(".SH") or s.endswith(".SZ"):
             raise NotImplementedError(
                 f"Futu does not support A-share symbols: {code}. "
-                "Use cn_akshare or cn_baostock for SH/SZ stocks."
+                "Use yfinance for SH/SZ stocks."
             )
 
         # Explicit HK suffix (e.g., 00700.HK)
@@ -228,7 +228,7 @@ class FutuProvider(BaseMarketDataProvider):
     ) -> str:
         """Compute technical indicators using stockstats over Futu K-line data.
 
-        Reuses the same indicator set as cn_akshare / yfinance providers.
+        Reuses the same indicator set as yfinance providers.
         """
         if indicator not in self.INDICATOR_DESCRIPTIONS:
             raise ValueError(
