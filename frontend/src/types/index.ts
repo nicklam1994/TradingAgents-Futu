@@ -709,6 +709,119 @@ export interface FeedbackUnreadResponse {
     unread_count: number
 }
 
+// ─── Sim Trading Types (Phase 9) ──────────────────────────────────────────
+
+export interface SimAccount {
+    total_assets: number
+    cash_balance: number
+    frozen_cash: number
+    market_val: number
+    currency: string
+    available_cash: number
+    unrealized_pnl: number
+    realized_pnl: number
+}
+
+export interface SimPosition {
+    code: string
+    symbol: string
+    qty: number
+    cost_price: number
+    current_price: number
+    market_val: number
+    unrealized_pnl: number
+    unrealized_pnl_pct: number
+    currency: string
+}
+
+export interface SimOrder {
+    order_id: string
+    code: string
+    stock_name?: string
+    side: string
+    order_type?: string
+    price: number
+    qty: number
+    filled_qty?: number
+    filled_avg_price?: number
+    status: string
+    create_time: string
+    updated_time?: string
+    currency?: string
+}
+
+export interface SimDeal {
+    order_id: string
+    deal_id: string
+    code: string
+    stock_name?: string
+    side: string
+    price: number
+    qty: number
+    deal_time: string
+    currency?: string
+}
+
+export interface SimPerformance {
+    max_drawdown: number
+    sharpe_ratio: number
+    sortino_ratio: number
+    win_rate: number
+    calmar_ratio: number
+    trade_count: number
+}
+
+// ─── Autonomous Task Types (Phase 9) ─────────────────────────────────────
+
+export interface AutonomousTask {
+    task_id: string
+    title: string
+    status: 'pending' | 'running' | 'paused' | 'completed' | 'failed'
+    progress: number
+    created_at: string
+    updated_at: string
+}
+
+export interface AutonomousTaskDetail extends AutonomousTask {
+    metadata?: Record<string, unknown>
+    checkpoint?: Record<string, unknown>
+    error?: string
+    completed_at?: string
+    loop_status?: Record<string, unknown>
+}
+
+export interface AutonomousListResponse {
+    tasks: AutonomousTask[]
+    total: number
+    counts: Record<string, number>
+}
+
+// ─── Strategy / Skill Types (Phase 9) ────────────────────────────────────
+
+export interface Strategy {
+    name: string
+    display_name: string
+    description: string
+    enabled: boolean
+    regime?: string
+    parameters?: Record<string, unknown>
+}
+
+// ─── Reflection Types (Phase 9) ──────────────────────────────────────────
+
+export interface ReflectionEntry {
+    id: string
+    symbol: string
+    signal: string
+    confidence: number
+    verdict: 'good_trade' | 'bad_trade' | 'neutral'
+    lesson_summary: string
+    lessons: string[]
+    what_was_right: string
+    what_was_wrong: string
+    created_at: string
+}
+
 // Debate message (for battle view)
 export interface DebateMessage {
     debate: 'research' | 'risk'

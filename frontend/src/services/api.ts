@@ -1,5 +1,6 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse,
-    WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse } from '@/types'
+    WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse,
+    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -349,6 +350,68 @@ class ApiService {
 
     async markFeedbackRead(id: string): Promise<void> {
         return this.request<void>(`/v1/feedbacks/${id}/read`, { method: 'POST' })
+    }
+
+    // ─── Sim Trading API (Phase 9) ────────────────────────────────────────
+
+    async getSimAccount(): Promise<{ ok: boolean; data: SimAccount }> {
+        return this.request('/v1/sim/account')
+    }
+
+    async getSimPositions(): Promise<{ ok: boolean; data: SimPosition[]; total: number }> {
+        return this.request('/v1/sim/positions')
+    }
+
+    async getSimOrders(symbol?: string): Promise<{ ok: boolean; data: SimOrder[]; total: number }> {
+        const params = new URLSearchParams()
+        if (symbol) params.append('symbol', symbol)
+        return this.request(`/v1/sim/orders?${params}`)
+    }
+
+    async getSimDeals(symbol?: string): Promise<{ ok: boolean; data: SimDeal[]; total: number }> {
+        const params = new URLSearchParams()
+        if (symbol) params.append('symbol', symbol)
+        return this.request(`/v1/sim/deals?${params}`)
+    }
+
+    async getSimPerformance(): Promise<{ ok: boolean; data: SimPerformance }> {
+        return this.request('/v1/sim/performance')
+    }
+
+    // ─── Autonomous Task API (Phase 9) ────────────────────────────────────
+
+    async getAutonomousTasks(status?: string): Promise<{ ok: boolean; data: AutonomousListResponse }> {
+        const params = new URLSearchParams()
+        if (status) params.append('status', status)
+        return this.request(`/v1/autonomous?${params}`)
+    }
+
+    async getAutonomousTask(taskId: string): Promise<{ ok: boolean; data: AutonomousTaskDetail }> {
+        return this.request(`/v1/autonomous/${taskId}`)
+    }
+
+    async pauseAutonomousTask(taskId: string): Promise<{ ok: boolean; data: { task_id: string; status: string } }> {
+        return this.request(`/v1/autonomous/${taskId}/pause`, { method: 'POST' })
+    }
+
+    async resumeAutonomousTask(taskId: string): Promise<{ ok: boolean; data: { task_id: string; status: string } }> {
+        return this.request(`/v1/autonomous/${taskId}/resume`, { method: 'POST' })
+    }
+
+    async stopAutonomousTask(taskId: string): Promise<{ ok: boolean; data: { task_id: string; status: string } }> {
+        return this.request(`/v1/autonomous/${taskId}/stop`, { method: 'POST' })
+    }
+
+    // ─── Strategies / Skills API (Phase 9) ────────────────────────────────
+
+    async getStrategies(): Promise<{ ok: boolean; data: Strategy[] }> {
+        return this.request('/v1/skills')
+    }
+
+    // ─── Reflections API (Phase 9) ────────────────────────────────────────
+
+    async getReflections(): Promise<{ ok: boolean; data: ReflectionEntry[] }> {
+        return this.request('/v1/sim/reflections')
     }
 
     async get<T = any>(url: string): Promise<T> {
