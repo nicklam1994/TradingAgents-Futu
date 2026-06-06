@@ -95,7 +95,7 @@ export default function WatchlistBoard() {
         void loadBoard(false)
 
         // Connect WebSocket for real-time updates
-        const token = localStorage.getItem('token') || ''
+        const token = localStorage.getItem('ta-access-token') || ''
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/quotes?token=${token}`)
         wsRef.current = ws
