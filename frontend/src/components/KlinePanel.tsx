@@ -37,15 +37,14 @@ function toBusinessDay(value: string): BusinessDay | null {
 }
 
 const SYMBOL_NAME_MAP: Record<string, string> = {
-    '000001.SH': '上证指数',
-    '399001.SZ': '深证成指',
-    '399006.SZ': '创业板指',
-    '000300.SH': '沪深300',
-    '000905.SH': '中证500',
-    '000852.SH': '中证1000',
-    '300750.SZ': '宁德时代',
-    '600406.SH': '国电南瑞',
-    '510300.SH': '沪深300ETF',
+    '^HSI': '恒生指数',
+    '^HSCE': '国企指数',
+    '^DJI': '道琼斯',
+    '^IXIC': '纳斯达克',
+    '^GSPC': '标普500',
+    'HK.00700': '腾讯控股',
+    'AAPL': '苹果',
+    'NVDA': '英伟达',
 }
 
 function getDisplayName(symbol: string): string {
@@ -69,11 +68,11 @@ function formatVolume(value?: number | null): string {
 }
 
 const INDEX_PRESETS = [
-    { symbol: '000001.SH', label: '上证指数' },
-    { symbol: '399001.SZ', label: '深证成指' },
-    { symbol: '399006.SZ', label: '创业板指' },
-    { symbol: '000688.SH', label: '科创50' },
-    { symbol: '899050.BJ', label: '北证50' },
+    { symbol: '^HSI', label: '恒生指数' },
+    { symbol: '^HSCE', label: '国企指数' },
+    { symbol: '^DJI', label: '道琼斯' },
+    { symbol: '^IXIC', label: '纳斯达克' },
+    { symbol: '^GSPC', label: '标普500' },
 ] as const
 
 export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) {

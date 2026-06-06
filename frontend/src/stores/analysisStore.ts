@@ -171,7 +171,7 @@ const debouncedStorage = createDebouncedStorage()
 
 export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
     currentJobId: null,
-    currentSymbol: '000001.SH',
+    currentSymbol: '^HSI',
     jobStatus: null,
     agents: initialAgents,
     report: null,
@@ -385,7 +385,7 @@ export const useAnalysisStore = create<AnalysisState>()(persist((set) => ({
 
     clearSession: () => set({
         currentJobId: null,
-        currentSymbol: '000001.SH',
+        currentSymbol: '^HSI',
         jobStatus: null,
         agents: initialAgents.map(a => ({ ...a, status: 'pending' })),
         report: null,

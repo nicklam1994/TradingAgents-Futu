@@ -47,7 +47,7 @@ function extractPrice(text: string | undefined, type: 'target' | 'stop'): number
 export default function Analysis() {
     const [searchParams] = useSearchParams()
     const querySymbol = (searchParams.get('symbol') || '').trim().toUpperCase()
-    const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '000001.SH')
+    const [activeSymbol, setActiveSymbol] = useState(() => querySymbol || useAnalysisStore.getState().currentSymbol || '^HSI')
     const [activeSection, setActiveSection] = useState<string | undefined>()
     const [debateDrawer, setDebateDrawer] = useState<'research' | 'risk' | null>(null)
     const reportRef = useRef<HTMLDivElement | null>(null)

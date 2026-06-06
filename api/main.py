@@ -2387,8 +2387,8 @@ def _normalize_symbol(raw: str) -> str:
             return f"{code}.{suffix}"
         market = "SH" if code.startswith(("5", "6", "9")) else "SZ"
         return f"{code}.{market}"
-    # Fallback: 1-6 letter ticker
-    m2 = re.search(r"([A-Z]{1,6}(?:\.[A-Z]{1,3})?)", s)
+    # Fallback: 1-6 letter ticker (including ^ for yfinance indices like ^HSI)
+    m2 = re.search(r"(\^?[A-Z]{1,6}(?:\.[A-Z]{1,3})?)", s)
     if m2:
         return m2.group(1)
         
@@ -2651,7 +2651,7 @@ _RESOLVABLE_SYMBOL_RE = re.compile(
     r"^("
     r"\d{6}\.(SH|SZ|BJ)"          # A 股 / 北交所
     r"|\d{4,5}\.HK"                # 港股
-    r"|[A-Z][A-Z0-9.\-]{0,10}"     # 美股 / 通用 ticker
+    r"|[A-Z\^][A-Z0-9.\^\-]{0,10}" # 美股 / 通用 ticker / yfinance 指数
     r")$"
 )
 
@@ -2674,6 +2674,16 @@ def get_kline(
         # Normalize symbol (convert "阳光电源" -> "300274.SZ")
         original = symbol
         symbol = _normalize_symbol(symbol)
+        # HK index symbols → yfinance format (^HSI, ^HSCE)
+        _HK_INDEX_MAP = {"800000": "^HSI", "800100": "^HSCE", "^HSI": "^HSI", "^HSCE": "^HSCE"}
+        yf_symbol = _HK_INDEX_MAP.get(symbol.upper())
+        if yf_symbol:
+            symbol = yf_symbol
+        # US index symbols → yfinance format (^DJI, ^IXIC, ^GSPC)
+        _US_INDEX_MAP = {".DJI": "^DJI", ".IXIC": "^IXIC", ".SPX": "^GSPC", "^DJI": "^DJI", "^IXIC": "^IXIC", "^GSPC": "^GSPC"}
+        yf_symbol = _US_INDEX_MAP.get(symbol.upper())
+        if yf_symbol:
+            symbol = yf_symbol
         if not _RESOLVABLE_SYMBOL_RE.match(symbol):
             raise HTTPException(
                 status_code=400,
@@ -2684,7 +2694,12 @@ def get_kline(
             )
         config = _build_runtime_config({})
         set_config(config)
-        raw = route_to_vendor("get_stock_data", symbol, start, end)
+        # Index symbols (^HSI, ^DJI etc.) → use yfinance directly, skip Futu
+        if symbol.startswith("^"):
+            from tradingagents.dataflows.providers.yfinance_provider import YFinanceProvider
+            raw = YFinanceProvider().get_stock_data(symbol, start, end)
+        else:
+            raw = route_to_vendor("get_stock_data", symbol, start, end)
         candles = _parse_stock_csv(raw)
     if not candles:
         raise HTTPException(status_code=404, detail="no kline data")
