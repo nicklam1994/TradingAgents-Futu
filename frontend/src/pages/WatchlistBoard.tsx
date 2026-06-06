@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+    ChevronDown,
+    ChevronUp,
+    ChevronsUpDown,
     Loader2,
     Plus,
     RefreshCw,
@@ -24,6 +27,8 @@ export default function WatchlistBoard() {
     const [board, setBoard] = useState<WatchlistBoardResponse | null>(null)
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
+    const [sortKey, setSortKey] = useState<'name' | 'pct' | null>(null)
+    const [sortAsc, setSortAsc] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
     const [searchQuery, setSearchQuery] = useState('')
@@ -43,6 +48,22 @@ export default function WatchlistBoard() {
     const isBatchInput = trimmedQuery.length > 0 && WATCHLIST_BATCH_SPLIT_RE.test(trimmedQuery)
     const items = board?.items || []
     const refreshSeconds = board?.refresh_interval_seconds || 20
+
+    const toggleSort = (key: 'name' | 'pct') => {
+        if (sortKey === key) setSortAsc(!sortAsc)
+        else { setSortKey(key); setSortAsc(key === 'name') }
+    }
+
+    const sortedItems = [...items].sort((a, b) => {
+        if (!sortKey) return 0
+        if (sortKey === 'name') {
+            const cmp = extractName(a.name).localeCompare(extractName(b.name), 'zh')
+            return sortAsc ? cmp : -cmp
+        }
+        const va = a.price_change_pct ?? -Infinity
+        const vb = b.price_change_pct ?? -Infinity
+        return sortAsc ? va - vb : vb - va
+    })
 
     const loadBoard = async (silent: boolean) => {
         if (silent) setRefreshing(true)
@@ -228,7 +249,8 @@ export default function WatchlistBoard() {
                     <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">在上方搜索添加股票，即可实时跟踪行情。</p>
                 </div>
             ) : (
-                <WatchlistTable items={items} refreshing={refreshing} error={error}
+                <WatchlistTable items={sortedItems} refreshing={refreshing} error={error}
+                    sortKey={sortKey} sortAsc={sortAsc} onToggleSort={toggleSort}
                     onAnalyze={s => navigate(`/analysis?symbol=${s}`)} onRemove={s => void removeWatchlist(s)} />
             )}
         </div>
@@ -237,10 +259,13 @@ export default function WatchlistBoard() {
 
 /* ─── 7-Column Table ───────────────────────────────────────────────────── */
 
-function WatchlistTable({ items, refreshing, error, onAnalyze, onRemove }: {
+function WatchlistTable({ items, refreshing, error, sortKey, sortAsc, onToggleSort, onAnalyze, onRemove }: {
     items: WatchlistBoardItem[]
     refreshing: boolean
     error: string | null
+    sortKey: 'name' | 'pct' | null
+    sortAsc: boolean
+    onToggleSort: (key: 'name' | 'pct') => void
     onAnalyze: (s: string) => void
     onRemove: (s: string) => void
 }) {
@@ -250,10 +275,10 @@ function WatchlistTable({ items, refreshing, error, onAnalyze, onRemove }: {
                 <div className="min-w-[1200px]">
                     <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-wider text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div className="text-center">状态</div>
-                        <div>名称 / 代码</div>
+                        <SortHeader label="名称 / 代码" sortKey="name" activeKey={sortKey} asc={sortAsc} onToggle={onToggleSort} />
                         <div>当日 K 线</div>
                         <div>实时现价</div>
-                        <div className="text-center">涨跌幅</div>
+                        <SortHeader label="涨跌幅" sortKey="pct" activeKey={sortKey} asc={sortAsc} onToggle={onToggleSort} center />
                         <div>当日区间</div>
                         <div>振幅 / 换手</div>
                         <div>成交额 / 成交量</div>
@@ -408,6 +433,35 @@ function DayRange({ item }: { item: WatchlistBoardItem }) {
                 <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-blue-500" /><span className="text-slate-500 dark:text-slate-400">现价 {fmtPrice(live)}</span></span>
             </div>
         </div>
+    )
+}
+
+/* ─── Sort Header ───────────────────────────────────────────────────────── */
+
+function SortHeader({ label, sortKey, activeKey, asc, onToggle, center }: {
+    label: string
+    sortKey: 'name' | 'pct'
+    activeKey: string | null
+    asc: boolean
+    onToggle: (key: 'name' | 'pct') => void
+    center?: boolean
+}) {
+    const active = activeKey === sortKey
+    return (
+        <button
+            type="button"
+            onClick={() => onToggle(sortKey)}
+            className={`inline-flex items-center gap-1 text-xs font-medium tracking-wider transition-colors ${
+                active ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+            } ${center ? 'justify-center w-full' : ''}`}
+        >
+            {label}
+            {active ? (
+                asc ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+            ) : (
+                <ChevronsUpDown className="h-3 w-3 opacity-40" />
+            )}
+        </button>
     )
 }
 
