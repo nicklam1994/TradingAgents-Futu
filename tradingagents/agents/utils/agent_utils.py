@@ -28,6 +28,13 @@ from tradingagents.agents.utils.game_theory_tools import (
     get_morningstar_report,
     get_analyst_consensus,
     get_financial_report,
+    get_capital_distribution,
+    get_revenue_breakdown,
+    get_institutional_holders,
+    get_holder_changes,
+    get_dividend_history,
+    get_financial_alerts,
+    get_technical_alerts,
 )
 from tradingagents.agents.utils.social_sentiment_tools import (
     get_social_sentiment,

@@ -688,3 +688,355 @@ def get_financial_report(
             ctx.close()
     except Exception as e:
         return f"Financial report error: {e}"
+
+
+@tool
+def get_capital_distribution(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get capital distribution — super/big/mid/small order inflow vs outflow breakdown.
+
+    Shows how much money flows in vs out for each order size category.
+    Complements get_capital_flow with detailed in/out split.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_capital_distribution(futu_code)
+            if ret != 0:
+                return f"Capital distribution error: {data}"
+            if data.empty:
+                return f"No capital distribution data for {symbol}"
+            row = data.iloc[0]
+            ts = str(row.get("update_time", ""))
+            def fmt(v):
+                if v and v != "N/A":
+                    v = float(v)
+                    if abs(v) >= 1e9: return f"{v/1e9:+.2f}B"
+                    if abs(v) >= 1e6: return f"{v/1e6:+.2f}M"
+                    return f"{v:+.0f}"
+                return "N/A"
+            lines = [f"## {symbol} Capital Distribution ({ts})\n"]
+            lines.append("| Type | Inflow | Outflow | Net |")
+            lines.append("|------|--------|---------|-----|")
+            for label, in_key, out_key in [
+                ("Super Large", "capital_in_super", "capital_out_super"),
+                ("Large", "capital_in_big", "capital_out_big"),
+                ("Medium", "capital_in_mid", "capital_out_mid"),
+                ("Small", "capital_in_small", "capital_out_small"),
+            ]:
+                inp = float(row.get(in_key, 0) or 0)
+                out = float(row.get(out_key, 0) or 0)
+                net = inp - out
+                lines.append(f"| {label} | {fmt(inp)} | {fmt(out)} | {fmt(net)} |")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Capital distribution error: {e}"
+
+
+@tool
+def get_revenue_breakdown(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get revenue breakdown by business segment and geographic region.
+
+    Shows what percentage of revenue comes from each product line and region.
+    Essential for understanding business composition and concentration risk.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_financials_revenue_breakdown(futu_code)
+            if ret != 0:
+                return f"Revenue breakdown error: {data}"
+            period = data.get("period", "")
+            currency = data.get("currency_code", "")
+            breakdown = data.get("breakdown_list", [])
+            if not breakdown:
+                return f"No revenue breakdown for {symbol}"
+            TYPE_MAP = {1: "Business Segment", 4: "Geographic Region", 8: "Business (Detailed)"}
+            lines = [f"## {symbol} Revenue Breakdown ({period}, {currency})\n"]
+            for group in breakdown:
+                gtype = group.get("type", 0)
+                label = TYPE_MAP.get(gtype, f"Type {gtype}")
+                items = group.get("item_list", [])
+                if not items:
+                    continue
+                lines.append(f"### {label}")
+                lines.append("| Segment | Revenue | Share |")
+                lines.append("|---------|---------|-------|")
+                for item in items:
+                    name = item.get("name", "?")
+                    rev = item.get("main_oper_income", 0)
+                    ratio = item.get("ratio", 0)
+                    if abs(rev) >= 1e9:
+                        rev_str = f"{rev/1e9:.2f}B"
+                    elif abs(rev) >= 1e6:
+                        rev_str = f"{rev/1e6:.1f}M"
+                    else:
+                        rev_str = f"{rev:,.0f}"
+                    lines.append(f"| {name} | {rev_str} | {ratio:.1f}% |")
+                lines.append("")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Revenue breakdown error: {e}"
+
+
+@tool
+def get_institutional_holders(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get institutional holdings — how many institutions hold the stock and their share%.
+
+    Shows quarterly institutional holder count, total shares held, and percentage changes.
+    Useful for judging if smart money is accumulating or reducing positions.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_shareholders_institutional(futu_code)
+            if ret != 0:
+                return f"Institutional holders error: {data}"
+            if data.empty:
+                return f"No institutional data for {symbol}"
+            lines = [f"## {symbol} Institutional Holdings\n"]
+            lines.append("| Period | Institutions | Shares Held | Share% | Change |")
+            lines.append("|--------|-------------|-------------|--------|--------|")
+            for _, row in data.head(8).iterrows():
+                period = row.get("period_text", "")
+                count = int(row.get("institution_quantity", 0))
+                count_chg = int(row.get("institution_quantity_change", 0))
+                shares = float(row.get("holder_quantity", 0))
+                pct = float(row.get("holder_pct", 0))
+                pct_chg = float(row.get("holder_pct_change", 0))
+                if shares >= 1e9:
+                    shares_str = f"{shares/1e9:.2f}B"
+                elif shares >= 1e6:
+                    shares_str = f"{shares/1e6:.1f}M"
+                else:
+                    shares_str = f"{shares:,.0f}"
+                chg_str = f"{pct_chg:+.2f}%" if pct_chg else "N/A"
+                lines.append(f"| {period} | {count} ({count_chg:+d}) | {shares_str} | {pct:.2f}% | {chg_str} |")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Institutional holders error: {e}"
+
+
+@tool
+def get_holder_changes(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get shareholder holding changes — who bought/sold recently and how much.
+
+    Shows recent institutional and insider transactions with share counts and prices.
+    Critical for detecting smart money movements before they show in price.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_shareholders_holding_changes(futu_code)
+            if ret != 0:
+                return f"Holder changes error: {data}"
+            if data.empty:
+                return f"No holder change data for {symbol}"
+            lines = [f"## {symbol} Recent Shareholder Changes\n"]
+            lines.append("| Date | Holder | Type | Shares Changed | Price | Share% |")
+            lines.append("|------|--------|------|---------------|-------|--------|")
+            for _, row in data.head(10).iterrows():
+                date = str(row.get("holding_date_str", ""))
+                name = str(row.get("name", "?"))[:20]
+                htype = str(row.get("holder_type", ""))
+                chg = float(row.get("share_change_num", 0))
+                price = float(row.get("shares_change_price", 0))
+                ratio = float(row.get("share_ratio", 0))
+                ratio_chg = float(row.get("share_ratio_change", 0))
+                chg_str = f"{chg:+,.0f}" if chg else "N/A"
+                price_str = f"{price:,.0f}" if price else "N/A"
+                ratio_str = f"{ratio:.2f}% ({ratio_chg:+.2f}%)" if ratio else "N/A"
+                lines.append(f"| {date} | {name} | {htype} | {chg_str} | {price_str} | {ratio_str} |")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Holder changes error: {e}"
+
+
+@tool
+def get_dividend_history(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get dividend history — payout dates, amounts, and yield.
+
+    Shows historical dividend payments for income-focused analysis.
+    Useful for evaluating dividend sustainability and yield attractiveness.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_corporate_actions_dividends(futu_code)
+            if ret != 0:
+                return f"Dividend error: {data}"
+            divs = data.get("dividend_list", [])
+            if not divs:
+                return f"No dividend history for {symbol}"
+            lines = [f"## {symbol} Dividend History\n"]
+            lines.append("| Ex-Date | Record Date | Pay Date | Amount | Type |")
+            lines.append("|---------|-------------|----------|--------|------|")
+            for d in divs[:10]:
+                ex = d.get("ex_dividend_date", "")
+                record = d.get("record_date", "")
+                pay = d.get("payment_date", "")
+                amount = d.get("dividend_amount", 0)
+                dtype = d.get("dividend_type", "")
+                lines.append(f"| {ex} | {record} | {pay} | {amount} | {dtype} |")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Dividend error: {e}"
+
+
+@tool
+def get_financial_alerts(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get financial unusual activity alerts — earnings surprises, restatements, etc.
+
+    Flags unusual financial events that may impact stock price.
+    Early warning system for fundamental risks.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_financial_unusual(futu_code)
+            if ret != 0:
+                return f"Financial alerts error: {data}"
+            content = data.get("content", [])
+            if not content:
+                return f"No financial unusual activity for {symbol}"
+            lines = [f"## {symbol} Financial Alerts\n"]
+            for item in content:
+                lines.append(f"- {item}")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Financial alerts error: {e}"
+
+
+@tool
+def get_technical_alerts(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get technical unusual activity alerts — breakout signals, volume spikes, etc.
+
+    Flags unusual technical patterns that may indicate momentum shifts.
+    Useful for timing entries/exits.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_technical_unusual(futu_code)
+            if ret != 0:
+                return f"Technical alerts error: {data}"
+            content = data.get("content", [])
+            if not content:
+                return f"No technical unusual activity for {symbol}"
+            lines = [f"## {symbol} Technical Alerts\n"]
+            for item in content:
+                lines.append(f"- {item}")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Technical alerts error: {e}"
