@@ -255,3 +255,4 @@ uv.lock.cp313
 FutuOpenD/
 config/rsa_key.txt
 config/rsa_key_pkcs8.txt
+tradingagents_taskstore.db
