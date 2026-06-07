@@ -38,7 +38,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
 
         from tradingagents.agents.utils.agent_utils import (
             get_fundamentals, get_financial_report, get_analyst_consensus,
-            get_revenue_breakdown, get_financial_alerts,
+            get_revenue_breakdown, get_financial_alerts, get_morningstar_report,
         )
 
         pool = data_collector.get(ticker, current_date) if data_collector else None
@@ -71,11 +71,12 @@ def create_fundamentals_analyst(llm, data_collector=None):
 
         # Always fresh: analyst consensus + revenue breakdown + financial alerts + dividends
         from tradingagents.agents.utils.agent_utils import get_dividend_history
-        consensus, revenue, alerts, dividends = await asyncio.gather(
+        consensus, revenue, alerts, dividends, morningstar = await asyncio.gather(
             _safe(get_analyst_consensus, {"symbol": ticker}),
             _safe(get_revenue_breakdown, {"symbol": ticker}),
             _safe(get_financial_alerts, {"symbol": ticker}),
             _safe(get_dividend_history, {"symbol": ticker}),
+            _safe(get_morningstar_report, {"symbol": ticker}),
         )
 
         messages = [
@@ -88,6 +89,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
                 f"【资产负债表】\n{balance}\n\n"
                 f"【现金流量表】\n{cashflow}\n\n"
                 f"【营收分部(业务线+地区)】\n{revenue}\n\n"
+                f"【晨星研究报告】\n{morningstar}\n\n"
                 f"【分析师共识评级】\n{consensus}\n\n"
                 f"【股息历史】\n{dividends}\n\n"
                 f"【财务异常预警】\n{alerts}"
@@ -114,6 +116,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
             ("get_financial_report(balance)", "Futu", summarize_data(balance)),
             ("get_financial_report(cashflow)", "Futu", summarize_data(cashflow)),
             ("get_revenue_breakdown", "Futu", summarize_data(revenue)),
+            ("get_morningstar_report", "Futu", summarize_data(morningstar)),
             ("get_analyst_consensus", "Futu", summarize_data(consensus)),
             ("get_dividend_history", "Futu", summarize_data(dividends)),
             ("get_financial_alerts", "Futu", summarize_data(alerts)),
