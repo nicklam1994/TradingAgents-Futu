@@ -74,6 +74,14 @@ def create_news_analyst(llm, data_collector=None):
                 tracker._emit_token("News Analyst", "news_report", content)
 
         verdict, confidence = extract_verdict(full_content)
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("新闻与宏观分析师", [
+            ("get_news", "SearchService(4引擎)", summarize_data(stock_news)),
+            ("get_global_news", "SearchService(4引擎)", summarize_data(global_news)),
+        ])
+        full_content += trace
+
         return {
             "news_report": full_content,
             "analyst_traces": [{

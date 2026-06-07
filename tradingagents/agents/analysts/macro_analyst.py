@@ -72,6 +72,14 @@ def create_macro_analyst(llm, data_collector=None):
 
         print(f"[Macro Analyst] DONE {ticker}, report length={len(full_content)}")
         verdict, confidence = extract_verdict(full_content)
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("宏观与板块分析师", [
+            ("get_sector_performance", "Futu", summarize_data(board_flow)),
+            ("get_news", "SearchService(4引擎)", summarize_data(recent_news)),
+        ])
+        full_content += trace
+
         return {
             "macro_report": full_content,
             "analyst_traces": [{

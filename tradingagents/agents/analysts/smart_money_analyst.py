@@ -36,6 +36,7 @@ def create_smart_money_analyst(llm, data_collector=None):
         is_hk = _is_hk(ticker)
 
         # ── 按市场分层获取数据 ──────────────────
+        trace_entries = []  # For data source trace
         if is_hk:
             # 港股：资金流向 + VWMA + 换手率排名
             if pool is not None:
@@ -74,6 +75,17 @@ def create_smart_money_analyst(llm, data_collector=None):
                 f"【成交量加权均价 VWMA】\n{volume}\n\n"
                 f"【港股热门股票（按换手率）】\n{trending}"
             )
+            from tradingagents.agents.utils.data_trace import summarize_data
+            trace_entries = [
+                ("get_capital_flow", "Futu", summarize_data(capital_flow)),
+                ("get_capital_distribution", "Futu", summarize_data(capital_dist)),
+                ("get_top_ten_broker", "Futu", summarize_data(broker_data)),
+                ("get_institutional_holders", "Futu", summarize_data(inst_holders)),
+                ("get_holder_changes", "Futu", summarize_data(holder_changes)),
+                ("get_analyst_consensus", "Futu", summarize_data(consensus)),
+                ("get_indicators(vwma)", "Futu+stockstats", summarize_data(volume)),
+                ("get_trending_tickers", "Futu", summarize_data(trending)),
+            ]
         else:
             # 美股：成交量异动 + VWMA + 社交情绪 + 换手率 + Morningstar + 分析师评级
             if pool is not None:
@@ -103,6 +115,14 @@ def create_smart_money_analyst(llm, data_collector=None):
                 f"【社交舆情（Reddit/X/Polymarket）】\n{sentiment}\n\n"
                 f"【美股热门股票（按换手率）】\n{trending}"
             )
+            from tradingagents.agents.utils.data_trace import summarize_data
+            trace_entries = [
+                ("get_morningstar_report", "Futu", summarize_data(morningstar)),
+                ("get_analyst_consensus", "Futu", summarize_data(consensus)),
+                ("get_indicators(vwma)", "Futu+stockstats", summarize_data(volume)),
+                ("get_social_sentiment", "Adanos API", summarize_data(sentiment)),
+                ("get_trending_tickers", "Futu", summarize_data(trending)),
+            ]
 
         # ── 构建提示词 ──────────────────
         market_label = "港股" if is_hk else "美股"
@@ -148,6 +168,11 @@ def create_smart_money_analyst(llm, data_collector=None):
 
         verdict, confidence = extract_verdict(full_content)
         print(f"[Smart Money Analyst] DONE {ticker} ({market_label}), report length={len(full_content)}")
+
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace
+        trace = build_data_trace("机构资金行为分析师", trace_entries)
+        full_content += trace
 
         return {
             "smart_money_report": full_content,

@@ -106,6 +106,20 @@ def create_fundamentals_analyst(llm, data_collector=None):
         verdict, confidence = extract_verdict(full_content)
         print(f"[Fundamentals Analyst] DONE {ticker}, report length={len(full_content)}")
 
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("基本面分析师", [
+            ("get_fundamentals", "Futu snapshot", summarize_data(fundamentals)),
+            ("get_financial_report(income)", "Futu", summarize_data(income)),
+            ("get_financial_report(balance)", "Futu", summarize_data(balance)),
+            ("get_financial_report(cashflow)", "Futu", summarize_data(cashflow)),
+            ("get_revenue_breakdown", "Futu", summarize_data(revenue)),
+            ("get_analyst_consensus", "Futu", summarize_data(consensus)),
+            ("get_dividend_history", "Futu", summarize_data(dividends)),
+            ("get_financial_alerts", "Futu", summarize_data(alerts)),
+        ])
+        full_content += trace
+
         return {
             "fundamentals_report": full_content,
             "analyst_traces": [{

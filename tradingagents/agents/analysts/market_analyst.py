@@ -79,6 +79,15 @@ def create_market_analyst(llm, data_collector=None):
         verdict, confidence = extract_verdict(full_content)
         print(f"[Market Analyst] DONE {ticker}, report length={len(full_content)}")
 
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("市场技术分析师", [
+            ("get_stock_data", "Futu/yfinance", summarize_data(stock_data)),
+            ("get_indicators", "Futu+stockstats", f"✅ {len(indicator_blocks)} 个指标"),
+            ("get_technical_alerts", "Futu", summarize_data(tech_alerts)),
+        ])
+        full_content += trace
+
         return {
             "market_report": full_content,
             "analyst_traces": [{

@@ -50,6 +50,14 @@ def create_volume_price_analyst(llm, data_collector=None):
 
         verdict, confidence = extract_verdict(full_content)
 
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("量价分析师", [
+            ("_compute_vpa_indicators", "DataCollector(AMA v2)", summarize_data(vpa_data)),
+            ("get_stock_data", "Futu/yfinance", summarize_data(stock_data)),
+        ])
+        full_content += trace
+
         return {
             "volume_price_report": full_content,
             "analyst_traces": [{

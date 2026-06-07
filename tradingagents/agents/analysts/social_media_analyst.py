@@ -86,6 +86,16 @@ def create_social_media_analyst(llm, data_collector=None):
                 tracker._emit_token("Social Analyst", "sentiment_report", content)
 
         verdict, confidence = extract_verdict(full_content)
+
+        # ── 数据来源追溯 ──────────────────
+        from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        trace = build_data_trace("社交舆情分析师", [
+            ("get_news", "SearchService(4引擎)", summarize_data(news_text)),
+            ("get_trending_tickers", "Futu", summarize_data(trending)),
+            ("get_social_sentiment", "Adanos API", summarize_data(social_text)),
+        ])
+        full_content += trace
+
         return {
             "sentiment_report": full_content,
             "analyst_traces": [{
