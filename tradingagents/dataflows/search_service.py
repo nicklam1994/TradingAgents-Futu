@@ -153,11 +153,11 @@ class SearchService:
         in the priority list is tried.
     """
 
-    def __init__(self, cache_ttl: int = 600, search_config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, cache_ttl: int = 1800, search_config: Optional[Dict[str, Any]] = None) -> None:
         """Initialise the search service.
 
         Args:
-            cache_ttl: Cache time-to-live in seconds (default 600 = 10 min).
+            cache_ttl: Cache time-to-live in seconds (default 1800 = 30 min).
             search_config: Optional DB config dict from user_llm_configs.search_config.
                           When provided, injects API keys into environment variables
                           so providers can read them via os.getenv().
@@ -415,15 +415,17 @@ class SearchService:
     def search(
         self, query: str, max_results: int = 5
     ) -> SearchResponse:
-        """Search across all configured providers with fallback.
+        """Search across all providers — multi-source aggregation + SearXNG fallback.
 
         1. Check TTL cache → return if hit.
         2. Check in-flight dedup → wait if same query is running.
-        3. Try each provider in priority order with retry.
-        4. Cache and return the first successful response.
-
-        Returns a failed ``SearchResponse`` if all providers fail.
+        3. Call ALL configured providers (except SearXNG) in parallel.
+        4. Merge results from all successful providers (dedup by URL).
+        5. If no results from paid providers → fall back to SearXNG (mandatory).
+        6. Cache and return merged response.
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         ckey = self._cache_key(query, max_results)
 
         # 1. Cache check
@@ -437,36 +439,81 @@ class SearchService:
         if dedup_result is not None:
             return dedup_result
 
-        # 3. Try providers in priority order
-        last_resp = SearchResponse(
-            query=query, success=False, error_message="No providers configured"
-        )
-
+        # 3. Collect paid providers (all except searxng)
+        paid_providers = []
         for pname in _PROVIDER_PRIORITY:
+            if pname == "searxng":
+                continue
             if not self._has_keys(pname):
                 continue
-
             provider = self._get_provider(pname)
-            if provider is None:
-                continue
+            if provider is not None:
+                paid_providers.append((pname, provider))
 
-            logger.info("Trying search provider: %s for: %s", pname, query[:60])
+        # 4. Call all paid providers in parallel
+        all_results: List[SearchResult] = []
+        seen_urls: set = set()
+        providers_used: List[str] = []
+        errors: List[str] = []
+
+        def _try_provider(pname_provider):
+            pname, provider = pname_provider
+            logger.info("Searching: %s for: %s", pname, query[:60])
             resp = self._search_with_retry(provider, query, max_results)
+            return pname, resp
 
-            if resp.success:
-                # Cache the result
-                self._cache_put(ckey, resp)
-                self._dedup_complete(ckey, resp)
-                return resp
+        if paid_providers:
+            with ThreadPoolExecutor(max_workers=min(len(paid_providers), 4)) as pool:
+                futures = {pool.submit(_try_provider, pp): pp[0] for pp in paid_providers}
+                for future in as_completed(futures):
+                    pname = futures[future]
+                    try:
+                        _, resp = future.result()
+                        if resp.success and resp.results:
+                            providers_used.append(pname)
+                            for r in resp.results:
+                                if r.url not in seen_urls:
+                                    seen_urls.add(r.url)
+                                    all_results.append(r)
+                        else:
+                            errors.append(f"{pname}: {resp.error_message}")
+                    except Exception as e:
+                        errors.append(f"{pname}: {e}")
 
-            logger.warning(
-                "Provider %s failed: %s — trying next", pname, resp.error_message
+        # 5. SearXNG — always trigger (no quota limits, mandatory)
+        if self._has_keys("searxng"):
+            searxng = self._get_provider("searxng")
+            if searxng:
+                logger.info("SearXNG search for: %s", query[:60])
+                resp = self._search_with_retry(searxng, query, max_results)
+                if resp.success and resp.results:
+                    providers_used.append("searxng")
+                    for r in resp.results:
+                        if r.url not in seen_urls:
+                            seen_urls.add(r.url)
+                            all_results.append(r)
+                else:
+                    errors.append(f"searxng: {resp.error_message}")
+
+        # 6. Build merged response
+        if all_results:
+            result = SearchResponse(
+                query=query,
+                results=all_results,  # return all results from all providers
+                provider="+".join(providers_used),
+                success=True,
+                search_time=0.0,
             )
-            last_resp = resp
+        else:
+            result = SearchResponse(
+                query=query,
+                success=False,
+                error_message="; ".join(errors) if errors else "No providers configured",
+            )
 
-        # All providers failed
-        self._dedup_complete(ckey, last_resp)
-        return last_resp
+        self._cache_put(ckey, result)
+        self._dedup_complete(ckey, result)
+        return result
 
     def search_stock_news(
         self, ticker: str, max_results: int = 10
