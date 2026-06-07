@@ -7,6 +7,11 @@ from tradingagents.graph.intent_parser import build_horizon_context
 from tradingagents.agents.utils.agent_states import current_tracker_var, extract_verdict
 
 
+def _is_hk(ticker: str) -> bool:
+    """Check if ticker is a HK stock."""
+    return ticker.endswith(".HK") or ticker.startswith("HK.")
+
+
 def create_smart_money_analyst(llm, data_collector=None):
     async def _safe(tool, payload):
         try:
@@ -28,40 +33,94 @@ def create_smart_money_analyst(llm, data_collector=None):
         horizon_ctx = build_horizon_context(horizon, focus_areas, specific_questions, agent_type="smart_money")
 
         pool = data_collector.get(ticker, current_date) if data_collector else None
+        is_hk = _is_hk(ticker)
 
-        if pool is not None:
-            volume = pool.get("indicators", {}).get("vwma", "无数据")
-            trending = pool.get("trending_tickers", "无数据")
-        else:
-            from tradingagents.agents.utils.agent_utils import get_indicators, get_trending_tickers
-            results = await asyncio.gather(
-                _safe(get_indicators, {
-                    "symbol": ticker, "indicator": "volume",
-                    "curr_date": current_date, "look_back_days": 20,
-                }),
-                _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
+        # ── 按市场分层获取数据 ──────────────────
+        if is_hk:
+            # 港股：资金流向 + VWMA + 换手率排名
+            if pool is not None:
+                volume = pool.get("indicators", {}).get("vwma", "无数据")
+                trending = pool.get("trending_tickers", "无数据")
+            else:
+                from tradingagents.agents.utils.agent_utils import get_indicators, get_trending_tickers
+                volume, trending = await asyncio.gather(
+                    _safe(get_indicators, {
+                        "symbol": ticker, "indicator": "vwma",
+                        "curr_date": current_date, "look_back_days": 20,
+                    }),
+                    _safe(get_trending_tickers, {"market": "HK", "top_n": 20}),
+                )
+
+            from tradingagents.agents.utils.agent_utils import get_capital_flow, get_top_ten_broker
+            capital_flow, broker_data = await asyncio.gather(
+                _safe(get_capital_flow, {"symbol": ticker}),
+                _safe(get_top_ten_broker, {"symbol": ticker}),
             )
-            volume, trending = results
 
-        # Fetch capital flow (always fresh, not in pool)
-        from tradingagents.agents.utils.agent_utils import get_capital_flow
-        capital_flow = await _safe(get_capital_flow, {"symbol": ticker})
+            data_section = (
+                f"【港股资金流向（超大单/大单/中单/小单净流入）】\n{capital_flow}\n\n"
+                f"【十大经纪商买卖排行】\n{broker_data}\n\n"
+                f"【成交量加权均价 VWMA】\n{volume}\n\n"
+                f"【港股热门股票（按换手率）】\n{trending}"
+            )
+        else:
+            # 美股：成交量异动 + VWMA + 社交情绪 + 换手率排名
+            if pool is not None:
+                volume = pool.get("indicators", {}).get("vwma", "无数据")
+                trending = pool.get("trending_tickers", "无数据")
+            else:
+                from tradingagents.agents.utils.agent_utils import get_indicators, get_trending_tickers
+                volume, trending = await asyncio.gather(
+                    _safe(get_indicators, {
+                        "symbol": ticker, "indicator": "vwma",
+                        "curr_date": current_date, "look_back_days": 20,
+                    }),
+                    _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
+                )
+
+            from tradingagents.agents.utils.agent_utils import get_social_sentiment
+            sentiment = await _safe(get_social_sentiment, {"symbol": ticker})
+
+            data_section = (
+                f"【成交量加权均价 VWMA】\n{volume}\n\n"
+                f"【社交舆情（Reddit/X/Polymarket）】\n{sentiment}\n\n"
+                f"【美股热门股票（按换手率）】\n{trending}"
+            )
+
+        # ── 构建提示词 ──────────────────
+        market_label = "港股" if is_hk else "美股"
+        guidance = ""
+        if is_hk:
+            guidance = (
+                "\n\n港股分析指引：\n"
+                "1. 请结合 VWMA（成交量加权移动平均线）与股价的相对位置进行判断：若股价在 VWMA 上方且 VWMA 呈上升趋势，说明资金承接意愿强；反之则说明抛压较重。\n"
+                "2. 请额外关注港股特有的'南向资金'（港股通）动向，作为主力资金的重要替代指标。\n"
+                "3. 港股没有涨跌停限制，需特别注意异常放量和换手率变化。"
+            )
+        else:
+            guidance = (
+                "\n\n美股分析指引：\n"
+                "1. 美股没有实时'主力资金'数据，请从成交量异动、VWMA 趋势、社交舆情三个维度综合判断资金方向。\n"
+                "2. 关注 Reddit/X 上的散户情绪极值（过度看多可能是反向信号）。\n"
+                "3. 关注 Dark Pool 活动和 Options Flow（如有数据）作为机构动向的间接指标。"
+            )
 
         messages = [
             SystemMessage(content=(
                 system_message
+                + f"\n\n你正在分析{market_label}市场。请使用{market_label}市场的分析框架。"
                 + "\n\n请严格基于提供的量化数据输出分析，全程使用中文。"
+                + guidance
             )),
             HumanMessage(content=(
                 horizon_ctx + "\n"
                 f"请分析 {ticker} 在 {current_date} 的资金行为与成交量特征。\n\n"
-                f"【资金流向】\n{capital_flow}\n\n"
-                f"【成交量指标(vwma)】\n{volume}\n\n"
-                f"【市场热门股票（按换手率）】\n{trending}"
+                f"市场类型：{market_label}\n\n"
+                + data_section
             )),
         ]
 
-        # ── 实现 Token 级流式输出 ──────────────────
+        # ── Token 级流式输出 ──────────────────
         tracker = current_tracker_var.get()
         full_content = ""
         async for chunk in llm.astream(messages):
@@ -71,7 +130,7 @@ def create_smart_money_analyst(llm, data_collector=None):
                 tracker._emit_token("Smart Money Analyst", "smart_money_report", content)
 
         verdict, confidence = extract_verdict(full_content)
-        print(f"[Smart Money Analyst] DONE {ticker}, report length={len(full_content)}")
+        print(f"[Smart Money Analyst] DONE {ticker} ({market_label}), report length={len(full_content)}")
 
         return {
             "smart_money_report": full_content,

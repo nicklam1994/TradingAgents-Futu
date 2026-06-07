@@ -165,9 +165,15 @@ def get_capital_flow(
         SysConfig.enable_proto_encrypt(False)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        # Convert canonical (00020.HK) to Futu format (HK.00020)
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif symbol.endswith(".US"):
+            futu_code = f"US.{symbol[:-3]}"
         ctx = OpenQuoteContext(host=host, port=port)
         try:
-            ret, data = ctx.get_capital_flow(symbol)
+            ret, data = ctx.get_capital_flow(futu_code)
             if ret != 0:
                 return f"Capital flow error: {data}"
             if data.empty:
@@ -216,6 +222,75 @@ def get_capital_flow(
 
 
 @tool
+def get_top_ten_broker(
+    symbol: Annotated[str, "HK stock code, e.g. 00020.HK or 00700.HK"],
+) -> str:
+    """Get top 10 buy/sell brokers for a HK stock — identify institutional players.
+
+    Shows which brokers are net buying vs selling, with volume and average price.
+    Useful for identifying if foreign institutions (Goldman, UBS, JP Morgan) or
+    mainland connect channels (沪港通/深港通) are the main force.
+    Only works for HK stocks.
+
+    Args:
+        symbol: HK stock code, e.g. 00020.HK or 00700.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+
+        # Convert canonical (00020.HK) to Futu format (HK.00020)
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_top_ten_buy_sell_brokers(futu_code)
+            if ret != 0:
+                return f"Broker data error: {data}"
+            if data.empty:
+                return f"No broker data for {symbol}"
+
+            buyers = data[data["buy_sell_type"] == 1].head(10)
+            sellers = data[data["buy_sell_type"] == 2].head(10)
+
+            lines = [f"## {symbol} Top 10 Buy/Sell Brokers\n"]
+
+            lines.append("### Net Buyers (Top 10)")
+            lines.append("| Broker | Net Vol | Avg Price | Total Vol |")
+            lines.append("|--------|---------|-----------|-----------|")
+            for _, row in buyers.iterrows():
+                name = row.get("broker_name", "?")
+                net = row.get("net_vol", 0)
+                avg = row.get("avg_price", 0)
+                total = row.get("total_vol", 0)
+                lines.append(f"| {name} | {net:,.0f} | {avg:.3f} | {total:,.0f} |")
+
+            lines.append("\n### Net Sellers (Top 10)")
+            lines.append("| Broker | Net Vol | Avg Price | Total Vol |")
+            lines.append("|--------|---------|-----------|-----------|")
+            for _, row in sellers.iterrows():
+                name = row.get("broker_name", "?")
+                net = row.get("net_vol", 0)
+                avg = row.get("avg_price", 0)
+                total = row.get("total_vol", 0)
+                lines.append(f"| {name} | {net:,.0f} | {avg:.3f} | {total:,.0f} |")
+
+            # Highlight connect channels
+            connect_brokers = [b for b in buyers["broker_name"].tolist() if "港" in b or "沪" in b or "深" in b]
+            if connect_brokers:
+                lines.append(f"\n⚠️ 港股通经纪商在买入方: {', '.join(connect_brokers)}")
+
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Broker data error: {e}"
+
+
+@tool
 def get_stock_concept_tags(
     symbol: Annotated[str, "Stock code, e.g. US.AAPL or HK.00700"],
 ) -> str:
@@ -233,9 +308,15 @@ def get_stock_concept_tags(
         SysConfig.enable_proto_encrypt(False)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        # Convert canonical (00020.HK) to Futu format (HK.00020)
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif symbol.endswith(".US"):
+            futu_code = f"US.{symbol[:-3]}"
         ctx = OpenQuoteContext(host=host, port=port)
         try:
-            ret, data = ctx.get_owner_plate(symbol)
+            ret, data = ctx.get_owner_plate(futu_code)
             if ret != 0:
                 return f"Concept tags error: {data}"
             if data.empty:
