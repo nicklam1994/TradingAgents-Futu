@@ -13,6 +13,11 @@ import Login from './pages/Login'
 import Feedback from './pages/Feedback'
 import Sponsor from './pages/Sponsor'
 import Thanks from './pages/Thanks'
+import SimTrading from './pages/SimTrading'
+import Autonomous from './pages/Autonomous'
+import Performance from './pages/Performance'
+import Strategies from './pages/Strategies'
+import Reflections from './pages/Reflections'
 import { useAuthStore } from './stores/authStore'
 
 const ONLINE_HOST = 'app.510168.xyz'
@@ -61,6 +66,11 @@ function App() {
                   <Route path="/analysis" element={<Analysis />} />
                   <Route path="/reports" element={<Reports />} />
                   <Route path="/portfolio" element={<Portfolio />} />
+                  <Route path="/sim-trading" element={<SimTrading />} />
+                  <Route path="/autonomous" element={<Autonomous />} />
+                  <Route path="/performance" element={<Performance />} />
+                  <Route path="/strategies" element={<Strategies />} />
+                  <Route path="/reflections" element={<Reflections />} />
                   <Route path="/settings" element={<Settings />} />
                   <Route path="/feedback" element={<Feedback />} />
                 </Routes>
