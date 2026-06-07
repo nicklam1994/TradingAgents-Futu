@@ -64,6 +64,11 @@ def _parse_csv_to_dataframe(raw_csv: str) -> Optional[pd.DataFrame]:
 def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     """Pre-compute Volume Price Analysis indicators from OHLCV DataFrame.
 
+    V2 — Enhanced with:
+    1. AMA (Adaptive Moving Average) for volume smoothing
+    2. Price-Volume Resonance scoring
+    3. Correlation-based divergence detection
+
     Returns a human-readable text block for the VPA analyst agent.
     All numerical comparisons are done here so the LLM only needs to
     interpret the results, not do arithmetic.
@@ -73,92 +78,120 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         return "VPA 数据不足：缺少 OHLCV 列"
 
     df = df.copy()
-    df["volume"] = pd.to_numeric(df["volume"], errors="coerce")
-    df["open"] = pd.to_numeric(df["open"], errors="coerce")
-    df["high"] = pd.to_numeric(df["high"], errors="coerce")
-    df["low"] = pd.to_numeric(df["low"], errors="coerce")
-    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    for col in ["open", "high", "low", "close", "volume"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
     df = df.dropna(subset=["open", "high", "low", "close", "volume"])
 
-    if len(df) < window + 5:
+    if len(df) < window + 10:
         return "VPA 数据不足：历史 K 线数量不够"
 
-    # ── 派生指标 ──
+    # ═══════════════════════════════════════════════════════════════
+    # 1. AMA (Adaptive Moving Average) for volume
+    # ═══════════════════════════════════════════════════════════════
+    # Kaufman AMA: adapts smoothing based on market volatility
+    # ER = Direction / Volatility; SC = (ER*(Fast-Slow)+Slow)^2
+    n = 10  # AMA lookback
+    fast_sc = 2.0 / (2.0 + 1.0)
+    slow_sc = 2.0 / (30.0 + 1.0)
+
+    vol = df["volume"].values.astype(float)
+    ama_vol = np.zeros(len(vol))
+    ama_vol[:n] = np.nan
+    ama_vol[n - 1] = np.mean(vol[:n])
+    for i in range(n, len(vol)):
+        direction = abs(vol[i] - vol[i - n])
+        volatility = np.sum(np.abs(np.diff(vol[i - n:i + 1])))
+        er = direction / volatility if volatility > 0 else 0
+        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2
+        ama_vol[i] = ama_vol[i - 1] + sc * (vol[i] - ama_vol[i - 1])
+
+    df["vol_ama"] = ama_vol
+    df["vol_ama_ratio"] = vol / ama_vol
+
+    # Traditional MA for comparison
     df["vol_ma"] = df["volume"].rolling(window).mean()
     df["volume_ratio"] = df["volume"] / df["vol_ma"]
 
+    # ═══════════════════════════════════════════════════════════════
+    # 2. Basic bar metrics
+    # ═══════════════════════════════════════════════════════════════
     hl_range = df["high"] - df["low"]
-    df["bar_spread"] = hl_range / df["close"]  # 实体相对大小
-    df["close_position"] = np.where(
-        hl_range > 0,
-        (df["close"] - df["low"]) / hl_range,
-        0.5,
-    )
+    df["bar_spread"] = hl_range / df["close"]
+    df["close_position"] = np.where(hl_range > 0, (df["close"] - df["low"]) / hl_range, 0.5)
     df["bar_type"] = np.where(
         df["close"] > df["open"], "阳线",
         np.where(df["close"] < df["open"], "阴线", "十字星"),
     )
-
-    # 上下影线比例
-    df["upper_shadow"] = np.where(
-        hl_range > 0,
-        (df["high"] - np.maximum(df["open"], df["close"])) / hl_range,
-        0.0,
-    )
-    df["lower_shadow"] = np.where(
-        hl_range > 0,
-        (np.minimum(df["open"], df["close"]) - df["low"]) / hl_range,
-        0.0,
-    )
-
-    # 价格变化率
+    df["upper_shadow"] = np.where(hl_range > 0, (df["high"] - np.maximum(df["open"], df["close"])) / hl_range, 0.0)
+    df["lower_shadow"] = np.where(hl_range > 0, (np.minimum(df["open"], df["close"]) - df["low"]) / hl_range, 0.0)
     df["pct_change"] = df["close"].pct_change()
 
-    # 量能趋势 (5日均量 vs 20日均量)
-    df["vol_ma5"] = df["volume"].rolling(5).mean()
-    df["vol_trend_ratio"] = df["vol_ma5"] / df["vol_ma"]
+    # ═══════════════════════════════════════════════════════════════
+    # 3. Price-Volume Resonance (价量共振)
+    # ═══════════════════════════════════════════════════════════════
+    df["vol_trend_ratio"] = df["volume"].rolling(5).mean() / df["vol_ma"]
 
-    # 量价一致性
-    df["vp_harmony"] = np.where(
-        (df["pct_change"] > 0) & (df["volume_ratio"] > 1.0), "一致(涨+放量)",
-        np.where(
-            (df["pct_change"] < 0) & (df["volume_ratio"] > 1.0), "一致(跌+放量)",
-            np.where(
-                (df["pct_change"] > 0) & (df["volume_ratio"] < 0.8), "背离(涨+缩量)",
-                np.where(
-                    (df["pct_change"] < 0) & (df["volume_ratio"] < 0.8), "背离(跌+缩量)",
-                    "中性",
-                ),
-            ),
-        ),
-    )
+    conditions = [
+        (df["pct_change"] > 0) & (df["vol_ama_ratio"] > 1.2),   # 强多
+        (df["pct_change"] > 0) & (df["vol_ama_ratio"] <= 1.2),   # 弱多
+        (df["pct_change"] < 0) & (df["vol_ama_ratio"] < 0.8),    # 弱空(卖压衰)
+        (df["pct_change"] < 0) & (df["vol_ama_ratio"] >= 0.8),   # 强空
+    ]
+    choices = ["强多(涨+放量)", "弱多(涨+缩量)", "弱空(跌+缩量)", "强空(跌+放量)"]
+    df["resonance"] = np.select(conditions, choices, default="中性")
+    df["vp_harmony"] = df["resonance"]  # backward compat
 
-    # OBV (On Balance Volume) 简易趋势 — vectorized
+    # ═══════════════════════════════════════════════════════════════
+    # 4. OBV trend
+    # ═══════════════════════════════════════════════════════════════
     close_diff = df["close"].diff()
     obv_sign = np.where(close_diff > 0, 1, np.where(close_diff < 0, -1, 0))
     obv_sign[0] = 0
     df["obv"] = (obv_sign * df["volume"].values).cumsum()
     obv_ma = df["obv"].rolling(10).mean()
-    obv_trend = "上升" if len(obv_ma.dropna()) >= 2 and obv_ma.iloc[-1] > obv_ma.iloc[-5] else "下降"
+    obv_trend = "上升" if len(obv_ma.dropna()) >= 5 and obv_ma.iloc[-1] > obv_ma.iloc[-5] else "下降"
 
-    # ── 格式化输出（取最近 N 天）──
+    # ═══════════════════════════════════════════════════════════════
+    # 5. Correlation-based Divergence (5日滚动相关性)
+    # ═══════════════════════════════════════════════════════════════
+    corr_window = 5
+    df["pv_correlation"] = df["close"].rolling(corr_window).corr(df["volume"])
+    last_corr = df["pv_correlation"].iloc[-1] if pd.notna(df["pv_correlation"].iloc[-1]) else 0
+
+    # ═══════════════════════════════════════════════════════════════
+    # 6. Format output
+    # ═══════════════════════════════════════════════════════════════
     output_days = min(30, len(df) - window)
     recent = df.tail(output_days).copy()
+    last = recent.iloc[-1]
 
     lines = []
-    lines.append(f"## VPA 预计算指标（基于 {window} 日均量基准）\n")
-    lines.append(f"**OBV 趋势（10日）**: {obv_trend}")
+    lines.append(f"## VPA 预计算指标（{window}日均量基准 + AMA 自适应均线）\n")
 
-    # 量能概况
-    last = recent.iloc[-1]
+    ama_val = last.get("vol_ama", 0)
+    ma_val = last.get("vol_ma", 0)
+    ama_ratio = last.get("vol_ama_ratio", 0)
+    lines.append(f"**AMA 成交量均线**: {ama_val:,.0f} (vs 传统MA: {ma_val:,.0f})")
+    lines.append(f"**当前量/AMA比**: {ama_ratio:.2f} — {'放量' if ama_ratio > 1.2 else ('缩量' if ama_ratio < 0.8 else '平稳')}")
+    lines.append(f"**OBV 趋势(10日)**: {obv_trend}")
+
     vol_5d = recent["volume"].tail(5).mean()
-    vol_20d = last["vol_ma"] if pd.notna(last["vol_ma"]) else 0
+    vol_20d = last.get("vol_ma", 0)
     vol_summary = "放量" if vol_5d > vol_20d * 1.2 else ("缩量" if vol_5d < vol_20d * 0.8 else "平稳")
-    lines.append(f"**近5日量能趋势**: {vol_summary}（5日均量/20日均量 = {last.get('vol_trend_ratio', 0):.2f}）\n")
+    lines.append(f"**近5日量能趋势**: {vol_summary}（5日均量/20日均量 = {last.get('vol_trend_ratio', 0):.2f}）")
 
+    if last_corr > 0.5:
+        corr_label = "正相关(量价同步)"
+    elif last_corr < -0.3:
+        corr_label = "负相关(量价背离⚠)"
+    else:
+        corr_label = "弱相关(中性)"
+    lines.append(f"**5日量价相关性**: {last_corr:.2f} — {corr_label}\n")
+
+    # Daily data table
     lines.append("### 逐日量价数据\n")
-    lines.append("| 日期 | 类型 | 涨跌幅 | 实体大小 | 收盘位置 | 上影线 | 下影线 | 量比 | 量价关系 |")
-    lines.append("|------|------|--------|----------|----------|--------|--------|------|----------|")
+    lines.append("| 日期 | 类型 | 涨跌幅 | 实体 | 收盘位 | 量比(MA) | 量比(AMA) | 共振信号 |")
+    lines.append("|------|------|--------|------|--------|----------|-----------|----------|")
 
     for _, row in recent.iterrows():
         dt = row.get("date", "")
@@ -166,39 +199,30 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
             dt = dt.strftime("%m-%d")
         else:
             dt = str(dt)[-5:]
-
         pct = row["pct_change"] * 100 if pd.notna(row["pct_change"]) else 0
         spread_label = "宽" if row["bar_spread"] > 0.03 else ("窄" if row["bar_spread"] < 0.015 else "中")
         cp = row["close_position"]
         cp_label = "高位" if cp > 0.7 else ("低位" if cp < 0.3 else "中位")
-        vr = row["volume_ratio"] if pd.notna(row["volume_ratio"]) else 0
-        vr_label = f"{vr:.1f}"
-        if vr > 2.0:
-            vr_label += "(巨量)"
-        elif vr > 1.5:
-            vr_label += "(明显放量)"
-        elif vr > 1.0:
-            vr_label += "(温和放量)"
-        elif vr < 0.5:
-            vr_label += "(极度缩量)"
-        elif vr < 0.8:
-            vr_label += "(缩量)"
-
+        vr = row.get("volume_ratio", 0)
+        vr_ama = row.get("vol_ama_ratio", 0)
+        vr_str = f"{vr:.1f}" if pd.notna(vr) else "N/A"
+        vr_ama_str = f"{vr_ama:.1f}" if pd.notna(vr_ama) else "N/A"
+        resonance = row.get("resonance", "中性")
         lines.append(
             f"| {dt} | {row['bar_type']} | {pct:+.1f}% | {spread_label}({row['bar_spread']:.3f}) "
-            f"| {cp_label}({cp:.2f}) | {row['upper_shadow']:.2f} | {row['lower_shadow']:.2f} "
-            f"| {vr_label} | {row['vp_harmony']} |"
+            f"| {cp_label}({cp:.2f}) | {vr_str} | {vr_ama_str} | {resonance} |"
         )
 
-    # ── 关键模式识别 ──
+    # ═══════════════════════════════════════════════════════════════
+    # 7. Pattern recognition
+    # ═══════════════════════════════════════════════════════════════
     lines.append("\n### 关键量价模式识别\n")
 
-    # 量价背离检测（近5天）
     last5 = recent.tail(5)
-    price_up = (last5["close"].iloc[-1] > last5["close"].iloc[0])
-    vol_down = (last5["volume"].iloc[-1] < last5["volume"].iloc[0])
-    price_down = (last5["close"].iloc[-1] < last5["close"].iloc[0])
-    vol_up = (last5["volume"].iloc[-1] > last5["volume"].iloc[0])
+    price_up = last5["close"].iloc[-1] > last5["close"].iloc[0]
+    vol_down = last5["volume"].iloc[-1] < last5["volume"].iloc[0]
+    price_down = last5["close"].iloc[-1] < last5["close"].iloc[0]
+    vol_up = last5["volume"].iloc[-1] > last5["volume"].iloc[0]
 
     if price_up and vol_down:
         lines.append("- **⚠ 顶部背离信号**: 近5日价格上涨但成交量递减，上涨动能可能衰竭")
@@ -209,12 +233,22 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
     if price_up and vol_up:
         lines.append("- **健康上涨信号**: 近5日价格上涨且成交量配合递增")
 
-    # Selling climax 检测
+    # AMA-based signals
+    if ama_ratio > 1.5 and last["pct_change"] > 0:
+        lines.append("- **AMA 放量突破**: 成交量显著突破自适应均线，趋势确认信号强")
+    elif ama_ratio < 0.5:
+        lines.append("- **AMA 极度缩量**: 成交量远低于自适应均线，市场观望或即将变盘")
+
+    # Correlation divergence
+    if last_corr < -0.5:
+        lines.append(f"- **量价高度背离**: 5日相关性 {last_corr:.2f}，价格与成交量方向严重不一致，反转概率高")
+
+    # Selling climax
     for i in range(-3, 0):
         if i < -len(recent):
             continue
         row = recent.iloc[i]
-        if (row.get("volume_ratio", 0) > 2.0
+        if (row.get("vol_ama_ratio", 0) > 2.0
                 and row.get("pct_change", 0) < -0.03
                 and row.get("close_position", 0.5) > 0.5):
             lines.append(f"- **卖出高潮(Selling Climax)**: {str(row.get('date', ''))[-5:]} 急跌巨量但收盘收回过半，可能是恐慌见底")
@@ -224,7 +258,7 @@ def _compute_vpa_indicators(df: pd.DataFrame, window: int = 20) -> str:
         if i < -len(recent):
             continue
         row = recent.iloc[i]
-        if (row.get("volume_ratio", 0) > 1.8
+        if (row.get("vol_ama_ratio", 0) > 1.8
                 and abs(row.get("pct_change", 0)) < 0.01
                 and row.get("bar_spread", 0) < 0.015):
             lines.append(f"- **放量滞涨**: {str(row.get('date', ''))[-5:]} 巨量但价格几乎不动（窄实体），多空分歧大")
