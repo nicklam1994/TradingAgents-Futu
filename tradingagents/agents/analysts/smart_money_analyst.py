@@ -51,16 +51,25 @@ def create_smart_money_analyst(llm, data_collector=None):
                     _safe(get_trending_tickers, {"market": "HK", "top_n": 20}),
                 )
 
-            from tradingagents.agents.utils.agent_utils import get_capital_flow, get_top_ten_broker, get_analyst_consensus
-            capital_flow, broker_data, consensus = await asyncio.gather(
+            from tradingagents.agents.utils.agent_utils import (
+                get_capital_flow, get_capital_distribution, get_top_ten_broker,
+                get_institutional_holders, get_holder_changes, get_analyst_consensus,
+            )
+            capital_flow, capital_dist, broker_data, inst_holders, holder_changes, consensus = await asyncio.gather(
                 _safe(get_capital_flow, {"symbol": ticker}),
+                _safe(get_capital_distribution, {"symbol": ticker}),
                 _safe(get_top_ten_broker, {"symbol": ticker}),
+                _safe(get_institutional_holders, {"symbol": ticker}),
+                _safe(get_holder_changes, {"symbol": ticker}),
                 _safe(get_analyst_consensus, {"symbol": ticker}),
             )
 
             data_section = (
                 f"【港股资金流向（超大单/大单/中单/小单净流入）】\n{capital_flow}\n\n"
+                f"【资金进出明细（超大/大/中/小单 in/out）】\n{capital_dist}\n\n"
                 f"【十大经纪商买卖排行】\n{broker_data}\n\n"
+                f"【机构持仓（季度变化）】\n{inst_holders}\n\n"
+                f"【股东增减持明细】\n{holder_changes}\n\n"
                 f"【分析师共识评级】\n{consensus}\n\n"
                 f"【成交量加权均价 VWMA】\n{volume}\n\n"
                 f"【港股热门股票（按换手率）】\n{trending}"

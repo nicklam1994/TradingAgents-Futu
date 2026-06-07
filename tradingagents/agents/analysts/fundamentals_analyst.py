@@ -93,6 +93,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
                 f"【现金流量表】\n{cashflow}\n\n"
                 f"【营收分部(业务线+地区)】\n{revenue}\n\n"
                 f"【分析师共识评级】\n{consensus}\n\n"
+                f"【股息历史】\n{dividends}\n\n"
                 f"【财务异常预警】\n{alerts}"
             )),
         ]

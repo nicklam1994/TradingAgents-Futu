@@ -53,6 +53,16 @@ def create_market_analyst(llm, data_collector=None):
             for ind in MARKET_INDICATORS
         ]
 
+
+            # Technical alerts (always fresh)
+            import asyncio as _aio
+            from tradingagents.agents.utils.agent_utils import get_technical_alerts
+            async def _safe_local(tool, payload):
+                try:
+                    return await _aio.to_thread(tool.invoke, payload)
+                except Exception as exc:
+                    return f"调用失败：{exc}"
+            tech_alerts = await _safe_local(get_technical_alerts, {"symbol": ticker})
         messages = [
             SystemMessage(content=system_message + "\n\n请全程使用中文。"),
             HumanMessage(content=(
@@ -60,7 +70,8 @@ def create_market_analyst(llm, data_collector=None):
                 f"以下是 {ticker} 在 {current_date} 的 K 线数据与指标（数据窗口：{data_window}）。\n\n"
                 f"【get_stock_data】\n{stock_data}\n\n"
                 + "\n\n".join(indicator_blocks)
-            )),
+                + f"\n\n【技术异常预警】\n{tech_alerts}"
+            )),""",
         ]
 
         # ── 实现 Token 级流式输出 ──────────────────
