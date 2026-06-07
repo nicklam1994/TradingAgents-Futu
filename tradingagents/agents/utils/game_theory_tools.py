@@ -243,7 +243,7 @@ def get_stock_concept_tags(
 
             name = data.iloc[0].get("name", symbol)
             plates = data["plate_name"].tolist()
-            lines = [f"## {name} ({symbol}) - {len(plates)} concept tags\n"]
+            f"## {name} ({symbol}) - {len(plates)} concept tags\n" 
             for p in plates:
                 lines.append(f"- {p}")
             return "\n".join(lines)
@@ -251,3 +251,103 @@ def get_stock_concept_tags(
             ctx.close()
     except Exception as e:
         return f"Concept tags error: {e}"
+
+
+@tool
+def screen_stocks(
+    market: Annotated[str, "Market to screen: 'HK' or 'US'"],
+    metric: Annotated[str, "Metric to filter: 'market_cap', 'pe_ratio', 'pb_ratio', 'turnover_rate', 'change_rate', 'volume'"] = "market_cap",
+    min_val: Annotated[float, "Minimum value for the metric (0 = no limit)"] = 0,
+    max_val: Annotated[float, "Maximum value for the metric (0 = no limit)"] = 0,
+    limit: Annotated[int, "Max number of results to return"] = 20,
+) -> str:
+    """Screen stocks by financial metrics using Futu stock filter.
+
+    Use this to find stocks matching specific criteria (e.g. high market cap, low PE).
+    Useful for stock selection in autonomous trading loops.
+
+    Supported metrics:
+      - market_cap: Market capitalization in HKD/USD
+      - pe_ratio: Price-to-Earnings ratio
+      - pb_ratio: Price-to-Book ratio
+      - turnover_rate: Trading turnover rate (%)
+      - change_rate: Price change rate (%)
+      - volume: Trading volume
+
+    Args:
+        market: 'HK' or 'US'
+        metric: Which metric to filter on
+        min_val: Minimum value (0 = no lower limit)
+        max_val: Maximum value (0 = no upper limit)
+        limit: Max results to return (default 20)
+    """
+    try:
+        from futu import OpenQuoteContext, SimpleFilter, StockField, Market, RET_OK
+        import os
+
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+
+        MARKET_MAP = {"HK": Market.HK, "US": Market.US}
+        METRIC_MAP = {
+            "market_cap": StockField.MARKET_VAL,
+            "pe_ratio": StockField.PE_TTM,
+            "pb_ratio": StockField.PB_RATE,
+            "turnover_rate": StockField.TURNOVER_RATE,
+            "change_rate": StockField.CHANGE_RATE,
+            "volume": StockField.VOLUME,
+        }
+
+        mkt = MARKET_MAP.get(market.upper())
+        if not mkt:
+            return f"Invalid market: {market}. Use 'HK' or 'US'."
+
+        field = METRIC_MAP.get(metric.lower())
+        if not field:
+            return f"Invalid metric: {metric}. Supported: {', '.join(METRIC_MAP.keys())}"
+
+        try:
+            sf = SimpleFilter()
+            sf.stock_field = field
+            sf.filter_min = min_val if min_val else -1e18
+            sf.filter_max = max_val if max_val else 1e18
+            sf.is_no_filter = False
+
+            ret, result = ctx.get_stock_filter(
+                market=mkt,
+                filter_list=[sf],
+                begin=0,
+                num=min(limit, 100),
+            )
+
+            if ret != RET_OK:
+                return f"Stock screen error: {result}"
+
+            has_more, total, items = result
+            if not items:
+                return f"No stocks found matching criteria: {market} {metric} [{min_val}, {max_val}]"
+
+            # Futu returns attribute name matching the filter field (lowercase)
+            attr_name = field.lower() if isinstance(field, str) else str(field).lower()
+            lines = [
+                f"## Stock Screen: {market} — {metric} [{min_val or 'any'}, {max_val or 'any'}]",
+                f"Showing {len(items)} of {total} results{' (more available)' if has_more else ''}\n",
+                "| Code | Name | Value |",
+                "|------|------|-------|",
+            ]
+            for item in items:
+                code = item.stock_code.replace("HK.", "").replace("US.", "")
+                if mkt == Market.HK:
+                    code = f"{code}.HK"
+                val = getattr(item, attr_name, None) or getattr(item, 'market_val', 'N/A')
+                if isinstance(val, (int, float)):
+                    lines.append(f"| {code} | {item.stock_name} | {val:,.2f} |")
+                else:
+                    lines.append(f"| {code} | {item.stock_name} | {val} |")
+
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Stock screen error: {e}"
