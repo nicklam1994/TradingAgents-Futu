@@ -55,6 +55,13 @@ def create_social_media_analyst(llm, data_collector=None):
         if pool is not None:
             from tradingagents.agents.utils.agent_utils import get_social_sentiment
             social_text = await _safe(get_social_sentiment, {"symbol": ticker})
+
+        # HK fallback: when Adanos returns no data, synthesize from Futu
+        is_hk = ticker.endswith(".HK")
+        if is_hk and (not social_text or "no data" in str(social_text).lower() or "404" in str(social_text).lower() or "调用失败" in str(social_text)):
+            from tradingagents.agents.utils.game_theory_tools import get_hk_social_sentiment
+            social_text = await asyncio.to_thread(get_hk_social_sentiment, ticker)
+
         social_section = (
             f"\n\n【社交舆情 (Reddit/X/Polymarket)】\n{social_text}"
             if social_text and "unavailable" not in str(social_text).lower()
@@ -92,7 +99,7 @@ def create_social_media_analyst(llm, data_collector=None):
         trace = build_data_trace("社交舆情分析师", [
             ("get_news", "SearchService(4引擎)", summarize_data(news_text)),
             ("get_trending_tickers", "Futu", summarize_data(trending)),
-            ("get_social_sentiment", "Adanos API", summarize_data(social_text)),
+            ("get_social_sentiment", "Adanos API / Futu合成", summarize_data(social_text)),
         ])
         full_content += trace
 

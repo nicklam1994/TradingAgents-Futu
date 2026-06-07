@@ -72,15 +72,33 @@ class SearchNewsProvider(BaseMarketDataProvider):
     def get_global_news(
         self, curr_date: str, look_back_days: int = 7, limit: int = 50
     ) -> str:
-        """Fetch macro/global market news via web search."""
+        """Fetch macro/global market news via web search with fallback queries."""
         svc = _get_search_service()
-        resp = svc.search_global_news("stock market news today", max_results=10)
 
-        if not resp.success or not resp.results:
+        # Try multiple queries — primary + fallbacks for broader coverage
+        queries = [
+            "stock market news today",
+            "global financial markets today",
+            "Hong Kong US stock market news",
+        ]
+        all_results = []
+        seen_urls: set = set()
+
+        for query in queries:
+            resp = svc.search(query, max_results=8)
+            if resp.success and resp.results:
+                for r in resp.results:
+                    if r.url not in seen_urls:
+                        seen_urls.add(r.url)
+                        all_results.append(r)
+                if len(all_results) >= 15:
+                    break
+
+        if not all_results:
             return "No global search news found"
 
-        lines = [f"## 全球市场新闻（via {resp.provider}）\n"]
-        for i, r in enumerate(resp.results, 1):
+        lines = ["## 全球市场新闻\n"]
+        for i, r in enumerate(all_results[:limit], 1):
             lines.append(f"### {i}. {r.title}")
             if r.published_date:
                 lines.append(f"**日期**: {r.published_date}")

@@ -1040,3 +1040,96 @@ def get_technical_alerts(
             ctx.close()
     except Exception as e:
         return f"Technical alerts error: {e}"
+
+
+def get_hk_social_sentiment(symbol: str) -> str:
+    """Build synthetic social sentiment for HK stocks from Futu data.
+
+    Fallback when Adanos API doesn't cover HK stocks. Combines:
+    - Short interest (空仓数据)
+    - Capital flow direction (资金流向)
+    - Top broker activity (经纪商动向)
+    """
+    try:
+        from futu import OpenQuoteContext, RET_OK
+        import os
+
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            sections = []
+
+            # 1. Short interest
+            ret, _, data = ctx.get_short_interest(futu_code)
+            if ret == RET_OK and data is not None and not data.empty:
+                latest = data.iloc[0]
+                shares = latest.get("shares_short", 0)
+                pct = latest.get("short_percent", 0)
+                days = latest.get("days_to_cover", 0)
+                date_str = latest.get("timestamp_str", "N/A")
+                sections.append(
+                    f"【做空数据】(截至 {date_str})\n"
+                    f"- 做空股数: {shares:,.0f}\n"
+                    f"- 做空比例: {pct:.2f}%\n"
+                    f"- 平仓天数: {days:.1f}天"
+                )
+                if pct > 5:
+                    sections.append("  ⚠ 做空比例偏高，空头压力显著")
+                elif pct > 2:
+                    sections.append("  做空比例中等")
+                else:
+                    sections.append("  做空比例较低，空头压力有限")
+
+            # 2. Capital flow direction
+            ret2, flow_data = ctx.get_capital_flow(futu_code)
+            if ret2 == RET_OK and flow_data is not None and not flow_data.empty:
+                latest_flow = flow_data.iloc[-1]
+                in_flow = latest_flow.get("in_flow", 0)
+                if isinstance(in_flow, (int, float)):
+                    direction = "净流入" if in_flow > 0 else "净流出"
+                    sections.append(
+                        f"【资金流向】\n"
+                        f"- 总资金: {direction} {abs(in_flow)/1e8:.2f}亿"
+                    )
+                main_in = latest_flow.get("main_in_flow", 0)
+                if isinstance(main_in, (int, float)):
+                    direction = "净流入" if main_in > 0 else "净流出"
+                    sections.append(
+                        f"- 主力资金: {direction} {abs(main_in)/1e8:.2f}亿"
+                    )
+
+            # 3. Top broker activity
+            ret3, broker_data = ctx.get_top_ten_buy_sell_brokers(futu_code)
+            if ret3 == RET_OK and broker_data is not None and not broker_data.empty:
+                buyers = broker_data[broker_data["buy_sell_type"] == 1].head(3)
+                sellers = broker_data[broker_data["buy_sell_type"] == 2].head(3)
+                if not buyers.empty:
+                    top_buy = buyers.iloc[0]
+                    sections.append(
+                        f"【经纪商动向】\n"
+                        f"- 头部买方: {top_buy.get('broker_name', 'N/A')} "
+                        f"(净买 {top_buy.get('net_vol', 0)/1e4:.0f}万股)"
+                    )
+                if not sellers.empty:
+                    top_sell = sellers.iloc[0]
+                    sections.append(
+                        f"- 头部卖方: {top_sell.get('broker_name', 'N/A')} "
+                        f"(净卖 {abs(top_sell.get('net_vol', 0))/1e4:.0f}万股)"
+                    )
+
+            if not sections:
+                return f"No HK social sentiment data available for {symbol}"
+
+            return (
+                f"## {symbol} 港股情绪指标（Futu 合成）\n\n"
+                + "\n\n".join(sections)
+                + "\n\n*注：港股无 Reddit/X 数据，以上为 Futu 做空+资金+经纪商合成指标*"
+            )
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"HK social sentiment error: {e}"
