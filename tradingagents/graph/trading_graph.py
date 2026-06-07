@@ -34,9 +34,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_news,
     get_insider_transactions,
     get_global_news,
-    get_board_fund_flow,
-    get_individual_fund_flow,
-    get_lhb_detail,
+    get_sector_performance,
+    get_trending_tickers,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -220,16 +219,15 @@ class TradingAgentsGraph:
             "macro": ToolNode(
                 [
                     # Macro analyst tools
-                    get_board_fund_flow,
+                    get_sector_performance,
                     get_news,
                 ]
             ),
             "smart_money": ToolNode(
                 [
                     # Smart money analyst tools
-                    get_individual_fund_flow,
-                    get_lhb_detail,
                     get_indicators,
+                    get_trending_tickers,
                 ]
             ),
             "volume_price": ToolNode(

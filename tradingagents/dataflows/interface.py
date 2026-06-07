@@ -39,6 +39,10 @@ TOOLS_CATEGORIES = {
         "description": "Social media sentiment from Reddit, X (Twitter), and Polymarket",
         "tools": ["get_social_sentiment"],
     },
+    "sector_data": {
+        "description": "Sector/plate performance and trending tickers via Futu",
+        "tools": ["get_sector_performance", "get_trending_tickers"],
+    },
 }
 
 _registry = build_default_registry()

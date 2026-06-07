@@ -30,24 +30,19 @@ def create_smart_money_analyst(llm, data_collector=None):
         pool = data_collector.get(ticker, current_date) if data_collector else None
 
         if pool is not None:
-            fund_flow = pool.get("fund_flow_individual", "无数据")
-            lhb = pool.get("lhb", "无数据")
             volume = pool.get("indicators", {}).get("vwma", "无数据")
+            trending = pool.get("trending_tickers", "无数据")
         else:
-            from tradingagents.agents.utils.agent_utils import (
-                get_individual_fund_flow, get_lhb_detail, get_indicators,
-            )
-            
-            # Parallelize fallback fetches
+            from tradingagents.agents.utils.agent_utils import get_indicators, get_trending_tickers
+
             results = await asyncio.gather(
-                _safe(get_individual_fund_flow, {"symbol": ticker}),
-                _safe(get_lhb_detail, {"symbol": ticker, "date": current_date}),
                 _safe(get_indicators, {
                     "symbol": ticker, "indicator": "volume",
                     "curr_date": current_date, "look_back_days": 20,
-                })
+                }),
+                _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
             )
-            fund_flow, lhb, volume = results
+            volume, trending = results
 
         messages = [
             SystemMessage(content=(
@@ -56,24 +51,11 @@ def create_smart_money_analyst(llm, data_collector=None):
             )),
             HumanMessage(content=(
                 horizon_ctx + "\n"
-                f"请分析 {ticker} 在 {current_date} 的主力资金行为。\n\n"
-                f"【近5日主力资金净流向】\n{fund_flow}\n\n"
-                f"【龙虎榜数据】\n{lhb}\n\n"
-                f"【成交量指标(vwma)】\n{volume}"
+                f"请分析 {ticker} 在 {current_date} 的资金行为与成交量特征。\n\n"
+                f"【成交量指标(vwma)】\n{volume}\n\n"
+                f"【市场热门股票（按换手率）】\n{trending}"
             )),
         ]
-
-        # ── 实现 Token 级流式输出 ──────────────────
-        tracker = current_tracker_var.get()
-        full_content = ""
-        async for chunk in llm.astream(messages):
-            content = chunk.content if hasattr(chunk, "content") else str(chunk)
-            full_content += content
-            if tracker:
-                tracker._emit_token("Smart Money Analyst", "smart_money_report", content)
-
-        print(f"[Smart Money Analyst] DONE {ticker}, report length={len(full_content)}")
-        verdict, confidence = extract_verdict(full_content)
         return {
             "smart_money_report": full_content,
             "analyst_traces": [{

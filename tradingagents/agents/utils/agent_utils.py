@@ -19,11 +19,8 @@ from tradingagents.agents.utils.news_data_tools import (
     get_global_news
 )
 from tradingagents.agents.utils.game_theory_tools import (
-    get_board_fund_flow,
-    get_individual_fund_flow,
-    get_lhb_detail,
-    get_zt_pool,
-    get_hot_stocks_xq,
+    get_sector_performance,
+    get_trending_tickers,
 )
 from tradingagents.agents.utils.social_sentiment_tools import (
     get_social_sentiment,

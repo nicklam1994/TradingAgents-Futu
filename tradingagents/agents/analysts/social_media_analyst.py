@@ -31,12 +31,11 @@ def create_social_media_analyst(llm, data_collector=None):
 
         if pool is not None:
             news_text = pool.get("news", "无数据")
-            zt_data = pool.get("zt_pool", "无数据")
-            hot_stocks = pool.get("hot_stocks", "无数据")
+            trending = pool.get("trending_tickers", "无数据")
         else:
             from datetime import datetime, timedelta
             from tradingagents.agents.utils.agent_utils import (
-                get_news, get_zt_pool, get_hot_stocks_xq, get_social_sentiment,
+                get_news, get_trending_tickers, get_social_sentiment,
             )
             days = 7
             end_dt = datetime.strptime(current_date, "%Y-%m-%d")
@@ -47,11 +46,10 @@ def create_social_media_analyst(llm, data_collector=None):
                 _safe(get_news, {
                     "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
                 }),
-                _safe(get_zt_pool, {"date": current_date}),
-                _safe(get_hot_stocks_xq, {}),
+                _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
                 _safe(get_social_sentiment, {"symbol": ticker}),
             )
-            news_text, zt_data, hot_stocks, social_text = results
+            news_text, trending, social_text = results
 
         # Fetch social sentiment even when pool is available (pool doesn't have it)
         if pool is not None:
@@ -73,8 +71,7 @@ def create_social_media_analyst(llm, data_collector=None):
                 horizon_ctx + "\n"
                 f"以下是 {ticker} 在 {current_date} 的舆情近似资料。\n\n"
                 f"【get_news】\n{news_text}\n\n"
-                f"【涨停池数据】\n{zt_data}\n\n"
-                f"【雪球热门股票】\n{hot_stocks}"
+                f"【市场热门股票（按换手率）】\n{trending}" 
                 f"{social_section}\n"
             )),
         ]

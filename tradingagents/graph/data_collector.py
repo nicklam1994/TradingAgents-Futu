@@ -20,11 +20,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_news,
     get_global_news,
     get_insider_transactions,
-    get_board_fund_flow,
-    get_individual_fund_flow,
-    get_lhb_detail,
-    get_zt_pool,
-    get_hot_stocks_xq,
+    get_sector_performance,
+    get_trending_tickers,
 )
 
 INDICATORS = [
@@ -271,12 +268,9 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         "stock_data": (get_stock_data, {"symbol": ticker, "start_date": start_str, "end_date": trade_date}),
         "news": (get_news, {"ticker": ticker, "start_date": (end_dt - timedelta(days=lookback)).strftime("%Y-%m-%d"), "end_date": trade_date}),
         "global_news": (get_global_news, {"curr_date": trade_date, "look_back_days": lookback, "limit": 30}),
-        "fund_flow_board": (get_board_fund_flow, {}),
-        "fund_flow_individual": (get_individual_fund_flow, {"symbol": ticker}),
-        "lhb": (get_lhb_detail, {"symbol": ticker, "date": trade_date}),
+        "sector_performance": (get_sector_performance, {"market": "US", "top_n": 15}),
+        "trending_tickers": (get_trending_tickers, {"market": "US", "top_n": 20}),
         "insider_transactions": (get_insider_transactions, {"ticker": ticker}),
-        "zt_pool": (get_zt_pool, {"date": trade_date}),
-        "hot_stocks": (get_hot_stocks_xq, {}),
     }
 
     # 财务报表类数据始终拉取，Research Manager 根据 horizon 自行判断权重

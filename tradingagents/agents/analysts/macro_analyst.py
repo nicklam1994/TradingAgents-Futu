@@ -30,18 +30,18 @@ def create_macro_analyst(llm, data_collector=None):
         pool = data_collector.get(ticker, current_date) if data_collector else None
 
         if pool is not None:
-            board_flow = pool.get("fund_flow_board", "无数据")
+            board_flow = pool.get("sector_performance", "无数据")
             recent_news = pool.get("news", "无数据")
         else:
             from datetime import datetime, timedelta
-            from tradingagents.agents.utils.agent_utils import get_board_fund_flow, get_news
+            from tradingagents.agents.utils.agent_utils import get_sector_performance, get_news
             days = 7
             end_dt = datetime.strptime(current_date, "%Y-%m-%d")
             start_dt = end_dt - timedelta(days=days)
             
             # Parallelize fallback fetches
             results = await asyncio.gather(
-                _safe(get_board_fund_flow, {}),
+                _safe(get_sector_performance, {"market": "US", "top_n": 15}),
                 _safe(get_news, {
                     "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
                 })
@@ -56,7 +56,7 @@ def create_macro_analyst(llm, data_collector=None):
             HumanMessage(content=(
                 horizon_ctx + "\n"
                 f"请分析 {ticker} 在 {current_date} 的宏观与板块环境。\n\n"
-                f"【今日行业板块资金流向】\n{board_flow}\n\n"
+                f"【行业板块行情排名】\n{board_flow}\n\n"
                 f"【近期相关新闻】\n{recent_news}"
             )),
         ]
