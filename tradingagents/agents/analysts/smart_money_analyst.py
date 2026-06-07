@@ -60,6 +60,19 @@ def create_smart_money_analyst(llm, data_collector=None):
                 f"【市场热门股票（按换手率）】\n{trending}"
             )),
         ]
+
+        # ── 实现 Token 级流式输出 ──────────────────
+        tracker = current_tracker_var.get()
+        full_content = ""
+        async for chunk in llm.astream(messages):
+            content = chunk.content if hasattr(chunk, "content") else str(chunk)
+            full_content += content
+            if tracker:
+                tracker._emit_token("Smart Money Analyst", "smart_money_report", content)
+
+        verdict, confidence = extract_verdict(full_content)
+        print(f"[Smart Money Analyst] DONE {ticker}, report length={len(full_content)}")
+
         return {
             "smart_money_report": full_content,
             "analyst_traces": [{
