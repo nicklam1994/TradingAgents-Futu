@@ -43,35 +43,31 @@ def create_fundamentals_analyst(llm, data_collector=None):
 
         pool = data_collector.get(ticker, current_date) if data_collector else None
 
-        if pool is not None:
-            # DataCollector pre-fetched data
-            fundamentals = pool.get("fundamentals", "无数据")
-            income = pool.get("income_statement", "无数据")
-            balance = pool.get("balance_sheet", "无数据")
-            cashflow = pool.get("cashflow", "无数据")
-        else:
-            # Fetch from Futu (primary) + yfinance (fallback)
-            futu_income, futu_balance, futu_cashflow, fundamentals = await asyncio.gather(
-                _safe(get_financial_report, {"symbol": ticker, "report_type": "income"}),
-                _safe(get_financial_report, {"symbol": ticker, "report_type": "balance"}),
-                _safe(get_financial_report, {"symbol": ticker, "report_type": "cashflow"}),
-                _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
-            )
+        # Always fetch Futu financial reports (primary source)
+        futu_income, futu_balance, futu_cashflow, fundamentals = await asyncio.gather(
+            _safe(get_financial_report, {"symbol": ticker, "report_type": "income"}),
+            _safe(get_financial_report, {"symbol": ticker, "report_type": "balance"}),
+            _safe(get_financial_report, {"symbol": ticker, "report_type": "cashflow"}),
+            _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
+        )
 
-            # yfinance fallback only when Futu fails
-            if not _has_data(futu_income):
-                from tradingagents.agents.utils.agent_utils import get_income_statement
-                futu_income = await _safe(get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
-            if not _has_data(futu_balance):
-                from tradingagents.agents.utils.agent_utils import get_balance_sheet
-                futu_balance = await _safe(get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
-            if not _has_data(futu_cashflow):
-                from tradingagents.agents.utils.agent_utils import get_cashflow
-                futu_cashflow = await _safe(get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
+        # yfinance fallback only when Futu fails
+        if not _has_data(futu_income):
+            from tradingagents.agents.utils.agent_utils import get_income_statement
+            pool_income = pool.get("income_statement", "") if pool else ""
+            futu_income = pool_income if _has_data(pool_income) else await _safe(get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
+        if not _has_data(futu_balance):
+            from tradingagents.agents.utils.agent_utils import get_balance_sheet
+            pool_balance = pool.get("balance_sheet", "") if pool else ""
+            futu_balance = pool_balance if _has_data(pool_balance) else await _safe(get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
+        if not _has_data(futu_cashflow):
+            from tradingagents.agents.utils.agent_utils import get_cashflow
+            pool_cashflow = pool.get("cashflow", "") if pool else ""
+            futu_cashflow = pool_cashflow if _has_data(pool_cashflow) else await _safe(get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date})
 
-            income = futu_income or "利润表数据缺失"
-            balance = futu_balance or "资产负债表数据缺失"
-            cashflow = futu_cashflow or "现金流量表数据缺失"
+        income = futu_income or "利润表数据缺失"
+        balance = futu_balance or "资产负债表数据缺失"
+        cashflow = futu_cashflow or "现金流量表数据缺失" 
 
         # Always fresh: analyst consensus + revenue breakdown + financial alerts + dividends
         from tradingagents.agents.utils.agent_utils import get_dividend_history
