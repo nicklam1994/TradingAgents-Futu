@@ -358,6 +358,10 @@ class ApiService {
         return this.request('/v1/sim/account')
     }
 
+    async getSimAllAccounts(): Promise<{ ok: boolean; data: SimAccount[] }> {
+        return this.request('/v1/sim/accounts')
+    }
+
     async getSimPositions(): Promise<{ ok: boolean; data: SimPosition[]; total: number }> {
         return this.request('/v1/sim/positions')
     }

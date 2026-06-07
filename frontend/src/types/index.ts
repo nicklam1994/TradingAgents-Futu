@@ -712,6 +712,7 @@ export interface FeedbackUnreadResponse {
 // ─── Sim Trading Types (Phase 9) ──────────────────────────────────────────
 
 export interface SimAccount {
+    market: string
     total_assets: number
     cash_balance: number
     frozen_cash: number

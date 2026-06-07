@@ -66,6 +66,7 @@ class OrderType(str, Enum):
 @dataclass
 class AccountInfo:
     """Account financial information."""
+    market: str = "HK"              # 市场 (HK/US)
     total_assets: float = 0.0       # 总资产
     cash_balance: float = 0.0       # 现金余额
     frozen_cash: float = 0.0        # 冻结资金
@@ -264,7 +265,7 @@ def _get_trade_ctx(symbol: Optional[str] = None):
 
 # ── Core service methods ────────────────────────────────────────────────────
 
-def get_account(trd_env: str = "SIMULATE") -> AccountInfo:
+def get_account(trd_env: str = "SIMULATE", trd_market: str = "HK") -> AccountInfo:
     """Query simulated trading account financial information.
 
     Uses Futu accinfo_query to retrieve total assets, cash balance,
@@ -272,6 +273,7 @@ def get_account(trd_env: str = "SIMULATE") -> AccountInfo:
 
     Args:
         trd_env: Trading environment. Only "SIMULATE" is supported.
+        trd_market: "HK" or "US". Must match the market to see correct account.
 
     Returns:
         AccountInfo with all financial fields populated.
@@ -280,13 +282,24 @@ def get_account(trd_env: str = "SIMULATE") -> AccountInfo:
         RuntimeError: If FutuOpenD is offline or API call fails.
         ValueError: If trd_env is not "SIMULATE".
     """
-    from futu import RET_OK, TrdEnv
+    from futu import RET_OK, TrdEnv, TrdMarket, OpenSecTradeContext, SecurityFirm, SysConfig
 
     if trd_env != "SIMULATE":
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
-    # Use a general context — accinfo_query doesn't need a specific market
-    ctx = _get_trade_ctx()
+    market = TrdMarket.US if trd_market.upper() == "US" else TrdMarket.HK
+    encrypt = _need_encrypt()
+    if encrypt:
+        rsa_path = _get_rsa_path()
+        SysConfig.enable_proto_encrypt(is_encrypt=True)
+        SysConfig.set_init_rsa_file(rsa_path)
+    ctx = OpenSecTradeContext(
+        host=_opend_host(),
+        port=_opend_port(),
+        filter_trdmarket=market,
+        security_firm=SecurityFirm.FUTUSECURITIES,
+        is_encrypt=encrypt,
+    )
     try:
         ret, data = ctx.accinfo_query(trd_env=TrdEnv.SIMULATE)
         if ret != RET_OK:
@@ -297,6 +310,7 @@ def get_account(trd_env: str = "SIMULATE") -> AccountInfo:
 
         row = data.iloc[0]
         return AccountInfo(
+            market=trd_market.upper(),
             total_assets=float(row.get("total_assets", 0)),
             cash_balance=float(row.get("cash", 0)),
             frozen_cash=float(row.get("frozen_cash", 0)),
@@ -1032,6 +1046,7 @@ def _resolve_order_type(order_type_str: str):
 def account_to_dict(info: AccountInfo) -> Dict[str, Any]:
     """Serialize AccountInfo to dict for API response."""
     return {
+        "market": info.market,
         "total_assets": info.total_assets,
         "cash_balance": info.cash_balance,
         "frozen_cash": info.frozen_cash,

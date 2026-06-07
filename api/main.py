@@ -5163,6 +5163,27 @@ def sim_account(current_user: UserDB = Depends(_require_api_user)) -> Dict[str, 
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.get("/v1/sim/accounts")
+def sim_all_accounts(current_user: UserDB = Depends(_require_api_user)) -> Dict[str, Any]:
+    """查询所有模拟交易账户（港股/美股）。"""
+    accounts = []
+    for market in ["HK", "US"]:
+        try:
+            info = _sim_get_account("SIMULATE", trd_market=market)
+            accounts.append(_account_to_dict(info))
+        except Exception as e:
+            logger.warning(f"sim_all_accounts {market} error: {e}")
+            accounts.append({
+                "market": market,
+                "error": str(e),
+                "total_assets": 0,
+                "cash_balance": 0,
+                "market_val": 0,
+                "currency": "HKD" if market == "HK" else "USD",
+            })
+    return {"ok": True, "data": accounts}
+
+
 @app.get("/v1/sim/positions")
 def sim_positions(
     page_size: int = Query(100, ge=1, le=1000),

@@ -1,8 +1,8 @@
 /**
  * SimTrading — 模拟交易页面
  *
- * 展示账户资金卡片、持仓列表、盈亏曲线、当日订单与成交记录。
- * 调用 /v1/sim/account, /v1/sim/positions, /v1/sim/orders, /v1/sim/deals
+ * 展示所有模拟账户（港股/美股）资金卡片、持仓列表、盈亏曲线、当日订单与成交记录。
+ * 调用 /v1/sim/accounts, /v1/sim/positions, /v1/sim/orders, /v1/sim/deals
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -16,8 +16,12 @@ import { api } from '@/services/api'
 import { formatTime } from '@/utils/formatTime'
 import type { SimAccount, SimPosition, SimOrder, SimDeal } from '@/types'
 
+const MARKET_LABELS: Record<string, string> = { HK: '港股', US: '美股' }
+const MARKET_FLAGS: Record<string, string> = { HK: '🇭🇰', US: '🇺🇸' }
+
 export default function SimTrading() {
-    const [account, setAccount] = useState<SimAccount | null>(null)
+    const [accounts, setAccounts] = useState<SimAccount[]>([])
+    const [activeMarket, setActiveMarket] = useState<string>('HK')
     const [positions, setPositions] = useState<SimPosition[]>([])
     const [orders, setOrders] = useState<SimOrder[]>([])
     const [deals, setDeals] = useState<SimDeal[]>([])
@@ -29,12 +33,12 @@ export default function SimTrading() {
         setError(null)
         try {
             const [accRes, posRes, ordRes, dealRes] = await Promise.allSettled([
-                api.getSimAccount(),
+                api.getSimAllAccounts(),
                 api.getSimPositions(),
                 api.getSimOrders(),
                 api.getSimDeals(),
             ])
-            if (accRes.status === 'fulfilled') setAccount(accRes.value.data)
+            if (accRes.status === 'fulfilled') setAccounts(accRes.value.data ?? [])
             if (posRes.status === 'fulfilled') setPositions(posRes.value.data ?? [])
             if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? [])
             if (dealRes.status === 'fulfilled') setDeals(dealRes.value.data ?? [])
@@ -52,7 +56,7 @@ export default function SimTrading() {
 
     useEffect(() => { loadAll() }, [loadAll])
 
-    // Build equity curve from deals (cumulative P&L)
+    const activeAccount = accounts.find(a => a.market === activeMarket) ?? accounts[0] ?? null
     const equityCurve = buildEquityCurve(deals)
 
     return (
@@ -76,19 +80,40 @@ export default function SimTrading() {
                 </div>
             )}
 
-            {/* Account Cards */}
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                <AccountCard icon={Wallet} label="总资产" value={fmt(account?.total_assets)} subValue={`${account?.currency ?? 'HKD'}`} color="blue" />
-                <AccountCard icon={Package} label="可用资金" value={fmt(account?.available_cash)} subValue={`冻结 ${fmt(account?.frozen_cash)}`} color="green" />
-                <AccountCard icon={TrendingUp} label="持仓市值" value={fmt(account?.market_val)} subValue={`${positions.length} 只标的`} color="purple" />
-                <AccountCard
-                    icon={account && account.unrealized_pnl >= 0 ? TrendingUp : TrendingDown}
-                    label="浮动盈亏"
-                    value={fmt(account?.unrealized_pnl)}
-                    subValue={`已实现 ${fmt(account?.realized_pnl)}`}
-                    color={account && account.unrealized_pnl >= 0 ? 'green' : 'red'}
-                />
+            {/* Market Tabs */}
+            <div className="flex gap-2">
+                {accounts.map(acc => (
+                    <button
+                        key={acc.market}
+                        onClick={() => setActiveMarket(acc.market)}
+                        className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                            activeMarket === acc.market
+                                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/30'
+                                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
+                        }`}
+                    >
+                        <span>{MARKET_FLAGS[acc.market] ?? '🏳️'}</span>
+                        <span>{MARKET_LABELS[acc.market] ?? acc.market}</span>
+                        <span className="text-xs opacity-70">{acc.currency}</span>
+                    </button>
+                ))}
             </div>
+
+            {/* Account Cards */}
+            {activeAccount && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <AccountCard icon={Wallet} label="总资产" value={fmt(activeAccount.total_assets)} subValue={activeAccount.currency} color="blue" />
+                    <AccountCard icon={Package} label="可用资金" value={fmt(activeAccount.available_cash)} subValue={`冻结 ${fmt(activeAccount.frozen_cash)}`} color="green" />
+                    <AccountCard icon={TrendingUp} label="持仓市值" value={fmt(activeAccount.market_val)} subValue={`${positions.length} 只标的`} color="purple" />
+                    <AccountCard
+                        icon={activeAccount.unrealized_pnl >= 0 ? TrendingUp : TrendingDown}
+                        label="浮动盈亏"
+                        value={fmt(activeAccount.unrealized_pnl)}
+                        subValue={`已实现 ${fmt(activeAccount.realized_pnl)}`}
+                        color={activeAccount.unrealized_pnl >= 0 ? 'green' : 'red'}
+                    />
+                </div>
+            )}
 
             {/* Equity Curve */}
             {equityCurve.length > 1 && (
@@ -124,36 +149,29 @@ export default function SimTrading() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    <Th>代码</Th>
-                                    <Th>数量</Th>
-                                    <Th>成本价</Th>
-                                    <Th>现价</Th>
-                                    <Th>市值</Th>
-                                    <Th>盈亏</Th>
-                                    <Th>盈亏%</Th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-500">代码</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">成本</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">现价</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">浮动盈亏</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">盈亏%</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            <tbody>
                                 {positions.map(p => (
-                                    <tr key={p.code} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                        <Td>
-                                            <div>
-                                                <span className="font-medium text-slate-900 dark:text-slate-100">{p.code}</span>
-                                                {p.symbol && p.symbol !== p.code && (
-                                                    <span className="ml-1 text-xs text-slate-400">{p.symbol}</span>
-                                                )}
-                                            </div>
-                                        </Td>
-                                        <Td>{p.qty}</Td>
-                                        <Td>{fmt(p.cost_price)}</Td>
-                                        <Td>{fmt(p.current_price)}</Td>
-                                        <Td>{fmt(p.market_val)}</Td>
-                                        <Td className={p.unrealized_pnl >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
+                                    <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                        <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">{p.code}</td>
+                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
+                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.cost_price?.toFixed(3)}</td>
+                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.current_price?.toFixed(3)}</td>
+                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{fmt(p.market_val)}</td>
+                                        <td className={`px-3 py-2 text-right font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                                             {fmt(p.unrealized_pnl)}
-                                        </Td>
-                                        <Td className={p.unrealized_pnl_pct >= 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}>
-                                            {(p.unrealized_pnl_pct * 100).toFixed(2)}%
-                                        </Td>
+                                        </td>
+                                        <td className={`px-3 py-2 text-right font-medium ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {p.unrealized_pnl_pct?.toFixed(2)}%
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -170,9 +188,19 @@ export default function SimTrading() {
                     {orders.length === 0 ? (
                         <EmptyState text="暂无订单" />
                     ) : (
-                        <div className="space-y-2 max-h-80 overflow-y-auto">
+                        <div className="space-y-2">
                             {orders.map(o => (
-                                <OrderRow key={o.order_id} order={o} />
+                                <div key={o.order_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                                    <div className="flex items-center gap-2">
+                                        {o.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{o.code}</span>
+                                        <span className={`text-xs ${o.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{o.side}</span>
+                                    </div>
+                                    <div className="text-right text-sm text-slate-600 dark:text-slate-400">
+                                        <div>{o.qty} × {o.price?.toFixed(3)}</div>
+                                        <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -184,9 +212,19 @@ export default function SimTrading() {
                     {deals.length === 0 ? (
                         <EmptyState text="暂无成交记录" />
                     ) : (
-                        <div className="space-y-2 max-h-80 overflow-y-auto">
+                        <div className="space-y-2">
                             {deals.map(d => (
-                                <DealRow key={d.deal_id} deal={d} />
+                                <div key={d.deal_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                                    <div className="flex items-center gap-2">
+                                        {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.code}</span>
+                                        <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
+                                    </div>
+                                    <div className="text-right text-sm text-slate-600 dark:text-slate-400">
+                                        <div>{d.qty} × {d.price?.toFixed(3)}</div>
+                                        <div className="text-xs text-slate-400">{formatTime(d.deal_time)}</div>
+                                    </div>
+                                </div>
                             ))}
                         </div>
                     )}
@@ -196,141 +234,83 @@ export default function SimTrading() {
     )
 }
 
-/* ── Sub-components ─────────────────────────────────────────────────────── */
+/* ─── Sub-components ──────────────────────────────────────────────────────── */
 
-function AccountCard({
-    icon: Icon, label, value, subValue, color,
-}: {
-    icon: React.ComponentType<{ className?: string }>
+function AccountCard({ icon: Icon, label, value, subValue, color }: {
+    icon: typeof Wallet
     label: string
     value: string
-    subValue: string
-    color: 'blue' | 'green' | 'orange' | 'purple' | 'red'
+    subValue?: string
+    color: 'blue' | 'green' | 'purple' | 'red'
 }) {
-    const bg = {
-        blue: 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400',
-        green: 'bg-green-100 dark:bg-green-500/10 text-green-600 dark:text-green-400',
-        orange: 'bg-orange-100 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400',
-        purple: 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400',
-        red: 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400',
+    const bgMap = {
+        blue: 'from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20',
+        green: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20',
+        purple: 'from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20',
+        red: 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20',
+    }
+    const iconMap = {
+        blue: 'text-blue-500',
+        green: 'text-emerald-500',
+        purple: 'text-purple-500',
+        red: 'text-rose-500',
     }
     return (
-        <div className="card card-hover">
-            <div className="flex items-start justify-between">
-                <div>
-                    <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
-                    <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
-                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{subValue}</p>
-                </div>
-                <div className={`rounded-lg p-3 ${bg[color]}`}>
-                    <Icon className="h-5 w-5" />
-                </div>
+        <div className={`rounded-2xl bg-gradient-to-br ${bgMap[color]} p-4`}>
+            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <Icon className={`h-4 w-4 ${iconMap[color]}`} />
+                {label}
             </div>
-        </div>
-    )
-}
-
-function OrderRow({ order }: { order: SimOrder }) {
-    const isBuy = order.side.toUpperCase() === 'BUY'
-    return (
-        <div className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-                {isBuy ? (
-                    <ArrowUpCircle className="h-4 w-4 text-red-500" />
-                ) : (
-                    <ArrowDownCircle className="h-4 w-4 text-green-500" />
-                )}
-                <div>
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{order.code}</span>
-                    <span className={`ml-2 text-xs ${isBuy ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                        {isBuy ? '买入' : '卖出'}
-                    </span>
-                </div>
-            </div>
-            <div className="text-right">
-                <p className="text-sm text-slate-700 dark:text-slate-300">{order.qty} 股 @ {fmt(order.price)}</p>
-                <p className="text-xs text-slate-400">{order.status} · {formatTime(order.create_time)}</p>
-            </div>
-        </div>
-    )
-}
-
-function DealRow({ deal }: { deal: SimDeal }) {
-    const isBuy = deal.side.toUpperCase() === 'BUY'
-    return (
-        <div className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 dark:border-slate-800">
-            <div className="flex items-center gap-2">
-                {isBuy ? (
-                    <ArrowUpCircle className="h-4 w-4 text-red-500" />
-                ) : (
-                    <ArrowDownCircle className="h-4 w-4 text-green-500" />
-                )}
-                <div>
-                    <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{deal.code}</span>
-                    {deal.stock_name && <span className="ml-1 text-xs text-slate-400">{deal.stock_name}</span>}
-                </div>
-            </div>
-            <div className="text-right">
-                <p className="text-sm text-slate-700 dark:text-slate-300">{deal.qty} 股 @ {fmt(deal.price)}</p>
-                <p className="text-xs text-slate-400">{formatTime(deal.deal_time)}</p>
-            </div>
+            <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
+            {subValue && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</div>}
         </div>
     )
 }
 
 function EmptyState({ text }: { text: string }) {
-    return <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">{text}</p>
+    return (
+        <div className="flex items-center justify-center py-8 text-sm text-slate-400 dark:text-slate-500">
+            {text}
+        </div>
+    )
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-    return <th className="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">{children}</th>
+/* ─── Helpers ──────────────────────────────────────────────────────────────── */
+
+function fmt(v: number | undefined | null): string {
+    if (v == null) return '--'
+    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function Td({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-    return <td className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-300 ${className}`}>{children}</td>
-}
-
-/* ── Helpers ────────────────────────────────────────────────────────────── */
-
-function fmt(value?: number | null): string {
-    if (value == null) return '--'
-    return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-/**
- * Build a cumulative equity curve from deal records using FIFO matching.
- * NOTE: This duplicates the backend FIFO P&L calculation logic.
- * Kept here because the frontend needs per-deal points to render the chart;
- * the backend only returns aggregated metrics.
- */
 function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number }> {
-    if (deals.length === 0) return []
+    // NOTE: This FIFO P&L logic duplicates the backend /v1/sim/performance calculation.
+    // Kept here because the frontend needs per-deal data points for the chart rendering.
+    if (!deals.length) return []
 
-    // Sort by time ascending
-    const sorted = [...deals].sort((a, b) => a.deal_time.localeCompare(b.deal_time))
-
-    // FIFO match buy/sell per code to compute running P&L
-    const buyQueues: Record<string, Array<{ price: number; qty: number }>> = {}
-    let cumPnl = 0
-    const points: Array<{ time: string; value: number }> = [{ time: '起始', value: 0 }]
+    const sorted = [...deals].sort((a, b) => (a.deal_time ?? '').localeCompare(b.deal_time ?? ''))
+    const buys: Record<string, Array<{ price: number; qty: number }>> = {}
+    let cumulative = 0
+    const points: Array<{ time: string; value: number }> = []
 
     for (const d of sorted) {
-        const side = d.side.toUpperCase()
-        if (side === 'BUY') {
-            if (!buyQueues[d.code]) buyQueues[d.code] = []
-            buyQueues[d.code].push({ price: d.price, qty: d.qty })
-        } else if (side === 'SELL' && buyQueues[d.code]?.length) {
+        const code = d.code ?? ''
+        if (!buys[code]) buys[code] = []
+
+        if (d.side === 'BUY') {
+            buys[code].push({ price: d.price, qty: d.qty })
+        } else if (d.side === 'SELL' && buys[code].length > 0) {
             let remaining = d.qty
-            while (remaining > 0 && buyQueues[d.code].length) {
-                const buy = buyQueues[d.code][0]
-                const matched = Math.min(remaining, buy.qty)
-                cumPnl += (d.price - buy.price) * matched
-                remaining -= matched
-                buy.qty -= matched
-                if (buy.qty <= 0) buyQueues[d.code].shift()
+            while (remaining > 0 && buys[code].length > 0) {
+                const lot = buys[code][0]
+                const matchQty = Math.min(remaining, lot.qty)
+                cumulative += (d.price - lot.price) * matchQty
+                lot.qty -= matchQty
+                remaining -= matchQty
+                if (lot.qty <= 0) buys[code].shift()
             }
         }
-        points.push({ time: formatTime(d.deal_time), value: Math.round(cumPnl * 100) / 100 })
+
+        points.push({ time: d.deal_time ?? '', value: Math.round(cumulative * 100) / 100 })
     }
 
     return points
