@@ -46,7 +46,7 @@ def create_social_media_analyst(llm, data_collector=None):
                 _safe(get_news, {
                     "ticker": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
                 }),
-                _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
+                _safe(get_trending_tickers, {"market": "HK" if ticker.endswith(".HK") else "US", "top_n": 20}),
                 _safe(get_social_sentiment, {"symbol": ticker}),
             )
             news_text, trending, social_text = results

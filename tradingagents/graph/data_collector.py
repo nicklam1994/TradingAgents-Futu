@@ -286,6 +286,11 @@ def _safe(tool, payload: dict) -> Any:
         return f"{getattr(tool, 'name', str(tool))} 调用失败：{type(exc).__name__}: {exc}"
 
 
+def _get_market(ticker: str) -> str:
+    """Determine market from ticker: HK if .HK suffix, else US."""
+    return "HK" if ticker.endswith(".HK") else "US"
+
+
 def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
     """Fetch all data sources in parallel.
 
@@ -302,8 +307,8 @@ def _fetch_all(ticker: str, trade_date: str) -> Dict[str, Any]:
         "stock_data": (get_stock_data, {"symbol": ticker, "start_date": start_str, "end_date": trade_date}),
         "news": (get_news, {"ticker": ticker, "start_date": (end_dt - timedelta(days=lookback)).strftime("%Y-%m-%d"), "end_date": trade_date}),
         "global_news": (get_global_news, {"curr_date": trade_date, "look_back_days": lookback, "limit": 30}),
-        "sector_performance": (get_sector_performance, {"market": "US", "top_n": 15}),
-        "trending_tickers": (get_trending_tickers, {"market": "US", "top_n": 20}),
+        "sector_performance": (get_sector_performance, {"market": _get_market(ticker), "top_n": 15}),
+        "trending_tickers": (get_trending_tickers, {"market": _get_market(ticker), "top_n": 20}),
         "insider_transactions": (get_insider_transactions, {"ticker": ticker}),
     }
 
