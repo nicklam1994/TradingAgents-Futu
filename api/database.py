@@ -489,3 +489,27 @@ class ImportedPortfolioPositionDB(Base):
     )
 
 
+class SimDealDB(Base):
+    """Local simulated deal records — replaces Futu deal_list_query for SIMULATE env.
+
+    Futu OpenD does not support deal_list_query for simulated trading,
+    so we record deals locally when orders are placed/filled.
+    """
+
+    __tablename__ = "sim_deals"
+
+    id = Column(String(36), primary_key=True)
+    order_id = Column(String(32), index=True, nullable=False)
+    deal_id = Column(String(32), index=True, nullable=False)
+    code = Column(String(20), nullable=False)
+    stock_name = Column(String(80), nullable=True)
+    trd_side = Column(String(8), nullable=False)  # BUY / SELL
+    deal_market = Column(String(8), nullable=False)  # HK / US
+    qty = Column(Float, nullable=False)
+    price = Column(Float, nullable=False)
+    create_time = Column(String(32), nullable=False)
+    status = Column(String(16), default="FILLED", nullable=False)  # FILLED / CANCELLED
+    currency = Column(String(8), default="HKD", nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+

@@ -134,6 +134,46 @@ class DealInfo:
     currency: str = "HKD"
 
 
+# ── Local deal recording ─────────────────────────────────────────────────────
+
+def _record_deal(
+    order_id: str,
+    code: str,
+    stock_name: str,
+    trd_side: str,
+    deal_market: str,
+    qty: float,
+    price: float,
+    currency: str = "HKD",
+) -> None:
+    """Record a simulated deal in the local DB."""
+    from api.database import SessionLocal, SimDealDB
+    db = SessionLocal()
+    try:
+        deal = SimDealDB(
+            id=uuid4().hex,
+            order_id=str(order_id),
+            deal_id=f"LOCAL-{uuid4().hex[:12]}",
+            code=code,
+            stock_name=stock_name,
+            trd_side=trd_side,
+            deal_market=deal_market,
+            qty=qty,
+            price=price,
+            create_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            status="FILLED",
+            currency=currency,
+        )
+        db.add(deal)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning("[sim-deal] failed to record deal: %s", exc)
+    finally:
+        db.close()
+
+
 # ── Symbol conversion ────────────────────────────────────────────────────────
 
 def _to_futu_trade_code(symbol: str) -> tuple:
@@ -410,12 +450,29 @@ def place_order(
             raise RuntimeError("place_order returned empty data")
 
         row = data.iloc[0]
+        order_id = str(row.get("order_id", ""))
+        fill_price = float(row.get("price", price))
+        fill_qty = float(row.get("qty", quantity))
+
+        # Record deal locally (Futu sim doesn't support deal_list_query)
+        deal_market = "HK" if market == TrdMarket.HK else "US"
+        _record_deal(
+            order_id=order_id,
+            code=code,
+            stock_name="",
+            trd_side=side_upper,
+            deal_market=deal_market,
+            qty=fill_qty,
+            price=fill_price,
+            currency="HKD" if deal_market == "HK" else "USD",
+        )
+
         return OrderResult(
-            order_id=str(row.get("order_id", "")),
+            order_id=order_id,
             code=str(row.get("code", code)),
             side=side_upper,
-            price=float(row.get("price", price)),
-            qty=float(row.get("qty", quantity)),
+            price=fill_price,
+            qty=fill_qty,
             status=str(row.get("order_status", "SUBMITTED")),
             create_time=str(row.get("create_time", "")),
         )
@@ -538,32 +595,29 @@ def get_deals(
     page_size: int = 100,
     page_index: int = 0,
 ) -> List[DealInfo]:
-    """Query today's executed deals (filled trades).
+    """Query executed deals (filled trades).
+
+    For SIMULATE: reads from local DB (Futu sim doesn't support deal_list_query).
+    For REAL: queries Futu deal_list_query directly.
 
     Args:
         symbol: Optional stock symbol filter.
-        trd_env: Trading environment. Only "SIMULATE" is supported.
+        trd_env: "SIMULATE" or "REAL".
         page_size: Number of deals per page (max 1000).
         page_index: Page index (0-based).
 
     Returns:
         List of DealInfo objects.
     """
-    from futu import RET_OK, TrdEnv, OpenSecTradeContext, TrdMarket, SecurityFirm
+    if trd_env == "SIMULATE":
+        return _get_local_deals(symbol, page_size, page_index)
 
-    if trd_env != "SIMULATE":
-        raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
+    # Real trading: query Futu directly
+    from futu import RET_OK, TrdEnv, OpenSecTradeContext, SecurityFirm
 
-    if symbol:
-        market, code = _to_futu_trade_code(symbol)
-        ctx = _get_trade_ctx(symbol)
-    else:
-        ctx = _get_trade_ctx()
-
+    ctx = _get_trade_ctx(symbol) if symbol else _get_trade_ctx()
     try:
-        ret, data = ctx.deal_list_query(
-            trd_env=TrdEnv.SIMULATE,
-        )
+        ret, data = ctx.deal_list_query(trd_env=TrdEnv.REAL)
         if ret != RET_OK:
             raise RuntimeError(f"Futu deal_list_query failed: {data}")
 
@@ -583,10 +637,45 @@ def get_deals(
                 deal_time=str(row.get("create_time", "")),
                 currency=str(row.get("currency", "HKD")),
             ))
-
         return deals
     finally:
         ctx.close()
+
+
+def _get_local_deals(
+    symbol: Optional[str] = None,
+    page_size: int = 100,
+    page_index: int = 0,
+) -> List[DealInfo]:
+    """Read simulated deals from local DB."""
+    from api.database import SessionLocal, SimDealDB
+
+    db = SessionLocal()
+    try:
+        query = db.query(SimDealDB).order_by(SimDealDB.create_time.desc())
+        if symbol:
+            # Normalize symbol for matching
+            query = query.filter(SimDealDB.code == symbol)
+
+        offset = page_index * page_size
+        rows = query.offset(offset).limit(page_size).all()
+
+        return [
+            DealInfo(
+                order_id=r.order_id,
+                deal_id=r.deal_id,
+                code=r.code,
+                stock_name=r.stock_name or "",
+                side=r.trd_side,
+                price=r.price,
+                qty=r.qty,
+                deal_time=r.create_time,
+                currency=r.currency or "HKD",
+            )
+            for r in rows
+        ]
+    finally:
+        db.close()
 
 
 
