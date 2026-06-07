@@ -5631,6 +5631,40 @@ async def autonomous_list(
     return {"ok": True, "data": result}
 
 
+# ── Skills / Strategies API (Phase 9) ──────────────────────────────────────
+
+@app.get("/v1/skills")
+def list_skills(
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """List all registered trading strategy skills.
+
+    Returns skill name, description, regime, and enabled status
+    from the SkillRegistry.
+    """
+    try:
+        from tradingagents.skills.skill_registry import SkillRegistry
+        registry = SkillRegistry()
+        registry.discover()
+        all_skills = registry.list_all()
+        return {
+            "ok": True,
+            "data": [
+                {
+                    "name": s.name,
+                    "display_name": s.name.replace("_", " ").title(),
+                    "description": s.description,
+                    "regime": [r.value for r in s.supported_regimes],
+                    "enabled": True,
+                }
+                for s in all_skills
+            ],
+        }
+    except Exception as e:
+        logger.error(f"list_skills error: {e}")
+        return {"ok": True, "data": []}
+
+
 # ── Bot platform webhook endpoints ───────────────────────────────────────────
 
 @app.get("/v1/bots/status")
