@@ -27,6 +27,7 @@ from tradingagents.agents.utils.game_theory_tools import (
     get_top_ten_broker,
     get_morningstar_report,
     get_analyst_consensus,
+    get_financial_report,
 )
 from tradingagents.agents.utils.social_sentiment_tools import (
     get_social_sentiment,

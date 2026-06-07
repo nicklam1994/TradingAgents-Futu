@@ -582,3 +582,109 @@ def get_analyst_consensus(
             ctx.close()
     except Exception as e:
         return f"Analyst consensus error: {e}"
+
+
+@tool
+def get_financial_report(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+    report_type: Annotated[str, "'income' (P&L), 'balance' (balance sheet), or 'cashflow' (cash flow)"] = "income",
+) -> str:
+    """Get financial statements from Futu — income statement, balance sheet, or cashflow.
+
+    Returns revenue, profit, costs, assets, liabilities, equity with YoY changes.
+    Works for HK and US stocks (coverage varies by market cap).
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+        report_type: 'income' for P&L, 'balance' for balance sheet, 'cashflow' for cash flow
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+
+        # financial_type: 5=H1, 7=FY (full year)
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_financials_statements(futu_code)
+            if ret != 0:
+                return f"Financial report error: {data}"
+
+            reports = data.get("report_list", [])
+            if not reports:
+                return f"No financial data for {symbol}"
+
+            # Use the most recent report
+            r = reports[0]
+            date_str = r.get("date_time_str", "")
+            period = r.get("period_text", "")
+            currency = r.get("currency_code", "")
+            items = r.get("item_list", [])
+
+            # Field ID mapping
+            INCOME_FIELDS = {
+                5001: "Revenue", 5002: "Total Revenue",
+                5005: "Net Profit", 5008: "Net Profit (Parent)",
+                5010: "Operating Profit", 5013: "Total Cost",
+                5015: "R&D Expense", 5016: "Selling Expense",
+                5017: "Admin Expense", 5019: "Finance Expense",
+            }
+            BALANCE_FIELDS = {
+                5032: "Total Assets", 5034: "Total Liabilities",
+                5035: "Total Equity", 5036: "Minority Interest",
+            }
+            CASHFLOW_FIELDS = {
+                5040: "Operating Cashflow", 5041: "Investing Cashflow",
+                5043: "Financing Cashflow", 5045: "Free Cashflow",
+                5046: "Net Cashflow",
+            }
+
+            if report_type == "balance":
+                field_map = BALANCE_FIELDS
+                title = "Balance Sheet"
+            elif report_type == "cashflow":
+                field_map = CASHFLOW_FIELDS
+                title = "Cash Flow Statement"
+            else:
+                field_map = INCOME_FIELDS
+                title = "Income Statement"
+
+            lines = [f"## {symbol} {title} ({period}, {currency})\n"]
+            lines.append("| Item | Amount | YoY Change |")
+            lines.append("|------|--------|------------|")
+
+            for item in items:
+                fid = item.get("field_id")
+                if fid not in field_map:
+                    continue
+                val = item.get("data", 0)
+                yoy = item.get("yoy", 0)
+                name = field_map[fid]
+                # Format
+                if abs(val) >= 1e9:
+                    val_str = f"{val/1e9:+.2f}B"
+                elif abs(val) >= 1e6:
+                    val_str = f"{val/1e6:+.2f}M"
+                elif abs(val) >= 1e3:
+                    val_str = f"{val/1e3:+.0f}K"
+                else:
+                    val_str = f"{val:+.0f}"
+                yoy_str = f"{yoy:+.1f}%" if yoy else "N/A"
+                lines.append(f"| {name} | {val_str} | {yoy_str} |")
+
+            # Also show other reports available
+            if len(reports) > 1:
+                lines.append(f"\n*Also available: {len(reports)} periods (FY/H1/Q1/Q3)*")
+
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Financial report error: {e}"

@@ -26,6 +26,7 @@ def create_fundamentals_analyst(llm, data_collector=None):
         system_message = get_prompt("fundamentals_system_message", config=config)
         horizon_ctx = build_horizon_context(horizon, focus_areas, specific_questions, agent_type="fundamentals")
 
+        from tradingagents.agents.utils.agent_utils import get_analyst_consensus
         pool = data_collector.get(ticker, current_date) if data_collector else None
 
         if pool is not None:
@@ -33,20 +34,37 @@ def create_fundamentals_analyst(llm, data_collector=None):
                        ["fundamentals", "balance_sheet", "cashflow", "income_statement"]}
         else:
             from tradingagents.agents.utils.agent_utils import (
-                get_fundamentals, get_balance_sheet, get_cashflow, get_income_statement,
+                get_fundamentals, get_analyst_consensus, get_financial_report,
             )
-            tasks = {
+            # Futu financial statements as primary source
+            futu_income, futu_balance, futu_cashflow = await asyncio.gather(
+                _safe(get_financial_report, {"symbol": ticker, "report_type": "income"}),
+                _safe(get_financial_report, {"symbol": ticker, "report_type": "balance"}),
+                _safe(get_financial_report, {"symbol": ticker, "report_type": "cashflow"}),
+            )
+
+            # yfinance as fallback (may not have data for HK small caps)
+            from tradingagents.agents.utils.agent_utils import (
+                get_balance_sheet, get_cashflow, get_income_statement,
+            )
+            yf_tasks = {
                 "fundamentals": _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
                 "balance_sheet": _safe(get_balance_sheet, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "cashflow": _safe(get_cashflow, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
                 "income_statement": _safe(get_income_statement, {"ticker": ticker, "freq": "quarterly", "curr_date": current_date}),
             }
-            keys = list(tasks.keys())
-            results = await asyncio.gather(*[tasks[k] for k in keys])
-            outputs = dict(zip(keys, results))
+            yf_keys = list(yf_tasks.keys())
+            yf_results = await asyncio.gather(*[yf_tasks[k] for k in yf_keys])
+            yf_outputs = dict(zip(yf_keys, yf_results))
+
+            outputs = {
+                "fundamentals": yf_outputs["fundamentals"],
+                "balance_sheet": f"[Futu]\n{futu_balance}\n\n[yfinance]\n{yf_outputs['balance_sheet']}",
+                "cashflow": f"[Futu]\n{futu_cashflow}\n\n[yfinance]\n{yf_outputs['cashflow']}",
+                "income_statement": f"[Futu]\n{futu_income}\n\n[yfinance]\n{yf_outputs['income_statement']}",
+            }
 
         # Analyst consensus (always fresh)
-        from tradingagents.agents.utils.agent_utils import get_analyst_consensus
         consensus = await _safe(get_analyst_consensus, {"symbol": ticker})
 
         messages = [
