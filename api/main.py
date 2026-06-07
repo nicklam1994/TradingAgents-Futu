@@ -2524,32 +2524,22 @@ def _regex_extract_ticker(text: str) -> Optional[str]:
 
 
 def _normalize_symbol(raw: str) -> str:
+    """Normalize stock symbol to canonical format: US=AAPL, HK=00020.HK, ETF=QQQ."""
     s = raw.strip().upper()
-    # Priority: 6-digit CN stock code
-    m = re.search(r"(\d{6})(?:\.(SH|SZ|SS))?", s)
+    # Priority 1: stock_resolver by code (covers US/HK/ETF)
+    from tradingagents.dataflows.stock_resolver import resolve_ticker as _resolve
+    resolved = _resolve(s)
+    if resolved:
+        return resolved["code"]
+    # Priority 2: Chinese name lookup (e.g. 商汤 → 00020.HK)
+    from tradingagents.dataflows.stock_resolver import search_by_name as _search_name
+    resolved = _search_name(raw.strip())
+    if resolved:
+        return resolved["code"]
+    # Priority 3: US ticker (1-6 letters, optional .XX suffix like BRK.B)
+    m = re.search(r"(\^?[A-Z]{1,6}(?:\.[A-Z]{1,3})?)\b", s)
     if m:
-        code = m.group(1)
-        suffix = m.group(2)
-        if suffix:
-            if suffix == "SS":
-                return f"{code}.SH"
-            return f"{code}.{suffix}"
-        market = "SH" if code.startswith(("5", "6", "9")) else "SZ"
-        return f"{code}.{market}"
-    # Fallback: 1-6 letter ticker (including ^ for yfinance indices like ^HSI)
-    m2 = re.search(r"(\^?[A-Z]{1,6}(?:\.[A-Z]{1,3})?)", s)
-    if m2:
-        return m2.group(1)
-        
-    # Final Fallback: Check stock resolver (US/ETF/HK)
-    try:
-        from tradingagents.dataflows.stock_resolver import resolve_ticker
-        resolved = resolve_ticker(s)
-        if resolved:
-            return resolved["code"]
-    except Exception:
-        pass
-        
+        return m.group(1)
     return s
 
 
@@ -2561,19 +2551,58 @@ def _extract_chat_text(messages: List[ChatMessage]) -> str:
 
 
 def _extract_symbol_and_date(text: str) -> tuple[Optional[str], Optional[str]]:
-    # Date extraction (flexible boundaries)
+    """Extract ticker and date from natural language. US/HK/ETF only."""
+    # Date extraction
     date_match = re.search(r"\d{4}-\d{2}-\d{2}", text)
     date = date_match.group(0) if date_match else None
 
-    # Priority 1: A-Share 6-digit code (even if stuck to Chinese characters)
-    sym_match = re.search(r"(\d{6}(?:\.(?:SH|SZ|SS))?)", text, re.IGNORECASE)
-    if sym_match:
-        return _normalize_symbol(sym_match.group(1)), date
+    # Priority 1: HK stock code (e.g. 00020.HK, HK.00020, 港股00700)
+    hk_match = re.search(r"(\d{1,5})\.(HK)\b", text, re.IGNORECASE)
+    if hk_match:
+        code = hk_match.group(1).zfill(5)
+        return f"{code}.HK", date
+    hk_match2 = re.search(r"(?:HK|港股)\.?(\d{1,5})", text, re.IGNORECASE)
+    if hk_match2:
+        code = hk_match2.group(1).zfill(5)
+        return f"{code}.HK", date
 
-    # Priority 2: US Stocks or other Tickers (use boundaries for letters to avoid partial words)
-    us_match = re.search(r"\b([A-Z]{1,6}(?:\.[A-Z]{1,3})?)\b", text.upper())
+    # Priority 2: Chinese stock name embedded in text (e.g. "分析商汤", "帮我看看百度")
+    try:
+        from tradingagents.dataflows.stock_resolver import search_by_name
+        # Extract continuous Chinese segments, then try all 2-4 char substrings
+        cn_segments = re.findall(r"[\u4e00-\u9fff]+", text)
+        best_match = None
+        best_len = 0
+        for seg in cn_segments:
+            for n in range(min(4, len(seg)), 1, -1):  # try 4, 3, 2 char substrings
+                for i in range(len(seg) - n + 1):
+                    part = seg[i : i + n]
+                    resolved = search_by_name(part)
+                    if resolved and n > best_len:
+                        best_match = resolved
+                        best_len = n
+        if best_match:
+            return best_match["code"], date
+    except Exception:
+        pass
+
+    # Priority 3: US ticker or ETF (1-6 letters, works with Chinese adjacency)
+    us_match = re.search(r"(?:^|[^A-Z])([A-Z]{1,6}(?:\.[A-Z]{1,3})?)(?:[^A-Z]|$)", text.upper())
     if us_match:
-        return us_match.group(1), date
+        ticker = us_match.group(1)
+        # Validate it's not a common word
+        _STOPWORDS = {'THE', 'AND', 'FOR', 'BUT', 'NOT', 'YOU', 'ALL', 'CAN', 'HER', 'WAS', 'ONE', 'OUR', 'OUT', 'HAS', 'HIS', 'HOW', 'MAN', 'NEW', 'NOW', 'OLD', 'SEE', 'WAY', 'WHO', 'BOY', 'DID', 'GET', 'HIM'}
+        if ticker not in _STOPWORDS:
+            return ticker, date
+
+    # Priority 4: stock_resolver on full text
+    try:
+        from tradingagents.dataflows.stock_resolver import resolve_ticker as _rt
+        resolved = _rt(text.strip())
+        if resolved:
+            return resolved["code"], date
+    except Exception:
+        pass
 
     return None, date
 

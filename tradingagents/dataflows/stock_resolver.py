@@ -14,7 +14,7 @@ import logging
 import re
 from pathlib import Path
 from threading import Lock
-from typing import Dict, Optional, TypedDict
+from typing import Dict, List, Optional, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,9 @@ class StockEntry(TypedDict):
 
 # ── Singleton cache ───────────────────────────────────────────────────────────
 
-_INDEX: Dict[str, StockEntry] | None = None
-_INDEX_BY_UPPER: Dict[str, StockEntry] | None = None
+_INDEX: Optional[Dict[str, StockEntry]] = None
+_INDEX_BY_UPPER: Optional[Dict[str, StockEntry]] = None
+_INDEX_BY_NAME: Optional[Dict[str, StockEntry]] = None
 _LOCK = Lock()
 
 _UNIVERSE_FILENAME = "stock_universe.json"
@@ -42,7 +43,7 @@ def _candidate_paths() -> tuple[Path, ...]:
 
 
 def _load() -> Dict[str, StockEntry]:
-    global _INDEX, _INDEX_BY_UPPER
+    global _INDEX, _INDEX_BY_UPPER, _INDEX_BY_NAME
     if _INDEX is not None:
         return _INDEX
 
@@ -69,8 +70,12 @@ def _load() -> Dict[str, StockEntry]:
                     bare = entry["code"].upper().replace(".HK", "")
                     if bare not in by_upper:
                         by_upper[bare] = entry
+                    # Index by stock name (Chinese + English)
+                    if entry.get("name"):
+                        by_upper[entry["name"].upper()] = entry
                 _INDEX = by_code
                 _INDEX_BY_UPPER = by_upper
+                _INDEX_BY_NAME = by_upper
                 logger.info("[StockUniverse] Loaded %d entries from %s", len(by_code), p)
                 return by_code
 
@@ -82,7 +87,13 @@ def _load() -> Dict[str, StockEntry]:
 
 def _get_by_upper() -> Dict[str, StockEntry]:
     _load()
-    return _INDEX_BY_UPPER  # type: ignore[return-value]
+    return _INDEX_BY_UPPER  # type: ignore[return-type]
+
+
+def _get_by_name() -> Dict[str, StockEntry]:
+    """Name→entry index (Chinese + English names, uppercase keys)."""
+    _load()
+    return _INDEX_BY_NAME  # type: ignore[return-type]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -120,6 +131,60 @@ def resolve_ticker(code: str) -> Optional[StockEntry]:
             return entry
 
     return None
+
+
+def search_by_name(name: str) -> Optional[StockEntry]:
+    """Search stock by Chinese or English name (exact or substring match).
+
+    Returns the best match or None.
+    Examples: search_by_name("商汤") → 00020.HK, search_by_name("腾讯") → 00700.HK
+    """
+    results = search_by_name_multi(name)
+    return results[0] if results else None
+
+
+def search_by_name_multi(name: str, limit: int = 5) -> List[StockEntry]:
+    """Search stock by name, returning multiple candidates for disambiguation.
+
+    Returns up to *limit* entries sorted by match quality.
+    Examples:
+        search_by_name_multi("腾讯") → [腾讯控股, 腾讯音乐, ...]
+        search_by_name_multi("百度") → [百度集团-SW, 千百度, ...]
+    """
+    if not name:
+        return []
+    idx = _get_by_name()
+    s = name.strip()
+
+    # Exact match (case-insensitive)
+    entry = idx.get(s.upper())
+    if entry:
+        return [entry]
+
+    # Strip -W/-S/-B suffixes common in HK
+    for suffix in ("-W", "-S", "-B", "-SW", "-R"):
+        if s.endswith(suffix):
+            bare_name = s[: -len(suffix)]
+            entry = idx.get(bare_name.upper())
+            if entry:
+                return [entry]
+
+    # Substring match: collect all candidates, score them
+    s_lower = s.lower()
+    candidates: List[tuple] = []  # (score, name_len, entry)
+    for key, entry in idx.items():
+        name_val = entry.get("name", "").lower()
+        if not name_val or len(name_val) < 2:
+            continue
+        if s_lower not in name_val and name_val not in s_lower:
+            continue
+        # Score: prefix match = 2, substring = 1
+        score = 2 if name_val.startswith(s_lower) else 1
+        candidates.append((score, len(name_val), entry))
+
+    # Sort: highest score first, then shortest name
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    return [c[2] for c in candidates[:limit]]
 
 
 def is_known_ticker(code: str) -> bool:
