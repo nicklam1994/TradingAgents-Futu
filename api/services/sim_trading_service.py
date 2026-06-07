@@ -135,6 +135,16 @@ class DealInfo:
     currency: str = "HKD"
 
 
+def _safe_float(val, default=0.0) -> float:
+    """Convert value to float, handling 'N/A' and other non-numeric strings."""
+    if val is None or val == "N/A" or val == "":
+        return default
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return default
+
+
 # ── Local deal recording ─────────────────────────────────────────────────────
 
 def _record_deal(
@@ -309,16 +319,18 @@ def get_account(trd_env: str = "SIMULATE", trd_market: str = "HK") -> AccountInf
             raise RuntimeError("No account data returned from FutuOpenD")
 
         row = data.iloc[0]
+        currency_raw = str(row.get("currency", "N/A"))
+        currency = currency_raw if currency_raw not in ("N/A", "", "None") else ("USD" if trd_market.upper() == "US" else "HKD")
         return AccountInfo(
             market=trd_market.upper(),
-            total_assets=float(row.get("total_assets", 0)),
-            cash_balance=float(row.get("cash", 0)),
-            frozen_cash=float(row.get("frozen_cash", 0)),
-            market_val=float(row.get("market_val", 0)),
-            currency=str(row.get("currency", "HKD")),
-            available_cash=float(row.get("poweravl", row.get("cash", 0))),
-            unrealized_pnl=float(row.get("unrealized_pnl", 0)),
-            realized_pnl=float(row.get("realized_pnl", 0)),
+            total_assets=_safe_float(row.get("total_assets")),
+            cash_balance=_safe_float(row.get("cash")),
+            frozen_cash=_safe_float(row.get("frozen_cash")),
+            market_val=_safe_float(row.get("market_val")),
+            currency=currency,
+            available_cash=_safe_float(row.get("poweravl", row.get("cash"))),
+            unrealized_pnl=_safe_float(row.get("unrealized_pl")),
+            realized_pnl=_safe_float(row.get("realized_pl")),
         )
     except ImportError:
         raise RuntimeError(
