@@ -592,6 +592,7 @@ export interface RuntimeConfig {
     max_debate_rounds: number
     max_risk_discuss_rounds: number
     has_api_key?: boolean
+    api_key?: string | null
     has_wecom_webhook?: boolean
     wecom_webhook_display?: string | null
     server_fallback_enabled?: boolean

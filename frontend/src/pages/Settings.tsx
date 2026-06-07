@@ -210,6 +210,7 @@ export default function Settings() {
                 setMaxDebateRounds(cfg.max_debate_rounds)
                 setMaxRiskRounds(cfg.max_risk_discuss_rounds)
                 setHasStoredApiKey(!!cfg.has_api_key)
+                if (cfg.api_key) setLlmApiKey(cfg.api_key)
                 setHasStoredWebhook(!!cfg.has_wecom_webhook)
                 setStoredWebhookDisplay(cfg.wecom_webhook_display || '')
                 setEmailReportEnabled(cfg.email_report_enabled !== false)
@@ -429,7 +430,6 @@ export default function Settings() {
         setHasStoredWebhook(!!response.current.has_wecom_webhook)
         setStoredWebhookDisplay(response.current.wecom_webhook_display || '')
         setWecomReportEnabled(response.current.wecom_report_enabled !== false)
-        setLlmApiKey('')
         setWecomWebhook('')
         showSavedMessage(response.warmup?.message || successMessage)
         return response
@@ -628,7 +628,7 @@ export default function Settings() {
                                 <div className="relative">
                                     <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                                     <input
-                                        type="password"
+                                        type="text"
                                         value={llmApiKey}
                                         onChange={e => setLlmApiKey(e.target.value)}
                                         className="input w-full pl-10"
@@ -1010,7 +1010,7 @@ export default function Settings() {
                             </div>
                             <div className="md:col-span-7">
                                 <input
-                                    type="password"
+                                    type="text"
                                     placeholder={`输入 ${provider.label} API Key`}
                                     value={provider.api_key || ''}
                                     onChange={e => {
@@ -1074,7 +1074,7 @@ export default function Settings() {
                             </div>
                             <div className="md:col-span-7">
                                 <input
-                                    type="password"
+                                    type="text"
                                     placeholder={provider.name === 'searxng' ? 'https://your-instance.com' : '输入 API Key'}
                                     value={provider.api_key || ''}
                                     onChange={e => {
@@ -1133,7 +1133,7 @@ export default function Settings() {
                             <span className="ml-1 text-xs text-slate-400">(SOCIAL_SENTIMENT_API_KEY)</span>
                         </label>
                         <input
-                            type="password"
+                            type="text"
                             placeholder={socialHasKey ? '已保存（留空不更新）' : '输入 API Key'}
                             value={socialApiKey}
                             onChange={e => setSocialApiKey(e.target.value)}

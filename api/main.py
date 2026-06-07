@@ -357,6 +357,10 @@ async def lifespan(app: FastAPI):
         _log("=" * 70)
 
     _report_version_stats()
+
+    # ── Inject API keys from DB into os.environ ────────────────────────
+    await asyncio.to_thread(_inject_search_config_to_env)
+
     # Trade calendar: using Futu OpenD on-demand (no pre-load needed)
     _log("Trade calendar: using Futu OpenD on-demand.")
     # Pre-load stock resolver universe (US/ETF/HK, 35k+ entries)
@@ -479,6 +483,90 @@ def _serialize_datetime_utc(value: Optional[datetime]) -> Optional[str]:
     else:
         value = value.astimezone(timezone.utc)
     return value.isoformat()
+
+
+def _force_update_env(key: str, value: str):
+    """Force-update an env var (used after PUT endpoints to take effect immediately)."""
+    if value:
+        os.environ[key] = value
+    elif key in os.environ:
+        del os.environ[key]
+
+
+def _inject_search_config_to_env():
+    """Read search_config from DB and inject API keys into os.environ.
+
+    This ensures SearchService, SocialSentimentService, and data source
+    providers can read their keys via os.getenv() at runtime.
+    """
+    try:
+        from api.database import SessionLocal
+        from api.services import auth_service
+
+        db = SessionLocal()
+        try:
+            # Find any user with search_config
+            from api.database import UserLLMConfigDB
+            user_cfg = db.query(UserLLMConfigDB).filter(
+                UserLLMConfigDB.search_config.isnot(None),
+                UserLLMConfigDB.search_config != "",
+            ).first()
+            if not user_cfg or not user_cfg.search_config:
+                _log("[EnvInject] No search_config found in DB.")
+                return
+
+            import json
+            cfg = json.loads(user_cfg.search_config)
+
+            # Search provider keys
+            _SEARCH_ENV = {
+                "tavily": "TAVILY_API_KEYS",
+                "brave": "BRAVE_API_KEYS",
+                "serpapi": "SERPAPI_API_KEYS",
+                "bocha": "BOCHA_API_KEYS",
+                "anspire": "ANSPIRE_API_KEYS",
+                "minimax": "MINIMAX_API_KEYS",
+                "searxng": "SEARXNG_BASE_URLS",
+            }
+            injected = []
+            for name, env_var in _SEARCH_ENV.items():
+                key = cfg.get(name, {}).get("api_key", "").strip()
+                if key and not os.environ.get(env_var):
+                    os.environ[env_var] = key
+                    injected.append(name)
+
+            # Data source keys
+            _DS_ENV = {
+                "alpha_vantage": "ALPHA_VANTAGE_API_KEY",
+                "finnhub": "FINNHUB_API_KEY",
+                "tiingo": "TIINGO_API_KEY",
+                "aitick": "AITICK_API_KEY",
+                "itick": "ITICK_API_KEY",
+            }
+            for name, env_var in _DS_ENV.items():
+                key = cfg.get("data_sources", {}).get(name, {}).get("api_key", "").strip()
+                if key and not os.environ.get(env_var):
+                    os.environ[env_var] = key
+                    injected.append(name)
+
+            # Social sentiment
+            ss = cfg.get("social_sentiment", {})
+            ss_key = ss.get("api_key", "").strip()
+            if ss_key and not os.environ.get("SOCIAL_SENTIMENT_API_KEY"):
+                os.environ["SOCIAL_SENTIMENT_API_KEY"] = ss_key
+                injected.append("social_sentiment")
+            ss_url = ss.get("base_url", "").strip()
+            if ss_url and not os.environ.get("SOCIAL_SENTIMENT_BASE_URL"):
+                os.environ["SOCIAL_SENTIMENT_BASE_URL"] = ss_url
+
+            if injected:
+                _log(f"[EnvInject] Injected {len(injected)} API keys from DB: {', '.join(injected)}")
+            else:
+                _log("[EnvInject] No API keys to inject (all empty or already set).")
+        finally:
+            db.close()
+    except Exception as e:
+        _log(f"[EnvInject] Failed: {e}")
 
 
 def _load_stock_resolver():
@@ -873,6 +961,7 @@ class UserRuntimeConfigResponse(BaseModel):
     max_debate_rounds: int
     max_risk_discuss_rounds: int
     has_api_key: bool = False
+    api_key: Optional[str] = None
     has_wecom_webhook: bool = False
     wecom_webhook_display: Optional[str] = None
     server_fallback_enabled: bool = True
@@ -3746,6 +3835,7 @@ def _config_response_for_user(user: Optional[UserDB], db: Session) -> UserRuntim
         max_debate_rounds=cfg["max_debate_rounds"],
         max_risk_discuss_rounds=cfg["max_risk_discuss_rounds"],
         has_api_key=bool(user_cfg and user_cfg.api_key_encrypted),
+        api_key=auth_service.decrypt_secret(user_cfg.api_key_encrypted) if user_cfg and user_cfg.api_key_encrypted else None,
         has_wecom_webhook=bool(webhook_url),
         wecom_webhook_display=_mask_wecom_webhook(webhook_url),
         server_fallback_enabled=bool(cfg.get("server_fallback_enabled", True)),
@@ -3926,7 +4016,7 @@ def get_search_config(
             name=dp["name"],
             label=dp["label"],
             env_key=dp["env_key"],
-            api_key=_mask_secret_value(key) if key else "",
+            api_key=key,
             base_url=saved.get("base_url", dp.get("base_url", "")),
             enabled=saved.get("enabled", True),
         ))
@@ -3942,22 +4032,52 @@ def update_search_config(
     current_user: UserDB = Depends(_require_web_user),
 ):
     from api.services import auth_service
+    # Read existing config to preserve keys when masked value is sent back
+    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+    existing = {}
+    if user_cfg and user_cfg.search_config:
+        try:
+            existing = json.loads(user_cfg.search_config)
+        except Exception:
+            pass
+
     config_data = {}
     for p in request.providers:
+        new_key = (p.api_key or "").strip()
+        old_key = existing.get(p.name, {}).get("api_key", "")
+        # If the incoming key looks masked (contains **), keep the existing key
+        if new_key and "**" in new_key:
+            new_key = old_key
         config_data[p.name] = {
-            "api_key": p.api_key if p.api_key else "",
+            "api_key": new_key,
             "base_url": p.base_url if p.base_url else "",
             "enabled": p.enabled,
         }
 
-    user_cfg = auth_service.get_user_llm_config(db, current_user.id)
     if not user_cfg:
-        # Auto-create config row if missing
         user_cfg = UserLLMConfigDB(user_id=current_user.id)
         db.add(user_cfg)
         db.flush()
-    user_cfg.search_config = json.dumps(config_data)
+    # Merge: preserve data_sources and social_sentiment from existing config
+    existing["tavily"] = config_data.get("tavily", existing.get("tavily", {}))
+    existing["brave"] = config_data.get("brave", existing.get("brave", {}))
+    existing["serpapi"] = config_data.get("serpapi", existing.get("serpapi", {}))
+    existing["bocha"] = config_data.get("bocha", existing.get("bocha", {}))
+    existing["anspire"] = config_data.get("anspire", existing.get("anspire", {}))
+    existing["minimax"] = config_data.get("minimax", existing.get("minimax", {}))
+    existing["searxng"] = config_data.get("searxng", existing.get("searxng", {}))
+    user_cfg.search_config = json.dumps(existing)
     db.commit()
+
+    # Immediately update os.environ so services pick up new keys
+    _SEARCH_ENV = {
+        "tavily": "TAVILY_API_KEYS", "brave": "BRAVE_API_KEYS",
+        "serpapi": "SERPAPI_API_KEYS", "bocha": "BOCHA_API_KEYS",
+        "anspire": "ANSPIRE_API_KEYS", "minimax": "MINIMAX_API_KEYS",
+        "searxng": "SEARXNG_BASE_URLS",
+    }
+    for name, env_var in _SEARCH_ENV.items():
+        _force_update_env(env_var, config_data.get(name, {}).get("api_key", ""))
 
     return {"message": "搜索服务配置已保存", "providers_count": len(config_data)}
 
@@ -3996,7 +4116,7 @@ def get_data_source_config(
             label=dp["label"],
             env_key=dp["env_key"],
             market=dp["market"],
-            api_key=_mask_secret_value(key) if key else "",
+            api_key=key,
             enabled=saved.get("enabled", True),
         ))
 
@@ -4010,29 +4130,43 @@ def update_data_source_config(
     db: Session = Depends(get_db),
     current_user: UserDB = Depends(_require_web_user),
 ):
-    config_data = {}
-    for p in request.providers:
-        config_data[p.name] = {
-            "api_key": p.api_key if p.api_key else "",
-            "enabled": p.enabled,
-        }
-
     user_cfg = auth_service.get_user_llm_config(db, current_user.id)
     if not user_cfg:
         user_cfg = UserLLMConfigDB(user_id=current_user.id)
         db.add(user_cfg)
         db.flush()
 
-    # Merge into existing search_config JSON (data_sources is a nested key)
-    existing = {}
+    # Read existing to preserve keys when masked value is sent back
+    existing_all = {}
     if user_cfg.search_config:
         try:
-            existing = json.loads(user_cfg.search_config)
+            existing_all = json.loads(user_cfg.search_config)
         except Exception:
             pass
-    existing["data_sources"] = config_data
-    user_cfg.search_config = json.dumps(existing)
+    existing_ds = existing_all.get("data_sources", {})
+
+    config_data = {}
+    for p in request.providers:
+        new_key = (p.api_key or "").strip()
+        old_key = existing_ds.get(p.name, {}).get("api_key", "")
+        if new_key and "**" in new_key:
+            new_key = old_key
+        config_data[p.name] = {
+            "api_key": new_key,
+            "enabled": p.enabled,
+        }
+
+    existing_all["data_sources"] = config_data
+    user_cfg.search_config = json.dumps(existing_all)
     db.commit()
+
+    # Immediately update os.environ
+    _DS_ENV = {
+        "alpha_vantage": "ALPHA_VANTAGE_API_KEY", "finnhub": "FINNHUB_API_KEY",
+        "tiingo": "TIINGO_API_KEY", "aitick": "AITICK_API_KEY", "itick": "ITICK_API_KEY",
+    }
+    for name, env_var in _DS_ENV.items():
+        _force_update_env(env_var, config_data.get(name, {}).get("api_key", ""))
 
     return {"message": "数据源配置已保存", "providers_count": len(config_data)}
 
@@ -4054,7 +4188,7 @@ def get_social_sentiment_config(
     api_key = ss.get("api_key", "")
     base_url = ss.get("base_url", "https://api.adanos.org")
     return SocialSentimentConfigResponse(
-        api_key=_mask_secret_value(api_key) if api_key else "",
+        api_key=api_key,
         base_url=base_url,
         has_key=bool(api_key),
     )
@@ -4093,6 +4227,10 @@ def update_social_sentiment_config(
     }
     user_cfg.search_config = json.dumps(search_config)
     db.commit()
+
+    # Immediately update os.environ
+    _force_update_env("SOCIAL_SENTIMENT_API_KEY", new_key or "")
+    _force_update_env("SOCIAL_SENTIMENT_BASE_URL", request.base_url or "https://api.adanos.org")
 
     return {"message": "社交舆情配置已保存"}
 
