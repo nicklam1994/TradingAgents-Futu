@@ -156,35 +156,39 @@ def search_by_name_multi(name: str, limit: int = 5) -> List[StockEntry]:
     idx = _get_by_name()
     s = name.strip()
 
-    # Exact match (case-insensitive)
+    # Exact match (case-insensitive) — still check substring for more candidates
     entry = idx.get(s.upper())
     if entry:
-        return [entry]
+        # Exact match found, but also check for substring matches (e.g. "百度" → BIDU + 百度集团)
+        seen_codes: set = {entry["code"]}
+        candidates: List[tuple] = [(3, len(entry.get("name", "")), entry)]  # score 3 for exact
+    else:
+        seen_codes = set()
+        candidates = []
 
     # Strip -W/-S/-B suffixes common in HK
-    for suffix in ("-W", "-S", "-B", "-SW", "-R"):
-        if s.endswith(suffix):
-            bare_name = s[: -len(suffix)]
-            entry = idx.get(bare_name.upper())
-            if entry:
-                return [entry]
+    if not entry:
+        for suffix in ("-W", "-S", "-B", "-SW", "-R"):
+            if s.endswith(suffix):
+                bare_name = s[: -len(suffix)]
+                entry = idx.get(bare_name.upper())
+                if entry:
+                    return [entry]
 
     # Substring match: collect all candidates, deduplicate by code
     s_lower = s.lower()
-    seen_codes: set = set()
-    candidates: List[tuple] = []  # (score, name_len, entry)
-    for key, entry in idx.items():
-        code = entry["code"]
+    for key, e in idx.items():
+        code = e["code"]
         if code in seen_codes:
             continue
-        name_val = entry.get("name", "").lower()
+        name_val = e.get("name", "").lower()
         if not name_val or len(name_val) < 2:
             continue
         if s_lower not in name_val and name_val not in s_lower:
             continue
         seen_codes.add(code)
         score = 2 if name_val.startswith(s_lower) else 1
-        candidates.append((score, len(name_val), entry))
+        candidates.append((score, len(name_val), e))
 
     # Sort: highest score first, then shortest name
     candidates.sort(key=lambda x: (-x[0], x[1]))

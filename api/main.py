@@ -2613,17 +2613,30 @@ def _check_disambiguation(text: str, resolved_symbol: str) -> List[Dict[str, str
 
     Returns a list of candidate dicts [{code, name, market}, ...] if ambiguous,
     or empty list if the match is unambiguous.
+    Only triggers when the query contains Chinese stock names (not codes).
     """
+    # Skip if the query already contains a stock code (e.g. "港股00700", "00020.HK")
+    if re.search(r"\d{4,6}(?:\.(?:HK|SH|SZ))?", text):
+        return []
+    # Skip if query is purely English (ticker-based)
+    if not re.search(r"[\u4e00-\u9fff]{2,}", text):
+        return []
+
+    # Generic market terms that should not trigger disambiguation
+    _MARKET_TERMS = {"港股", "美股", "大盘", "指数", "市场", "行情", "走势", "分析", "看看"}
+
     try:
         from tradingagents.dataflows.stock_resolver import search_by_name_multi
-        # Extract Chinese parts from the query
         cn_segments = re.findall(r"[\u4e00-\u9fff]+", text)
         for seg in cn_segments:
+            if seg in _MARKET_TERMS:
+                continue
             for n in range(min(4, len(seg)), 1, -1):
                 for i in range(len(seg) - n + 1):
                     part = seg[i : i + n]
+                    if part in _MARKET_TERMS:
+                        continue
                     results = search_by_name_multi(part)
-                    # Only disambiguate if multiple DISTINCT stocks (different codes)
                     unique_codes = {r["code"] for r in results}
                     if len(unique_codes) > 1:
                         seen = set()
