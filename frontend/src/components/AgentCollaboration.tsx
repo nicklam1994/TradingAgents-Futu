@@ -428,7 +428,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
             </div>
 
             {/* React Flow 画布 */}
-            <div className="h-[700px] w-full">
+            <div className="h-[850px] w-full">
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -445,7 +445,7 @@ export default function AgentCollaboration({ onSelectSection, onOpenDebate, sele
                     zoomOnPinch={false}
                     zoomOnDoubleClick={false}
                     preventScrolling={false}
-                    translateExtent={[[-40, -40], [1730, 660]]}
+                    translateExtent={[[-40, -40], [1730, 810]]}
                     proOptions={{ hideAttribution: true }}
                 />
             </div>
