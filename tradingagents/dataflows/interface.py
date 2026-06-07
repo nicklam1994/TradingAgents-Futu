@@ -41,7 +41,7 @@ TOOLS_CATEGORIES = {
     },
     "sector_data": {
         "description": "Sector/plate performance and trending tickers via Futu",
-        "tools": ["get_sector_performance", "get_trending_tickers"],
+        "tools": ["get_sector_performance", "get_trending_tickers", "get_capital_flow", "get_stock_concept_tags"],
     },
 }
 

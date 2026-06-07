@@ -143,3 +143,111 @@ def get_trending_tickers(
             ctx.close()
     except Exception as e:
         return f"获取热门股票失败: {e}"
+
+
+
+@tool
+def get_capital_flow(
+    symbol: Annotated[str, "Stock code, e.g. US.AAPL or HK.00700"],
+) -> str:
+    """Get capital flow data for a stock - analyze institutional money direction.
+
+    Returns net inflow/outflow by order size (super large/large/medium/small).
+    Use this to judge if smart money is buying or selling.
+    Works for US and HK markets.
+
+    Args:
+        symbol: Stock code, e.g. US.AAPL or HK.00700
+    """
+    try:
+        from futu import OpenQuoteContext, SysConfig
+        import os
+        SysConfig.enable_proto_encrypt(False)
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_capital_flow(symbol)
+            if ret != 0:
+                return f"Capital flow error: {data}"
+            if data.empty:
+                return f"No capital flow data for {symbol}"
+
+            latest = data.iloc[-1]
+
+            def fmt(val):
+                if val is None or str(val) == "N/A":
+                    return "N/A"
+                v = float(val)
+                if abs(v) >= 1e9:
+                    return f"{v/1e9:+.2f}B"
+                elif abs(v) >= 1e6:
+                    return f"{v/1e6:+.2f}M"
+                return f"{v:+.0f}"
+
+            in_flow = latest.get("in_flow", 0)
+            super_in = latest.get("super_in_flow", 0)
+            big_in = latest.get("big_in_flow", 0)
+            mid_in = latest.get("mid_in_flow", 0)
+            sml_in = latest.get("sml_in_flow", 0)
+            main_in = latest.get("main_in_flow", "N/A")
+            ts = latest.get("capital_flow_item_time", "")
+
+            lines = [
+                f"## {symbol} Capital Flow ({ts})\n",
+                "| Type | Net Inflow |",
+                "|------|-----------|",
+                f"| Total | {fmt(in_flow)} |",
+                f"| Super Large | {fmt(super_in)} |",
+                f"| Large | {fmt(big_in)} |",
+                f"| Medium | {fmt(mid_in)} |",
+                f"| Small | {fmt(sml_in)} |",
+            ]
+            if main_in and str(main_in) != "N/A":
+                lines.append(f"| Main Force | {fmt(main_in)} |")
+
+            total = float(in_flow) if in_flow and str(in_flow) != "N/A" else 0
+            lines.append(f"\nBullish" if total > 0 else "\nBearish")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Capital flow error: {e}"
+
+
+@tool
+def get_stock_concept_tags(
+    symbol: Annotated[str, "Stock code, e.g. US.AAPL or HK.00700"],
+) -> str:
+    """Get concept/theme tags for a stock - understand thematic classification.
+
+    Returns all concept plates the stock belongs to (AI, 5G, Consumer Electronics, etc).
+    Works for US and HK markets.
+
+    Args:
+        symbol: Stock code, e.g. US.AAPL or HK.00700
+    """
+    try:
+        from futu import OpenQuoteContext, SysConfig
+        import os
+        SysConfig.enable_proto_encrypt(False)
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_owner_plate(symbol)
+            if ret != 0:
+                return f"Concept tags error: {data}"
+            if data.empty:
+                return f"No concept tags for {symbol}"
+
+            name = data.iloc[0].get("name", symbol)
+            plates = data["plate_name"].tolist()
+            lines = [f"## {name} ({symbol}) - {len(plates)} concept tags\n"]
+            for p in plates:
+                lines.append(f"- {p}")
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Concept tags error: {e}"

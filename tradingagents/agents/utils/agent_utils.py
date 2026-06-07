@@ -21,6 +21,8 @@ from tradingagents.agents.utils.news_data_tools import (
 from tradingagents.agents.utils.game_theory_tools import (
     get_sector_performance,
     get_trending_tickers,
+    get_capital_flow,
+    get_stock_concept_tags,
 )
 from tradingagents.agents.utils.social_sentiment_tools import (
     get_social_sentiment,

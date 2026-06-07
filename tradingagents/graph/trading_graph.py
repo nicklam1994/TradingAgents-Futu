@@ -36,6 +36,8 @@ from tradingagents.agents.utils.agent_utils import (
     get_global_news,
     get_sector_performance,
     get_trending_tickers,
+    get_capital_flow,
+    get_stock_concept_tags,
 )
 
 from .conditional_logic import ConditionalLogic
@@ -227,6 +229,7 @@ class TradingAgentsGraph:
                 [
                     # Smart money analyst tools
                     get_indicators,
+                    get_capital_flow,
                     get_trending_tickers,
                 ]
             ),

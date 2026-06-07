@@ -34,7 +34,6 @@ def create_smart_money_analyst(llm, data_collector=None):
             trending = pool.get("trending_tickers", "无数据")
         else:
             from tradingagents.agents.utils.agent_utils import get_indicators, get_trending_tickers
-
             results = await asyncio.gather(
                 _safe(get_indicators, {
                     "symbol": ticker, "indicator": "volume",
@@ -44,6 +43,10 @@ def create_smart_money_analyst(llm, data_collector=None):
             )
             volume, trending = results
 
+        # Fetch capital flow (always fresh, not in pool)
+        from tradingagents.agents.utils.agent_utils import get_capital_flow
+        capital_flow = await _safe(get_capital_flow, {"symbol": ticker})
+
         messages = [
             SystemMessage(content=(
                 system_message
@@ -52,6 +55,7 @@ def create_smart_money_analyst(llm, data_collector=None):
             HumanMessage(content=(
                 horizon_ctx + "\n"
                 f"请分析 {ticker} 在 {current_date} 的资金行为与成交量特征。\n\n"
+                f"【资金流向】\n{capital_flow}\n\n"
                 f"【成交量指标(vwma)】\n{volume}\n\n"
                 f"【市场热门股票（按换手率）】\n{trending}"
             )),
