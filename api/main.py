@@ -559,10 +559,15 @@ def _inject_search_config_to_env():
             if ss_url and not os.environ.get("SOCIAL_SENTIMENT_BASE_URL"):
                 os.environ["SOCIAL_SENTIMENT_BASE_URL"] = ss_url
 
+            # Cache TTL
+            cache_ttl = cfg.get("cache_ttl", 1800)
+            os.environ["SEARCH_CACHE_TTL"] = str(cache_ttl)
+
             if injected:
                 _log(f"[EnvInject] Injected {len(injected)} API keys from DB: {', '.join(injected)}")
             else:
                 _log("[EnvInject] No API keys to inject (all empty or already set).")
+            _log(f"[EnvInject] Search cache TTL: {cache_ttl}s")
         finally:
             db.close()
     except Exception as e:
@@ -1000,10 +1005,12 @@ class SearchProviderConfig(BaseModel):
 class SearchConfigResponse(BaseModel):
     providers: List[SearchProviderConfig]
     has_any_key: bool = False
+    cache_ttl: int = 1800
 
 
 class SearchConfigUpdateRequest(BaseModel):
     providers: List[SearchProviderConfig]
+    cache_ttl: Optional[int] = None
 
 
 # ── Data source provider config (行情数据源) ─────────────────────────────────
@@ -4022,7 +4029,8 @@ def get_search_config(
         ))
 
     has_any = any(p.api_key for p in providers)
-    return SearchConfigResponse(providers=providers, has_any_key=has_any)
+    cache_ttl = search_config.get("cache_ttl", 1800)
+    return SearchConfigResponse(providers=providers, has_any_key=has_any, cache_ttl=cache_ttl)
 
 
 @app.put("/v1/config/search")
@@ -4066,6 +4074,8 @@ def update_search_config(
     existing["anspire"] = config_data.get("anspire", existing.get("anspire", {}))
     existing["minimax"] = config_data.get("minimax", existing.get("minimax", {}))
     existing["searxng"] = config_data.get("searxng", existing.get("searxng", {}))
+    if request.cache_ttl is not None:
+        existing["cache_ttl"] = request.cache_ttl
     user_cfg.search_config = json.dumps(existing)
     db.commit()
 

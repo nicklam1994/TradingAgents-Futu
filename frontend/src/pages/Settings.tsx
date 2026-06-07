@@ -101,6 +101,7 @@ export default function Settings() {
 
     // Search config states
     const [searchProviders, setSearchProviders] = useState<SearchProvider[]>([])
+    const [searchCacheTtl, setSearchCacheTtl] = useState(1800)
     
     // Data source config states
     const [dataSources, setDataSources] = useState<DataSourceProvider[]>([])
@@ -247,8 +248,9 @@ export default function Settings() {
     async function loadSearchConfig() {
         setSearchConfigLoading(true)
         try {
-            const data = await api.get<{ providers: SearchProvider[] }>('/v1/config/search')
+            const data = await api.get<{ providers: SearchProvider[], cache_ttl?: number }>('/v1/config/search')
             setSearchProviders(data.providers || [])
+            setSearchCacheTtl(data.cache_ttl ?? 1800)
         } catch (e) {
             console.error('Failed to load search config', e)
         } finally {
@@ -295,7 +297,7 @@ export default function Settings() {
     async function saveSearchConfig() {
         setSearchSaving(true)
         try {
-            await api.put('/v1/config/search', { providers: searchProviders })
+            await api.put('/v1/config/search', { providers: searchProviders, cache_ttl: searchCacheTtl })
             setSearchSaved(true)
             setTimeout(() => setSearchSaved(false), 3000)
         } catch (e: any) {
@@ -1105,6 +1107,31 @@ export default function Settings() {
                     ))}
                 </div>
                 
+                {/* Cache TTL */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <div className="md:col-span-3">
+                        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                            Cache TTL
+                            <span className="ml-1 text-xs text-slate-400">(秒)</span>
+                        </label>
+                    </div>
+                    <div className="md:col-span-7">
+                        <input
+                            type="number"
+                            min={60}
+                            max={86400}
+                            step={60}
+                            value={searchCacheTtl}
+                            onChange={e => setSearchCacheTtl(Number(e.target.value) || 1800)}
+                            className="input w-full"
+                        />
+                        <p className="text-xs text-slate-400 mt-1">同一查询在此时间内返回缓存结果，不重复调用 API。默认 1800 秒（30 分钟）。</p>
+                    </div>
+                    <div className="md:col-span-2 text-right text-sm text-slate-500">
+                        {searchCacheTtl >= 3600 ? `${(searchCacheTtl / 3600).toFixed(1)} 小时` : `${Math.round(searchCacheTtl / 60)} 分钟`}
+                    </div>
+                </div>
+
                 <div className="flex justify-end pt-2">
                     <button
                         onClick={saveSearchConfig}

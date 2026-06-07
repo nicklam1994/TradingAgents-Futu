@@ -153,11 +153,12 @@ class SearchService:
         in the priority list is tried.
     """
 
-    def __init__(self, cache_ttl: int = 1800, search_config: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, cache_ttl: int = 0, search_config: Optional[Dict[str, Any]] = None) -> None:
         """Initialise the search service.
 
         Args:
-            cache_ttl: Cache time-to-live in seconds (default 1800 = 30 min).
+            cache_ttl: Cache TTL in seconds. If 0, reads from SEARCH_CACHE_TTL
+                       env var (set by server from DB), defaults to 1800 (30 min).
             search_config: Optional DB config dict from user_llm_configs.search_config.
                           When provided, injects API keys into environment variables
                           so providers can read them via os.getenv().
@@ -166,6 +167,9 @@ class SearchService:
         if search_config:
             self._inject_config_to_env(search_config)
 
+        # Read cache_ttl from env var if not explicitly set
+        if cache_ttl <= 0:
+            cache_ttl = int(os.getenv("SEARCH_CACHE_TTL", "1800"))
         self._cache_ttl = cache_ttl
         self._cache: Dict[str, tuple[float, SearchResponse]] = {}
         self._cache_lock = threading.Lock()
