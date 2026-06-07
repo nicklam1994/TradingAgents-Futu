@@ -7,7 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import {
-    TrendingUp, TrendingDown, Percent, Activity,
+    TrendingUp, TrendingDown, Percent,
     Shield, BarChart3, RefreshCw,
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'

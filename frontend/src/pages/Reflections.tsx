@@ -31,7 +31,7 @@ export default function Reflections() {
         setError(null)
         try {
             const res = await api.getReflections()
-            setReflections((res.data ?? []) as ReflectionRaw[])
+            setReflections((res.data ?? []) as unknown as ReflectionRaw[])
         } catch (e) {
             setError(e instanceof Error ? e.message : '加载反思日志失败')
         } finally {

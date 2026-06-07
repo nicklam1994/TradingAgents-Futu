@@ -803,7 +803,7 @@ export interface Strategy {
     display_name: string
     description: string
     enabled: boolean
-    regime?: string
+    regime?: string[]
     parameters?: Record<string, unknown>
 }
 

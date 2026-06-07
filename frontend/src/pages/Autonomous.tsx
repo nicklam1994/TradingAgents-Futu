@@ -9,7 +9,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
     Bot, Play, Pause, Square, RefreshCw,
     ChevronRight, ChevronDown, Clock, CheckCircle,
-    XCircle, AlertTriangle, Loader2,
+    XCircle, Loader2,
 } from 'lucide-react'
 
 import { api } from '@/services/api'

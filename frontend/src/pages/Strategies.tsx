@@ -102,7 +102,7 @@ const regimeLabels: Record<string, string> = {
 }
 
 function StrategyCard({ strategy }: { strategy: Strategy }) {
-    const regimes = strategy.regime ?? []
+    const regimes: string[] = Array.isArray(strategy.regime) ? strategy.regime : []
 
     return (
         <div className="card card-hover">
