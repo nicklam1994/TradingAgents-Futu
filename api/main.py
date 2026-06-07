@@ -802,6 +802,7 @@ class ChatCompletionRequest(UserContextInput):
     )
     config_overrides: Dict[str, Any] = Field(default_factory=dict)
     dry_run: bool = False
+    resolved_symbol: Optional[str] = None  # User-selected symbol from disambiguation
 
 
 class KlineResponse(BaseModel):
@@ -2607,6 +2608,40 @@ def _extract_symbol_and_date(text: str) -> tuple[Optional[str], Optional[str]]:
     return None, date
 
 
+def _check_disambiguation(text: str, resolved_symbol: str) -> List[Dict[str, str]]:
+    """Check if the resolved symbol has multiple candidates requiring disambiguation.
+
+    Returns a list of candidate dicts [{code, name, market}, ...] if ambiguous,
+    or empty list if the match is unambiguous.
+    """
+    try:
+        from tradingagents.dataflows.stock_resolver import search_by_name_multi
+        # Extract Chinese parts from the query
+        cn_segments = re.findall(r"[\u4e00-\u9fff]+", text)
+        for seg in cn_segments:
+            for n in range(min(4, len(seg)), 1, -1):
+                for i in range(len(seg) - n + 1):
+                    part = seg[i : i + n]
+                    results = search_by_name_multi(part)
+                    # Only disambiguate if multiple DISTINCT stocks (different codes)
+                    unique_codes = {r["code"] for r in results}
+                    if len(unique_codes) > 1:
+                        seen = set()
+                        candidates = []
+                        for r in results:
+                            if r["code"] not in seen:
+                                seen.add(r["code"])
+                                candidates.append({
+                                    "code": r["code"],
+                                    "name": r["name"],
+                                    "market": r["market"],
+                                })
+                        return candidates[:5]
+    except Exception:
+        pass
+    return []
+
+
 def _sse_pack(event: str, data: Dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
@@ -3220,14 +3255,35 @@ async def chat_completions(
 
         async def _extract_and_run():
             try:
-                symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = \
-                    await _ai_extract_symbol_and_date_streaming(text, config, job_id)
+                # If user already selected from disambiguation, skip extraction
+                if request.resolved_symbol:
+                    symbol = _normalize_symbol(request.resolved_symbol)
+                    trade_date = market_today_str("HK")
+                    horizons = ["short"]
+                    focus_areas = []
+                    specific_questions = []
+                    inferred_user_context = {}
+                else:
+                    symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = \
+                        await _ai_extract_symbol_and_date_streaming(text, config, job_id)
 
                 if not symbol:
                     _emit_job_event(job_id, "job.failed", {
-                        "error": "抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 600519.SH）或可识别的公司名称。"
+                        "error": "抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 000700.HK 或 AAPL）或可识别的公司名称。"
                     })
                     return
+
+                # ── Disambiguation check ──
+                # If the symbol came from Chinese name matching and there are
+                # multiple candidates, ask the user to clarify before proceeding.
+                if not request.resolved_symbol:
+                    candidates = _check_disambiguation(text, symbol)
+                    if candidates:
+                        _emit_job_event(job_id, "job.disambiguation", {
+                            "query": text,
+                            "candidates": candidates,
+                        })
+                        return
 
                 pre_intent = {
                     "raw_query": text,

@@ -88,6 +88,7 @@ class ApiService {
         messages: Array<{ role: string; content: string }>,
         stream = true,
         selectedAnalysts?: string[],
+        resolvedSymbol?: string,
     ) {
         const response = await fetch(`${getBaseUrl()}/v1/chat/completions`, {
             method: 'POST',
@@ -99,6 +100,7 @@ class ApiService {
                 messages,
                 stream,
                 selected_analysts: selectedAnalysts,
+                ...(resolvedSymbol ? { resolved_symbol: resolvedSymbol } : {}),
             }),
         })
 

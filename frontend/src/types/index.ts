@@ -124,6 +124,7 @@ export type SSEEventType =
     | 'job.running'
     | 'job.completed'
     | 'job.failed'
+    | 'job.disambiguation'
     | 'agent.status'
     | 'agent.message'
     | 'agent.tool_call'

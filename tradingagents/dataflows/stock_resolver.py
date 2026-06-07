@@ -146,10 +146,10 @@ def search_by_name(name: str) -> Optional[StockEntry]:
 def search_by_name_multi(name: str, limit: int = 5) -> List[StockEntry]:
     """Search stock by name, returning multiple candidates for disambiguation.
 
-    Returns up to *limit* entries sorted by match quality.
+    Returns up to *limit* unique entries (by code) sorted by match quality.
     Examples:
-        search_by_name_multi("腾讯") → [腾讯控股, 腾讯音乐, ...]
-        search_by_name_multi("百度") → [百度集团-SW, 千百度, ...]
+        search_by_name_multi("腾讯") → [腾讯控股(00700.HK), 腾讯音乐(TME)]
+        search_by_name_multi("百度") → [百度(BIDU), 百度集团-SW(09888.HK)]
     """
     if not name:
         return []
@@ -169,16 +169,20 @@ def search_by_name_multi(name: str, limit: int = 5) -> List[StockEntry]:
             if entry:
                 return [entry]
 
-    # Substring match: collect all candidates, score them
+    # Substring match: collect all candidates, deduplicate by code
     s_lower = s.lower()
+    seen_codes: set = set()
     candidates: List[tuple] = []  # (score, name_len, entry)
     for key, entry in idx.items():
+        code = entry["code"]
+        if code in seen_codes:
+            continue
         name_val = entry.get("name", "").lower()
         if not name_val or len(name_val) < 2:
             continue
         if s_lower not in name_val and name_val not in s_lower:
             continue
-        # Score: prefix match = 2, substring = 1
+        seen_codes.add(code)
         score = 2 if name_val.startswith(s_lower) else 1
         candidates.append((score, len(name_val), entry))
 

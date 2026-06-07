@@ -133,6 +133,10 @@ function ReportCard({
 export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initialInput }: ChatCopilotPanelProps) {
     const [input, setInput] = useState(initialInput || '')
     const [streaming, setStreaming] = useState(false)
+    const [disambiguation, setDisambiguation] = useState<{
+        query: string
+        candidates: Array<{ code: string; name: string; market: string }>
+    } | null>(null)
     // Tracks agent bubbles waiting for their first token (shows "正在推理分析中..." spinner)
     const pendingAgentMsgIdsRef = useRef<Set<string>>(new Set())
     // Only used to trigger re-render when pending status changes
@@ -353,6 +357,21 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 setAnalysisRunState('failed', String(data.error || 'unknown error'))
                 pushAssistant(`分析失败：${String(data.error || 'unknown error')}`)
                 break
+            case 'job.disambiguation': {
+                const query = String(data.query || '')
+                const candidates = (data.candidates || []) as Array<{ code: string; name: string; market: string }>
+                setDisambiguation({ query, candidates })
+                // Remove typing indicator
+                if (typingIndicatorIdRef.current) {
+                    useAnalysisStore.setState(state => ({
+                        chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                    }))
+                    typingIndicatorIdRef.current = null
+                }
+                setStreaming(false)
+                setIsAnalyzing(false)
+                break
+            }
             case 'agent.status': {
                 const statusData = data as unknown as { agent: string; status: string; horizon?: string }
                 const agentKey2 = `${statusData.agent}-${statusData.horizon || 'main'}`
@@ -547,11 +566,12 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         }
     }
 
-    const streamChat = async (prompt: string) => {
+    const streamChat = async (prompt: string, resolvedSymbol?: string) => {
         const response = await api.chatCompletion(
             [{ role: 'user', content: prompt }],
             true,
             selectedAnalysts,
+            resolvedSymbol,
         )
 
         if (!response.body) throw new Error('SSE stream unavailable')
@@ -669,6 +689,56 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     }
 
     const hasAnyReport = chatMessages.some(m => m.role === 'report')
+
+    const handleDisambiguationSelect = async (candidate: { code: string; name: string; market: string }) => {
+        if (!disambiguation) return
+        const originalQuery = disambiguation.query
+        setDisambiguation(null)
+
+        // Add user message showing the selection
+        addChatMessage({
+            id: `${Date.now()}-${Math.random()}`,
+            role: 'user',
+            content: `${candidate.name} (${candidate.code})`,
+            timestamp: new Date().toISOString(),
+        })
+
+        // Reset and start analysis with resolved symbol
+        reset()
+        streamingReportIds.current.clear()
+        pendingAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
+
+        const typingId = `typing-${Date.now()}`
+        typingIndicatorIdRef.current = typingId
+        addChatMessage({
+            id: typingId,
+            role: 'assistant',
+            content: '__typing__',
+            timestamp: new Date().toISOString(),
+        })
+
+        setStreaming(true)
+        setIsAnalyzing(true)
+        setIsConnected(false)
+        setAnalysisRunState('running')
+
+        try {
+            await streamChat(originalQuery, candidate.code)
+        } catch (error) {
+            if (typingIndicatorIdRef.current) {
+                useAnalysisStore.setState(state => ({
+                    chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                }))
+                typingIndicatorIdRef.current = null
+            }
+            const errorMessage = error instanceof Error ? error.message : 'unknown error'
+            pushAssistant(`请求失败：${errorMessage}`)
+            setIsAnalyzing(false)
+            setIsConnected(false)
+        } finally {
+            setStreaming(false)
+        }
+    }
 
     return (
         <aside className="card h-full min-h-0 flex flex-col overflow-hidden">
@@ -917,6 +987,32 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 })}
                 <div ref={messagesEndRef} />
             </div>
+
+            {/* 消歧义选项 */}
+            {disambiguation && (
+                <div className="mx-4 mb-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700">
+                    <div className="flex items-center gap-2 mb-2">
+                        <span className="text-amber-600 dark:text-amber-400 text-sm font-medium">
+                            🔍 您要分析的是哪一个？
+                        </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {disambiguation.candidates.map((c) => (
+                            <button
+                                key={c.code}
+                                onClick={() => handleDisambiguationSelect(c)}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 hover:border-cyan-400 dark:hover:border-cyan-500 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors text-sm"
+                            >
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{c.name}</span>
+                                <span className="text-xs text-slate-500 dark:text-slate-400">{c.code}</span>
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">
+                                    {c.market === 'HK' ? '🇭🇰' : '🇺🇸'}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* 输入框 */}
             <form onSubmit={handleSubmit} className="mt-3 shrink-0">
