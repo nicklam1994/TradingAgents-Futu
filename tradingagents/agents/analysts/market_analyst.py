@@ -2,24 +2,16 @@ import asyncio
 from datetime import datetime, timedelta
 
 from langchain_core.messages import HumanMessage, SystemMessage
-
 from tradingagents.dataflows.config import get_config
 from tradingagents.prompts import get_prompt
 from tradingagents.graph.intent_parser import build_horizon_context
 from tradingagents.agents.utils.agent_states import current_tracker_var, extract_verdict
 
-# List of technical indicators to retrieve
 MARKET_INDICATORS = [
-    "close_50_sma",
-    "close_200_sma",
-    "close_10_ema",
-    "rsi",
-    "macd",
-    "boll",
-    "boll_ub",
-    "boll_lb",
-    "atr",
-    "vwma",
+    "close_50_sma", "close_200_sma", "close_10_ema",
+    "macd", "macds", "macdh", "rsi",
+    "boll", "boll_ub", "boll_lb", "atr",
+    "vwma", "mfi",
 ]
 
 
@@ -27,11 +19,12 @@ def create_market_analyst(llm, data_collector=None):
     async def market_analyst_node(state):
         current_date = state["trade_date"]
         ticker = state["company_of_interest"]
-        horizon = "short"  # 技术面固定短期视角
+        print(f"[Market Analyst] START {ticker} {current_date}")
+        horizon = "short"
         user_intent = state.get("user_intent") or {}
         focus_areas = user_intent.get("focus_areas", [])
         specific_questions = user_intent.get("specific_questions", [])
-        
+
         config = get_config()
         horizon_ctx = build_horizon_context(horizon, focus_areas, specific_questions, agent_type="market")
         system_message = get_prompt("market_system_message", config=config)
@@ -53,16 +46,16 @@ def create_market_analyst(llm, data_collector=None):
             for ind in MARKET_INDICATORS
         ]
 
+        # Technical alerts (always fresh)
+        async def _safe_local(tool, payload):
+            try:
+                return await asyncio.to_thread(tool.invoke, payload)
+            except Exception as exc:
+                return f"调用失败：{exc}"
 
-            # Technical alerts (always fresh)
-            import asyncio as _aio
-            from tradingagents.agents.utils.agent_utils import get_technical_alerts
-            async def _safe_local(tool, payload):
-                try:
-                    return await _aio.to_thread(tool.invoke, payload)
-                except Exception as exc:
-                    return f"调用失败：{exc}"
-            tech_alerts = await _safe_local(get_technical_alerts, {"symbol": ticker})
+        from tradingagents.agents.utils.agent_utils import get_technical_alerts
+        tech_alerts = await _safe_local(get_technical_alerts, {"symbol": ticker})
+
         messages = [
             SystemMessage(content=system_message + "\n\n请全程使用中文。"),
             HumanMessage(content=(
@@ -71,10 +64,10 @@ def create_market_analyst(llm, data_collector=None):
                 f"【get_stock_data】\n{stock_data}\n\n"
                 + "\n\n".join(indicator_blocks)
                 + f"\n\n【技术异常预警】\n{tech_alerts}"
-            )),""",
+            )),
         ]
 
-        # ── 实现 Token 级流式输出 ──────────────────
+        # ── Token 级流式输出 ──────────────────
         tracker = current_tracker_var.get()
         full_content = ""
         async for chunk in llm.astream(messages):
@@ -82,8 +75,9 @@ def create_market_analyst(llm, data_collector=None):
             full_content += content
             if tracker:
                 tracker._emit_token("Market Analyst", "market_report", content)
-        
+
         verdict, confidence = extract_verdict(full_content)
+        print(f"[Market Analyst] DONE {ticker}, report length={len(full_content)}")
 
         return {
             "market_report": full_content,
@@ -112,21 +106,21 @@ async def _fetch_direct(ticker, current_date, horizon):
     days = 14 if horizon == "short" else 90
     end_dt = datetime.strptime(current_date, "%Y-%m-%d")
     start_dt = end_dt - timedelta(days=days)
-    
-    # Run stock data fetch and all indicator fetches in parallel
+    start_str = start_dt.strftime("%Y-%m-%d")
+
     tasks = {
-        "stock_data": _safe(get_stock_data, {
-            "symbol": ticker, "start_date": start_dt.strftime("%Y-%m-%d"), "end_date": current_date,
-        })
+        "stock_data": _safe(get_stock_data, {"symbol": ticker, "start_date": start_str, "end_date": current_date}),
     }
     for ind in MARKET_INDICATORS:
         tasks[ind] = _safe(get_indicators, {
-            "symbol": ticker, "indicator": ind, "curr_date": current_date, "look_back_days": days,
+            "symbol": ticker, "indicator": ind,
+            "curr_date": current_date, "look_back_days": days,
         })
-    
+
     keys = list(tasks.keys())
     results = await asyncio.gather(*[tasks[k] for k in keys])
-    res_map = dict(zip(keys, results))
-    
-    stock_data = res_map.pop("stock_data")
-    return stock_data, res_map, f"{days}天"
+    outputs = dict(zip(keys, results))
+
+    stock_data = outputs.pop("stock_data", "无数据")
+    data_window = f"{days}天"
+    return stock_data, outputs, data_window
