@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { MessageSquarePlus, Send, Loader2, ChevronLeft, Clock, CheckCircle2, MessageCircle } from 'lucide-react'
 import { api } from '@/services/api'
 import type { FeedbackItem } from '@/types'
+import { formatTime } from '@/utils/formatTime'
 
 export default function Feedback() {
     const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([])
@@ -62,11 +63,7 @@ export default function Feedback() {
 
     const totalPages = Math.ceil(total / pageSize)
 
-    const formatTime = (iso?: string) => {
-        if (!iso) return ''
-        const d = new Date(iso)
-        return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-    }
+
 
     // Detail view
     if (selectedFeedback) {

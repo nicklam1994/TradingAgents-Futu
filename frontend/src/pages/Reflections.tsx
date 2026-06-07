@@ -8,19 +8,14 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import {
     Brain, RefreshCw, Search, ChevronDown, ChevronRight,
-    BookOpen, Lightbulb,
+    BookOpen, Lightbulb, CheckCircle, XCircle,
 } from 'lucide-react'
 
 import { api } from '@/services/api'
-
-interface ReflectionRaw {
-    id: string
-    situation: string
-    lesson: string
-}
+import type { ReflectionEntry } from '@/types'
 
 export default function Reflections() {
-    const [reflections, setReflections] = useState<ReflectionRaw[]>([])
+    const [reflections, setReflections] = useState<ReflectionEntry[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [search, setSearch] = useState('')
@@ -31,7 +26,7 @@ export default function Reflections() {
         setError(null)
         try {
             const res = await api.getReflections()
-            setReflections((res.data ?? []) as unknown as ReflectionRaw[])
+            setReflections(res.data ?? [])
         } catch (e) {
             setError(e instanceof Error ? e.message : '加载反思日志失败')
         } finally {
@@ -46,8 +41,11 @@ export default function Reflections() {
         if (!search.trim()) return reflections
         const q = search.toLowerCase()
         return reflections.filter(r =>
-            r.situation.toLowerCase().includes(q) ||
-            r.lesson.toLowerCase().includes(q)
+            r.symbol.toLowerCase().includes(q) ||
+            r.lesson_summary.toLowerCase().includes(q) ||
+            r.lessons.some(l => l.toLowerCase().includes(q)) ||
+            r.what_was_right.toLowerCase().includes(q) ||
+            r.what_was_wrong.toLowerCase().includes(q)
         )
     }, [reflections, search])
 
@@ -130,25 +128,16 @@ function ReflectionCard({
     expanded,
     onToggle,
 }: {
-    reflection: ReflectionRaw
+    reflection: ReflectionEntry
     expanded: boolean
     onToggle: () => void
 }) {
-    // Try to extract symbol from situation text
-    const symbolMatch = reflection.situation.match(/(?:HK|US)\.\d+|[A-Z]{1,5}(?:\.HK|\.US)?/)
-    const symbol = symbolMatch?.[0] ?? null
-
-    // Extract verdict-like keywords
-    const hasGood = reflection.lesson.toLowerCase().includes('good') || reflection.lesson.includes('正确') || reflection.lesson.includes('好的')
-    const hasBad = reflection.lesson.toLowerCase().includes('bad') || reflection.lesson.includes('错误') || reflection.lesson.includes('失误')
-    const verdict = hasGood && !hasBad ? 'good' : hasBad && !hasGood ? 'bad' : 'neutral'
-
     const verdictColor = {
-        good: 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400',
-        bad: 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400',
+        good_trade: 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400',
+        bad_trade: 'bg-rose-100 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400',
         neutral: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
     }
-    const verdictLabel = { good: '好交易', bad: '需改进', neutral: '中性' }
+    const verdictLabel = { good_trade: '好交易', bad_trade: '需改进', neutral: '中性' }
 
     return (
         <div className="card card-hover">
@@ -160,15 +149,18 @@ function ReflectionCard({
                         </div>
                         <div>
                             <div className="flex items-center gap-2">
-                                {symbol && (
-                                    <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{symbol}</span>
-                                )}
-                                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${verdictColor[verdict]}`}>
-                                    {verdictLabel[verdict]}
+                                <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                    {reflection.symbol}
+                                </span>
+                                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${verdictColor[reflection.verdict]}`}>
+                                    {verdictLabel[reflection.verdict]}
+                                </span>
+                                <span className="text-xs text-slate-400 dark:text-slate-500">
+                                    信心 {Math.round(reflection.confidence * 100)}%
                                 </span>
                             </div>
                             <p className="mt-0.5 line-clamp-1 text-xs text-slate-400 dark:text-slate-500">
-                                {truncate(reflection.situation, 80)}
+                                {reflection.lesson_summary}
                             </p>
                         </div>
                     </div>
@@ -182,38 +174,46 @@ function ReflectionCard({
 
             {expanded && (
                 <div className="mt-4 space-y-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-                    {/* Situation */}
+                    {/* Lessons */}
+                    {reflection.lessons.length > 0 && (
+                        <div>
+                            <div className="mb-1 flex items-center gap-1.5">
+                                <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                                <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">经验教训</span>
+                            </div>
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/30 dark:bg-amber-950/20">
+                                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-slate-300">
+                                    {reflection.lessons.map((l, i) => (
+                                        <li key={i}>{l}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* What was right */}
                     <div>
                         <div className="mb-1 flex items-center gap-1.5">
-                            <Search className="h-3.5 w-3.5 text-slate-400" />
-                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">交易情境</span>
+                            <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">做对了什么</span>
                         </div>
-                        <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
-                            {reflection.situation}
+                        <p className="rounded-lg bg-green-50 p-3 text-sm text-slate-700 dark:bg-green-950/20 dark:text-slate-300">
+                            {reflection.what_was_right}
                         </p>
                     </div>
 
-                    {/* Lesson */}
+                    {/* What was wrong */}
                     <div>
                         <div className="mb-1 flex items-center gap-1.5">
-                            <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
-                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">经验教训</span>
+                            <XCircle className="h-3.5 w-3.5 text-rose-500" />
+                            <span className="text-xs font-medium uppercase tracking-wider text-slate-500 dark:text-slate-400">做错了什么</span>
                         </div>
-                        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/30 dark:bg-amber-950/20">
-                            <p className="whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300">
-                                {reflection.lesson}
-                            </p>
-                        </div>
+                        <p className="rounded-lg bg-rose-50 p-3 text-sm text-slate-700 dark:bg-rose-950/20 dark:text-slate-300">
+                            {reflection.what_was_wrong}
+                        </p>
                     </div>
                 </div>
             )}
         </div>
     )
-}
-
-/* ── Helpers ────────────────────────────────────────────────────────────── */
-
-function truncate(str: string, maxLen: number): string {
-    if (str.length <= maxLen) return str
-    return str.slice(0, maxLen) + '...'
 }

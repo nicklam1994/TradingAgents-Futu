@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 
 import { api } from '@/services/api'
+import { formatTime } from '@/utils/formatTime'
 import type { AutonomousTask, AutonomousTaskDetail } from '@/types'
 
 export default function Autonomous() {
@@ -22,6 +23,7 @@ export default function Autonomous() {
     const [detail, setDetail] = useState<AutonomousTaskDetail | null>(null)
     const [loading, setLoading] = useState(true)
     const [detailLoading, setDetailLoading] = useState(false)
+    const [detailError, setDetailError] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -41,8 +43,11 @@ export default function Autonomous() {
         try {
             const res = await api.getAutonomousTask(taskId)
             setDetail(res.data ?? null)
+            setDetailError(null)
         } catch (e) {
-            console.error('Failed to load task detail:', e)
+            const msg = e instanceof Error ? e.message : '加载任务详情失败'
+            setDetailError(msg)
+            setDetail(null)
         } finally {
             setDetailLoading(false)
         }
@@ -179,6 +184,13 @@ export default function Autonomous() {
                         </div>
                     ) : detail ? (
                         <TaskDetailView task={detail} onAction={handleAction} />
+                    ) : detailError ? (
+                        <div className="py-12 text-center space-y-3">
+                            <XCircle className="mx-auto h-8 w-8 text-rose-400" />
+                            <p className="text-sm text-rose-600 dark:text-rose-400">{detailError}</p>
+                            <button onClick={() => loadDetail(selectedId)}
+                                className="text-sm text-blue-600 underline dark:text-blue-400">重试</button>
+                        </div>
                     ) : (
                         <div className="py-12 text-center">
                             <p className="text-sm text-slate-400">无法加载任务详情</p>
@@ -352,9 +364,4 @@ function statusLabel(status: string): string {
     return map[status] ?? status
 }
 
-function formatTime(value?: string | null): string {
-    if (!value) return '--'
-    const d = new Date(value.replace(' ', 'T'))
-    if (Number.isNaN(d.getTime())) return value
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
+

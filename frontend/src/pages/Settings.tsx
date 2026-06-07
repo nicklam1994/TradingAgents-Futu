@@ -154,7 +154,7 @@ export default function Settings() {
         if (!baseUrl || !key) { alert('请先填写 Base URL 和 API Key'); return }
         setModelListLoading(true)
         try {
-            const data = await api.get(`/v1/models?base_url=${encodeURIComponent(baseUrl)}&api_key=${encodeURIComponent(key)}`)
+            const data = await api.get<{ models: string[] }>(`/v1/models?base_url=${encodeURIComponent(baseUrl)}&api_key=${encodeURIComponent(key)}`)
             const models: string[] = data.models || []
             if (models.length) {
                 const toPreset = (id: string, tier: 'quick' | 'deep') => ({ id, label: id, tier })
@@ -246,7 +246,7 @@ export default function Settings() {
     async function loadSearchConfig() {
         setSearchConfigLoading(true)
         try {
-            const data = await api.get('/v1/config/search')
+            const data = await api.get<{ providers: SearchProvider[] }>('/v1/config/search')
             setSearchProviders(data.providers || [])
         } catch (e) {
             console.error('Failed to load search config', e)
@@ -258,7 +258,7 @@ export default function Settings() {
     async function loadDataSourceConfig() {
         setDataSourceLoading(true)
         try {
-            const data = await api.get('/v1/config/data-sources')
+            const data = await api.get<{ providers: DataSourceProvider[] }>('/v1/config/data-sources')
             setDataSources(data.providers || [])
         } catch (e) {
             console.error('Failed to load data source config', e)
@@ -282,7 +282,7 @@ export default function Settings() {
 
     async function loadSocialSentimentConfig() {
         try {
-            const data = await api.get('/v1/config/social-sentiment')
+            const data = await api.get<{ api_key?: string; base_url?: string; has_key?: boolean }>('/v1/config/social-sentiment')
             setSocialApiKey(data.api_key || '')
             setSocialBaseUrl(data.base_url || 'https://api.adanos.org')
             setSocialHasKey(data.has_key || false)
@@ -323,7 +323,7 @@ export default function Settings() {
 
     async function loadFutuConfig() {
         try {
-            const data = await api.get('/v1/config/futu-opend')
+            const data = await api.get<{ host?: string; port?: number }>('/v1/config/futu-opend')
             setFutuHost(data.host || '127.0.0.1')
             setFutuPort(data.port || 11111)
             setFutuEncrypt(data.host !== '127.0.0.1' && data.host !== 'localhost')
@@ -346,7 +346,7 @@ export default function Settings() {
     async function testFutuConnection() {
         setFutuTesting(true)
         try {
-            const data = await api.get('/v1/futu/status')
+            const data = await api.get<typeof futuStatus>('/v1/futu/status')
             setFutuStatus(data)
         } catch (e: any) {
             setFutuStatus({ connected: false, error: e?.message || '连接失败' })

@@ -29,7 +29,7 @@ export const navItems: SidebarNavItem[] = [
     { path: '/tracking-board', icon: Wallet, label: '跟踪看板' },
     { path: '/sim-trading', icon: BarChart3, label: '模拟交易' },
     { path: '/autonomous', icon: Bot, label: '自主交易' },
-    { path: '/performance', icon: Activity, label: '绩效分析' },
+    { path: '/performance', icon: BarChart3, label: '绩效分析' },
     { path: '/strategies', icon: Cpu, label: '策略管理' },
     { path: '/reflections', icon: BookOpen, label: '交易反思' },
     { path: '/feedback', icon: MessageSquare, label: '反馈留言' },

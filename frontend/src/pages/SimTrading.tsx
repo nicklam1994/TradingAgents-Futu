@@ -13,6 +13,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 import { api } from '@/services/api'
+import { formatTime } from '@/utils/formatTime'
 import type { SimAccount, SimPosition, SimOrder, SimDeal } from '@/types'
 
 export default function SimTrading() {
@@ -296,16 +297,11 @@ function fmt(value?: number | null): string {
     return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function formatTime(value?: string | null): string {
-    if (!value) return '--'
-    const d = new Date(value.replace(' ', 'T'))
-    if (Number.isNaN(d.getTime())) return value
-    return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
 /**
- * Build a cumulative equity curve from deal records.
- * Each point = cumulative realized P&L up to that deal time.
+ * Build a cumulative equity curve from deal records using FIFO matching.
+ * NOTE: This duplicates the backend FIFO P&L calculation logic.
+ * Kept here because the frontend needs per-deal points to render the chart;
+ * the backend only returns aggregated metrics.
  */
 function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number }> {
     if (deals.length === 0) return []

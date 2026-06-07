@@ -414,11 +414,11 @@ class ApiService {
         return this.request('/v1/sim/reflections')
     }
 
-    async get<T = any>(url: string): Promise<T> {
+    async get<T>(url: string): Promise<T> {
         return this.request<T>(url)
     }
 
-    async put<T = any>(url: string, data: any): Promise<T> {
+    async put<T>(url: string, data: unknown): Promise<T> {
         return this.request<T>(url, {
             method: 'PUT',
             body: JSON.stringify(data),
