@@ -432,3 +432,153 @@ def screen_stocks(
             ctx.close()
     except Exception as e:
         return f"Stock screen error: {e}"
+
+
+@tool
+def get_morningstar_report(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get Morningstar research report for a stock — fair value, moat, valuation.
+
+    Returns star rating (1-5), fair value estimate, economic moat assessment,
+    valuation analysis, and bull/bear arguments.
+    Works for both US and HK markets.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_research_morningstar_report(futu_code)
+            if ret != 0:
+                return f"Morningstar error: {data}"
+            if not data:
+                return f"No Morningstar data for {symbol}"
+
+            star = data.get("star_rating", "N/A")
+            fair_value = data.get("fair_value", "N/A")
+            moat = data.get("economic_moat_content", {}).get("context", "")
+            valuation = data.get("valuation_content", {}).get("context", "")
+            update_time = data.get("star_update_time_str", "")
+
+            lines = [f"## {symbol} Morningstar Report ({update_time})\n"]
+            lines.append(f"**Star Rating**: {'★' * star}{'☆' * (5 - star)} ({star}/5)")
+            if isinstance(fair_value, (int, float)):
+                lines.append(f"**Fair Value Estimate**: {fair_value:.2f}")
+            if moat:
+                lines.append(f"\n**Economic Moat**: {moat}")
+            if valuation:
+                lines.append(f"\n**Valuation Analysis**: {valuation[:500]}")
+
+            # Bull/Bear
+            bull = data.get("bull_say", [])
+            bear = data.get("bear_say", [])
+            if bull:
+                lines.append("\n**Bull Case**:")
+                for b in bull[:3]:
+                    lines.append(f"- {b}")
+            if bear:
+                lines.append("\n**Bear Case**:")
+                for b in bear[:3]:
+                    lines.append(f"- {b}")
+
+            pdf_url = data.get("pdf_url", "")
+            if pdf_url:
+                lines.append(f"\n[Full Report PDF]({pdf_url})")
+
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Morningstar error: {e}"
+
+
+@tool
+def get_analyst_consensus(
+    symbol: Annotated[str, "Stock code, e.g. AAPL or 00020.HK"],
+) -> str:
+    """Get analyst consensus ratings — buy/hold/sell distribution and target prices.
+
+    Shows how many analysts rate the stock as strong buy, buy, hold, sell,
+    plus the highest/average/lowest target price.
+    Works for both US and HK markets.
+
+    Args:
+        symbol: Stock code, e.g. AAPL or 00020.HK
+    """
+    try:
+        from futu import OpenQuoteContext
+        import os
+
+        futu_code = symbol
+        if symbol.endswith(".HK"):
+            futu_code = f"HK.{symbol[:-3]}"
+        elif not symbol.startswith("US."):
+            futu_code = f"US.{symbol}"
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            ret, data = ctx.get_research_analyst_consensus(futu_code)
+            if ret != 0:
+                return f"Analyst consensus error: {data}"
+            if not data:
+                return f"No analyst consensus for {symbol}"
+
+            total = data.get("total", 0)
+            strong_buy = data.get("strong_buy", 0)
+            buy = data.get("buy", 0)
+            hold = data.get("hold", 0)
+            sell = data.get("sell", 0)
+            underperform = data.get("underperform", 0)
+            highest = data.get("highest", 0)
+            average = data.get("average", 0)
+            lowest = data.get("lowest", 0)
+            update_time = data.get("update_time_str", "")
+
+            lines = [f"## {symbol} Analyst Consensus ({update_time})\n"]
+            lines.append(f"**Total Analysts**: {total}")
+            lines.append(f"**Rating**: {'★' * round(data.get('rating', 0))} ({data.get('rating', 0)}/5)\n")
+
+            lines.append("| Rating | Percentage |")
+            lines.append("|--------|------------|")
+            lines.append(f"| Strong Buy | {strong_buy:.1f}% |")
+            lines.append(f"| Buy | {buy:.1f}% |")
+            lines.append(f"| Hold | {hold:.1f}% |")
+            lines.append(f"| Sell | {sell:.1f}% |")
+            lines.append(f"| Underperform | {underperform:.1f}% |")
+
+            if any([highest, average, lowest]):
+                lines.append(f"\n**Target Price**:")
+                lines.append(f"- Highest: {highest:.2f}")
+                lines.append(f"- Average: {average:.2f}")
+                lines.append(f"- Lowest: {lowest:.2f}")
+
+            # Sentiment summary
+            bullish_pct = strong_buy + buy
+            bearish_pct = sell + underperform
+            if bullish_pct > 70:
+                lines.append(f"\n🟢 **Strong Bullish Consensus** ({bullish_pct:.0f}% buy/strong-buy)")
+            elif bullish_pct > 50:
+                lines.append(f"\n🟡 **Moderately Bullish** ({bullish_pct:.0f}% buy/strong-buy)")
+            elif bearish_pct > 50:
+                lines.append(f"\n🔴 **Bearish Consensus** ({bearish_pct:.0f}% sell/underperform)")
+            else:
+                lines.append(f"\n⚪ **Mixed/Neutral Consensus**")
+
+            return "\n".join(lines)
+        finally:
+            ctx.close()
+    except Exception as e:
+        return f"Analyst consensus error: {e}"

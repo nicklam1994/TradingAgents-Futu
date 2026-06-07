@@ -45,6 +45,10 @@ def create_fundamentals_analyst(llm, data_collector=None):
             results = await asyncio.gather(*[tasks[k] for k in keys])
             outputs = dict(zip(keys, results))
 
+        # Analyst consensus (always fresh)
+        from tradingagents.agents.utils.agent_utils import get_analyst_consensus
+        consensus = await _safe(get_analyst_consensus, {"symbol": ticker})
+
         messages = [
             SystemMessage(content=system_message + "\n\n请全程使用中文。"),
             HumanMessage(content=(
@@ -53,7 +57,8 @@ def create_fundamentals_analyst(llm, data_collector=None):
                 f"【get_fundamentals】\n{outputs['fundamentals']}\n\n"
                 f"【get_balance_sheet】\n{outputs['balance_sheet']}\n\n"
                 f"【get_cashflow】\n{outputs['cashflow']}\n\n"
-                f"【get_income_statement】\n{outputs['income_statement']}\n"
+                f"【get_income_statement】\n{outputs['income_statement']}\n\n"
+                f"【分析师共识评级】\n{consensus}"
             )),
         ]
 

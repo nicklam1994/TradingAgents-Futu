@@ -51,20 +51,22 @@ def create_smart_money_analyst(llm, data_collector=None):
                     _safe(get_trending_tickers, {"market": "HK", "top_n": 20}),
                 )
 
-            from tradingagents.agents.utils.agent_utils import get_capital_flow, get_top_ten_broker
-            capital_flow, broker_data = await asyncio.gather(
+            from tradingagents.agents.utils.agent_utils import get_capital_flow, get_top_ten_broker, get_analyst_consensus
+            capital_flow, broker_data, consensus = await asyncio.gather(
                 _safe(get_capital_flow, {"symbol": ticker}),
                 _safe(get_top_ten_broker, {"symbol": ticker}),
+                _safe(get_analyst_consensus, {"symbol": ticker}),
             )
 
             data_section = (
                 f"【港股资金流向（超大单/大单/中单/小单净流入）】\n{capital_flow}\n\n"
                 f"【十大经纪商买卖排行】\n{broker_data}\n\n"
+                f"【分析师共识评级】\n{consensus}\n\n"
                 f"【成交量加权均价 VWMA】\n{volume}\n\n"
                 f"【港股热门股票（按换手率）】\n{trending}"
             )
         else:
-            # 美股：成交量异动 + VWMA + 社交情绪 + 换手率排名
+            # 美股：成交量异动 + VWMA + 社交情绪 + 换手率 + Morningstar + 分析师评级
             if pool is not None:
                 volume = pool.get("indicators", {}).get("vwma", "无数据")
                 trending = pool.get("trending_tickers", "无数据")
@@ -78,10 +80,16 @@ def create_smart_money_analyst(llm, data_collector=None):
                     _safe(get_trending_tickers, {"market": "US", "top_n": 20}),
                 )
 
-            from tradingagents.agents.utils.agent_utils import get_social_sentiment
-            sentiment = await _safe(get_social_sentiment, {"symbol": ticker})
+            from tradingagents.agents.utils.agent_utils import get_social_sentiment, get_morningstar_report, get_analyst_consensus
+            sentiment, morningstar, consensus = await asyncio.gather(
+                _safe(get_social_sentiment, {"symbol": ticker}),
+                _safe(get_morningstar_report, {"symbol": ticker}),
+                _safe(get_analyst_consensus, {"symbol": ticker}),
+            )
 
             data_section = (
+                f"【Morningstar 研究报告】\n{morningstar}\n\n"
+                f"【分析师共识评级】\n{consensus}\n\n"
                 f"【成交量加权均价 VWMA】\n{volume}\n\n"
                 f"【社交舆情（Reddit/X/Polymarket）】\n{sentiment}\n\n"
                 f"【美股热门股票（按换手率）】\n{trending}"
