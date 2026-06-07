@@ -20,9 +20,16 @@ def build_data_trace(agent_name: str, entries: list) -> str:
     return "\n".join(lines)
 
 
-def summarize_data(data: str, max_len: int = 50) -> str:
-    """Summarize a data string for trace display."""
-    if not data or not isinstance(data, str):
+def summarize_data(data, max_len: int = 50) -> str:
+    """Summarize any data type for trace display."""
+    if data is None:
+        return "无数据"
+    # Handle numeric values (e.g. float from DataCollector pool)
+    if isinstance(data, (int, float)):
+        return f"✅ {data}"
+    if not isinstance(data, str):
+        data = str(data)
+    if not data:
         return "无数据"
     if "error" in data.lower() or "调用失败" in data:
         return "❌ 获取失败"
