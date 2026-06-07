@@ -95,21 +95,16 @@ class FutuProvider(BaseMarketDataProvider):
         Rules:
           AAPL      → (US, AAPL)     — no suffix, assume US
           NVDA.US   → (US, NVDA)     — explicit US suffix
-          00700.HK  → (HK, 00700)    — explicit HK suffix
-          600519.SH → NotImplementedError (A-share not supported by Futu)
-          000001.SZ → NotImplementedError
+          00700.HK  → (HK, 000700)   — explicit HK suffix
+          商汤       → (HK, 00020)    — Chinese name resolved via stock_resolver
         """
         # Lazy import to avoid hard dependency at module level
         from futu import Market
+        from tradingagents.dataflows.stock_resolver import resolve_input
 
+        # Resolve Chinese names / partial codes to canonical symbol
+        code = resolve_input(code)
         s = code.strip().upper()
-
-        # Explicit A-share suffixes → reject
-        if s.endswith(".SH") or s.endswith(".SZ"):
-            raise NotImplementedError(
-                f"Futu does not support A-share symbols: {code}. "
-                "Use yfinance for SH/SZ stocks."
-            )
 
         # Explicit HK suffix (e.g., 00700.HK)
         if s.endswith(".HK"):

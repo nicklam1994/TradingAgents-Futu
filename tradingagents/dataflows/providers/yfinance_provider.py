@@ -17,7 +17,8 @@ class YFinanceProvider(BaseMarketDataProvider):
         return "yfinance"
 
     def _normalize_symbol(self, symbol: str) -> str:
-        s = symbol.strip().upper()
+        from tradingagents.dataflows.stock_resolver import resolve_input
+        s = resolve_input(symbol).strip().upper()
         # yfinance uses .SS for Shanghai and .SZ for Shenzhen.
         if s.endswith(".SH"):
             return s[:-3] + ".SS"

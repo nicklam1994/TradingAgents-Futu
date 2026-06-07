@@ -195,6 +195,27 @@ def search_by_name_multi(name: str, limit: int = 5) -> List[StockEntry]:
     return [c[2] for c in candidates[:limit]]
 
 
+def resolve_input(raw: str) -> str:
+    """Resolve ANY user input (Chinese name, ticker, code) to canonical symbol.
+
+    Priority: resolve_ticker(code) → search_by_name(chinese) → upper(raw)
+    Examples: "商汤" → "00020.HK", "AAPL" → "AAPL", "00020.HK" → "00020.HK"
+    """
+    if not raw:
+        return raw
+    s = raw.strip()
+    # Try code-based lookup first (AAPL, 00020.HK, HK.00020)
+    entry = resolve_ticker(s)
+    if entry:
+        return entry["code"]
+    # Try Chinese name lookup
+    entry = search_by_name(s)
+    if entry:
+        return entry["code"]
+    # Fallback: uppercase
+    return s.upper()
+
+
 def is_known_ticker(code: str) -> bool:
     """Quick boolean check."""
     return resolve_ticker(code) is not None
