@@ -84,7 +84,7 @@ function buildCandles(seedText, count = 72) {
   return out;
 }
 
-function drawKline(symbol = '600519.SH') {
+function drawKline(symbol = '00700.HK') {
   const canvas = els.klineCanvas;
   if (!canvas) return;
   resizeCanvas();
@@ -374,9 +374,9 @@ els.clearEvents.addEventListener('click', () => {
 });
 
 renderAgentBoard();
-drawRealKlineOrFallback((els.apiBase?.value || 'http://127.0.0.1:8000').trim(), '600519.SH');
-addMessage('assistant', '已切换到 12-Agent 工作台模式。\n直接输入：请分析 600519.SH 在 2026-03-02 的情况。');
+drawRealKlineOrFallback((els.apiBase?.value || 'http://127.0.0.1:8000').trim(), '00700.HK');
+addMessage('assistant', '已切换到 12-Agent 工作台模式。\n直接输入：请分析 00700.HK 在 2026-03-02 的情况。');
 window.addEventListener('resize', () => {
-  const current = (els.chartTitle?.textContent || '').replace('K线图 · ', '').trim() || '600519.SH';
+  const current = (els.chartTitle?.textContent || '').replace('K线图 · ', '').trim() || '00700.HK';
   drawRealKlineOrFallback((els.apiBase?.value || 'http://127.0.0.1:8000').trim(), current);
 });
