@@ -329,10 +329,6 @@ type BoardViewMode = 'simple' | 'detailed'
             ) : (
                 <DetailedBoardView
                     items={trackingItems}
-                    trackingRefreshing={trackingRefreshing}
-                    trackingError={trackingError}
-                    liveMarketValueTotal={liveMarketValueTotal}
-                    floatingPnlTotal={floatingPnlTotal}
                     onAnalyze={symbol => navigate(`/analysis?symbol=${symbol}`)}
                     onOpenReport={reportId => navigate(`/reports?report=${reportId}`)}
                 />
