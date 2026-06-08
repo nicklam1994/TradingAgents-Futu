@@ -456,36 +456,36 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const liveP = rangeProgress(item.day_low, item.day_high, item.live_price)
     const prevP = rangeProgress(item.day_low, item.day_high, item.previous_close)
     const openP = rangeProgress(item.day_low, item.day_high, item.day_open)
-
-    return (
-        <div className="grid grid-cols-[1.5fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
-            {/* 名称/代码 + 状态 + 涨跌幅 */}
-            <div className="min-w-0 flex flex-col justify-center gap-1">
-                <div className="flex items-center gap-2">
-                    <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
-                    <span className="text-sm text-slate-500 dark:text-slate-400">{item.symbol}</span>
-                </div>
-                <div className="flex items-center gap-2 text-sm">
-                    <TrackingMarketStateBadge state={item.market_state} />
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${
-                        priceChangePct == null
-                            ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
-                            : isUp
-                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
-                                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
-                    }`}>
-                        {formatSignedPercent(priceChangePct)}
-                    </span>
-                    <span className={`text-[13px] font-semibold ${
-                        priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
-                        : isUp ? 'text-rose-500 dark:text-rose-400'
-                        : 'text-emerald-500 dark:text-emerald-400'
-                    }`}>
-                        {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : ''}
-                    </span>
-                </div>
+    {/* 状态 + 名称/代码 + 涨跌幅 */}
+    <div className="min-w-0 flex items-center gap-2">
+        <div className="flex-shrink-0 self-stretch flex items-center">
+            <TrackingMarketStateBadge state={item.market_state} />
+        </div>
+        <div className="flex flex-col justify-center gap-0.5">
+            <div className="flex items-center gap-2">
+                <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
+                <span className="text-sm text-slate-500 dark:text-slate-400">{item.symbol}</span>
             </div>
-
+            <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${
+                    priceChangePct == null
+                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
+                        : isUp
+                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                }`}>
+                    {formatSignedPercent(priceChangePct)}
+                </span>
+                <span className={`text-[13px] font-semibold ${
+                    priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
+                    : isUp ? 'text-rose-500 dark:text-rose-400'
+                    : 'text-emerald-500 dark:text-emerald-400'
+                }`}>
+                    {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : ''}
+                </span>
+            </div>
+        </div>
+    </div>
             {/* 当日区间 + 模型高低 */}
             <div className="flex flex-col justify-center gap-1.5">
                 <div className="flex items-center gap-2">
