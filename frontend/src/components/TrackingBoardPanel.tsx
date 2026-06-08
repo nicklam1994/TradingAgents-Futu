@@ -277,8 +277,8 @@ export default function TrackingBoardPanel() {
                         </div>
                     </div>
                     
-                    {/* Trading Stats Cards */}
-                    <div className="flex-1 grid grid-cols-3 gap-4">
+                    {/* Trading Stats Cards - only in simple view */}
+                    {viewMode === 'simple' && <div className="flex-1 grid grid-cols-3 gap-4">
                         <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
                             <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                                 <TrendingUp className="h-4 w-4 text-emerald-500" />累计盈利
@@ -297,7 +297,7 @@ export default function TrackingBoardPanel() {
                             </div>
                             <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">--</div>
                         </div>
-                    </div>
+                    </div>}
                 </div>
             )}
 
