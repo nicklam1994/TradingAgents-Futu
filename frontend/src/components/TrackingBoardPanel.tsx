@@ -135,17 +135,12 @@ export default function TrackingBoardPanel() {
                             if (!q && !state) return item
                             return {
                                 ...item,
-                                ...(q ? {
-                                    live_price: q.price ?? item.live_price,
-                                    price_change: q.change ?? item.price_change,
-                                    price_change_pct: q.change_pct ?? item.price_change_pct,
-                                    day_open: q.open ?? item.day_open,
-                                    day_high: q.high ?? item.day_high,
-                                    day_low: q.low ?? item.day_low,
-                                    volume: q.volume ?? item.volume,
-                                    lot_size: q.lot_size || item.lot_size,
-                                } : {}),
-                                ...(state ? { market_state: state } : {}),
+                                live_price: q?.price ?? item.live_price,
+                                price_change: q?.change ?? item.price_change,
+                                price_change_pct: q?.change_pct ?? item.price_change_pct,
+                                day_high: q?.high ?? item.day_high,
+                                day_low: q?.low ?? item.day_low,
+                                market_state: state || item.market_state,
                             }
                         })
                         return { ...prev, items: updatedItems }
@@ -277,6 +272,32 @@ export default function TrackingBoardPanel() {
                                 )}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            )}
+
+            {/* Trading Stats Cards */}
+            {realAccounts.length > 0 && trackingBoard?.stats && (
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <TrendingUp className="h-4 w-4 text-emerald-500" />累计盈利
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-emerald-600">{fmtNum(trackingBoard.stats.cumulative_profit ?? 0)}</div>
+                    </div>
+                    <div className="rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/50 p-4 dark:from-rose-950/30 dark:to-rose-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <ArrowDownRight className="h-4 w-4 text-rose-500" />累计亏损
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-rose-600">{fmtNum(trackingBoard.stats.cumulative_loss ?? 0)}</div>
+                    </div>
+                    <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 dark:from-amber-950/30 dark:to-amber-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <Target className="h-4 w-4 text-amber-500" />交易胜率
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                            {trackingBoard.stats.win_rate != null ? `${trackingBoard.stats.win_rate.toFixed(1)}%` : '--'}
+                        </div>
                     </div>
                 </div>
             )}
