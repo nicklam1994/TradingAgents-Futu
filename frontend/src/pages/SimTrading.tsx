@@ -364,80 +364,79 @@ export default function SimTrading() {
                             )}
                         </div>
 
-                            {/* Side Toggle */}
-                            <div className="grid grid-cols-2 gap-2">
-                                <button onClick={() => setOrderSide('BUY')}
-                                    className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
-                                    模拟买入
-                                </button>
-                                <button onClick={() => setOrderSide('SELL')}
-                                    className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
-                                    模拟卖出
-                                </button>
-                            </div>
-
-                            {/* Type */}
-                            <div>
-                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">类型</label>
-                                <select value={orderType} onChange={e => setOrderType(e.target.value)}
-                                    className="input w-full">
-                                    <option value="NORMAL">限价单</option>
-                                    <option value="MARKET">市价单</option>
-                                    <option value="STOP_LIMIT">止损限价单</option>
-                                    <option value="STOP">止损市价单</option>
-                                </select>
-                            </div>
-
-                            {/* Trigger Price (stop orders only) */}
-                            {isStopOrder && (
-                                <div>
-                                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">触发价</label>
-                                    <input type="number" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)}
-                                        placeholder="0.00" step="0.01" className="input w-full" />
-                                </div>
-                            )}
-
-                            {/* Price */}
-                            {!isMarketOrder && (
-                                <div>
-                                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">价格</label>
-                                    <input type="number" value={orderPrice} onChange={e => setOrderPrice(e.target.value)}
-                                        placeholder="0.00" step="0.01" className="input w-full" />
-                                </div>
-                            )}
-
-                            {/* Quantity */}
-                            <div>
-                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">数量</label>
-                                <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)}
-                                    placeholder="0" step="1" min="1" className="input w-full" />
-                            </div>
-
-                            {/* Amount */}
-                            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800">
-                                <span className="text-slate-500 dark:text-slate-400">金额</span>
-                                <span className="font-medium text-slate-900 dark:text-slate-100">
-                                    {orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}
-                                </span>
-                            </div>
-                            {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
-                                <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))}
-                                    className="text-xs text-blue-500 hover:text-blue-600">
-                                    使用当前价 {fmtPrice(quote.price)}
-                                </button>
-                            )}
-
-                            {/* Submit */}
-                            {orderMsg && (
-                                <div className={`rounded-lg px-3 py-2 text-sm ${orderMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'}`}>
-                                    {orderMsg.text}
-                                </div>
-                            )}
-                            <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice && !quote?.price)}
-                                className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${modifyOrderId ? 'bg-blue-600 hover:bg-blue-700' : orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
-                                {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : modifyOrderId ? '确认修改' : (orderSide === 'BUY' ? '买入' : '卖出') + ' ' + (selectedStock?.name ?? '')}
+                        {/* Side Toggle */}
+                        <div className="grid grid-cols-2 gap-2">
+                            <button onClick={() => setOrderSide('BUY')}
+                                className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                                模拟买入
+                            </button>
+                            <button onClick={() => setOrderSide('SELL')}
+                                className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                                模拟卖出
                             </button>
                         </div>
+
+                        {/* Type */}
+                        <div>
+                            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">类型</label>
+                            <select value={orderType} onChange={e => setOrderType(e.target.value)}
+                                className="input w-full">
+                                <option value="NORMAL">限价单</option>
+                                <option value="MARKET">市价单</option>
+                                <option value="STOP_LIMIT">止损限价单</option>
+                                <option value="STOP">止损市价单</option>
+                            </select>
+                        </div>
+
+                        {/* Trigger Price (stop orders only) */}
+                        {isStopOrder && (
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">触发价</label>
+                                <input type="number" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)}
+                                    placeholder="0.00" step="0.01" className="input w-full" />
+                            </div>
+                        )}
+
+                        {/* Price */}
+                        {!isMarketOrder && (
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">价格</label>
+                                <input type="number" value={orderPrice} onChange={e => setOrderPrice(e.target.value)}
+                                    placeholder="0.00" step="0.01" className="input w-full" />
+                            </div>
+                        )}
+
+                        {/* Quantity */}
+                        <div>
+                            <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">数量</label>
+                            <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)}
+                                placeholder="0" step="1" min="1" className="input w-full" />
+                        </div>
+
+                        {/* Amount */}
+                        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800">
+                            <span className="text-slate-500 dark:text-slate-400">金额</span>
+                            <span className="font-medium text-slate-900 dark:text-slate-100">
+                                {orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}
+                            </span>
+                        </div>
+                        {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
+                            <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))}
+                                className="text-xs text-blue-500 hover:text-blue-600">
+                                使用当前价 {fmtPrice(quote.price)}
+                            </button>
+                        )}
+
+                        {/* Submit */}
+                        {orderMsg && (
+                            <div className={`rounded-lg px-3 py-2 text-sm ${orderMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'}`}>
+                                {orderMsg.text}
+                            </div>
+                        )}
+                        <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice && !quote?.price)}
+                            className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${modifyOrderId ? 'bg-blue-600 hover:bg-blue-700' : orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                            {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : modifyOrderId ? '确认修改' : (orderSide === 'BUY' ? '买入' : '卖出') + ' ' + (selectedStock?.name ?? '')}
+                        </button>
                     </div>
                 </div>
 
