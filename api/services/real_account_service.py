@@ -144,7 +144,25 @@ def get_all_real_accounts() -> list[RealAccountInfo]:
     accounts = []
     for market in ["HK", "US"]:
         try:
-            accounts.append(get_real_account(market))
+            acc = get_real_account(market)
+            # Fallback: if unrealized/realized are 0, calculate from positions
+            if acc.unrealized_pnl == 0 and acc.realized_pnl == 0:
+                try:
+                    from futu import OpenSecTradeContext, TrdEnv, SecurityFirm, TrdMarket
+                    ctx = OpenSecTradeContext(
+                        host=_opend_host(),
+                        port=_opend_port(),
+                        filter_trdmarket=TrdMarket.US if market == "US" else TrdMarket.HK,
+                        security_firm=SecurityFirm.FUTUSECURITIES,
+                    )
+                    ret, pos_data = ctx.position_list_query(trd_env=TrdEnv.REAL)
+                    ctx.close()
+                    if ret == 0 and pos_data is not None:
+                        acc.unrealized_pnl = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows())
+                        acc.realized_pnl = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows())
+                except Exception:
+                    pass
+            accounts.append(acc)
         except Exception as e:
             logger.warning(f"Failed to get {market} real account: {e}")
     return accounts

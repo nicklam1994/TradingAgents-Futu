@@ -82,6 +82,11 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
         total_realized_pnl = 0.0
         total_unrealized_pnl = 0.0
     
+    # Fallback: calculate from positions if accinfo returns 0
+    if total_realized_pnl == 0 and total_unrealized_pnl == 0:
+        total_realized_pnl = sum(_to_float(p.get("realized_pl")) or 0 for p in positions)
+        total_unrealized_pnl = sum(_to_float(p.get("unrealized_pl")) or 0 for p in positions)
+    
     # Win rate from positions
     profitable_count = sum(1 for p in positions if (_to_float(p.get("unrealized_pl")) or 0) > 0)
     total_positions = len(positions)
