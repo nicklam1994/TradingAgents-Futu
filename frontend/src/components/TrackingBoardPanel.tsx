@@ -141,6 +141,7 @@ export default function TrackingBoardPanel() {
                                 day_high: q.high ?? item.day_high,
                                 day_low: q.low ?? item.day_low,
                                 volume: q.volume ?? item.volume,
+                                market_state: q.market_state || item.market_state,
                             }
                         })
                         return { ...prev, items: updatedItems }
@@ -455,39 +456,39 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const openP = rangeProgress(item.day_low, item.day_high, item.day_open)
 
     return (
-        <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-4 last:border-b-0 dark:border-slate-700">
+        <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
             {/* 状态 */}
-            <div className="flex items-center">
+            <div className="flex items-center justify-center">
                 <TrackingMarketStateBadge state={item.market_state} />
             </div>
 
             {/* 名称/代码 */}
-            <div className="min-w-0">
-                <div className="truncate text-[15px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
-                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{item.symbol}</div>
+            <div className="min-w-0 flex flex-col justify-center">
+                <div className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
+                <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{item.symbol}</div>
             </div>
 
             {/* 持仓数量 + 手数 */}
             <div className="flex flex-col justify-center">
-                <div className="text-[15px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
-                <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
+                <div className="text-[17px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
+                <div className="mt-0.5 text-sm text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
             </div>
 
             {/* 市值/成本市值 */}
-            <div className="flex flex-col justify-center text-[14px]">
-                <div className="text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
-                <div className="text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
+            <div className="flex flex-col justify-center text-[15px]">
+                <div className="font-medium text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
+                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
             </div>
 
             {/* 现价/成本价 */}
-            <div className="flex flex-col justify-center text-[14px]">
-                <div className={`font-semibold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
-                <div className="text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
+            <div className="flex flex-col justify-center text-[15px]">
+                <div className={`text-[17px] font-bold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
+                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
             </div>
 
-            {/* 涨跌幅 (自选样式) */}
+            {/* 涨跌幅 */}
             <div className="flex flex-col items-center justify-center">
-                <span className={`inline-flex min-w-[80px] items-center justify-center rounded-full px-2.5 py-1.5 text-base font-semibold ${
+                <span className={`inline-flex min-w-[88px] items-center justify-center rounded-full px-3 py-1.5 text-[15px] font-bold ${
                     priceChangePct == null
                         ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
@@ -496,7 +497,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 }`}>
                     {formatSignedPercent(priceChangePct)}
                 </span>
-                <div className={`mt-1 text-xs font-bold ${
+                <div className={`mt-1 text-[13px] font-bold ${
                     priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
                     : isUp ? 'text-rose-500 dark:text-rose-400'
                     : 'text-emerald-500 dark:text-emerald-400'
@@ -505,44 +506,48 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 </div>
             </div>
 
-            {/* 当日区间 (自选样式) + 模型高低 */}
-            <div className="flex flex-col justify-center gap-2">
+            {/* 当日区间 + 模型高低 */}
+            <div className="flex flex-col justify-center gap-1.5">
                 <div className="flex items-center gap-2">
-                    <span className="w-12 text-right text-xs text-slate-400">{formatPlainPrice(item.day_low)}</span>
-                    <div className="relative h-5 flex-1">
-                        <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
-                        {prevP != null && <div className="absolute top-1/2 h-3.5 w-1 -translate-y-1/2 rounded-full bg-rose-500 shadow-sm" style={{ left: `calc(${prevP}% - 2px)` }} />}
-                        {openP != null && <div className="absolute top-1/2 h-3.5 w-1 -translate-y-1/2 rounded-full bg-emerald-500 shadow-sm" style={{ left: `calc(${openP}% - 2px)` }} />}
-                        {liveP != null && <div className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-blue-500 shadow-sm" style={{ left: `calc(${liveP}% - 3px)` }} />}
+                    <span className="w-14 text-right text-[13px] text-slate-400">{formatPlainPrice(item.day_low)}</span>
+                    <div className="relative h-6 flex-1">
+                        <div className="absolute inset-y-0 left-0 right-0 my-auto h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+                        {prevP != null && <div className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-rose-500 shadow-sm" style={{ left: `calc(${prevP}% - 2px)` }} />}
+                        {openP != null && <div className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-emerald-500 shadow-sm" style={{ left: `calc(${openP}% - 2px)` }} />}
+                        {liveP != null && <div className="absolute top-1/2 h-5 w-1.5 -translate-y-1/2 rounded-full bg-blue-500 shadow-sm" style={{ left: `calc(${liveP}% - 3px)` }} />}
                     </div>
-                    <span className="w-12 text-xs text-slate-400">{formatPlainPrice(item.day_high)}</span>
+                    <span className="w-14 text-[13px] text-slate-400">{formatPlainPrice(item.day_high)}</span>
                 </div>
-                <div className="flex items-center justify-center gap-3 text-[11px]">
-                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-rose-500" /><span className="text-slate-500 dark:text-slate-400">昨收 {formatPlainPrice(item.previous_close)}</span></span>
-                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-emerald-500" /><span className="text-slate-500 dark:text-slate-400">今开 {formatPlainPrice(item.day_open)}</span></span>
-                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-blue-500" /><span className="text-slate-500 dark:text-slate-400">现价 {formatPlainPrice(item.live_price)}</span></span>
+                <div className="flex items-center justify-center gap-3 text-[12px]">
+                    <span className="inline-flex items-center gap-1"><span className="h-2.5 w-0.5 rounded-full bg-rose-500" /><span className="text-slate-500 dark:text-slate-400">昨收 {formatPlainPrice(item.previous_close)}</span></span>
+                    <span className="inline-flex items-center gap-1"><span className="h-2.5 w-0.5 rounded-full bg-emerald-500" /><span className="text-slate-500 dark:text-slate-400">今开 {formatPlainPrice(item.day_open)}</span></span>
+                    <span className="inline-flex items-center gap-1"><span className="h-2.5 w-0.5 rounded-full bg-blue-500" /><span className="text-slate-500 dark:text-slate-400">现价 {formatPlainPrice(item.live_price)}</span></span>
                 </div>
-                {item.analysis && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-                        <span>模型低 {formatPlainPrice(item.analysis.low_price)}</span>
-                        <span className="mx-1.5">·</span>
-                        <span>模型高 {formatPlainPrice(item.analysis.high_price)}</span>
-                    </div>
-                )}
+                <div className="flex items-center justify-center gap-2 text-[12px]">
+                    <span className="inline-flex items-center gap-1 text-purple-600 dark:text-purple-400">
+                        <span className="h-2.5 w-0.5 rounded-full bg-purple-500" />
+                        模型低 {formatPlainPrice(item.analysis?.low_price)}
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-600">|</span>
+                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <span className="h-2.5 w-0.5 rounded-full bg-amber-500" />
+                        模型高 {formatPlainPrice(item.analysis?.high_price)}
+                    </span>
+                </div>
             </div>
 
             {/* 持仓盈亏/盈亏比 */}
-            <div className="flex flex-col justify-center text-[13px]">
-                <div className={`font-semibold ${pnlColor}`}>
+            <div className="flex flex-col justify-center text-[15px]">
+                <div className={`font-bold ${pnlColor}`}>
                     {item.floating_pnl != null ? (item.floating_pnl >= 0 ? '+' : '') + formatAmount(item.floating_pnl) : '-'}
                 </div>
-                <div className={`text-[12px] ${pnlColor}`}>
+                <div className={`mt-0.5 text-[14px] font-semibold ${pnlColor}`}>
                     {holdingChangePct != null ? formatSignedPercent(holdingChangePct) : '-'}
                 </div>
             </div>
 
             {/* 持仓比 */}
-            <div className="flex items-center text-[14px] font-medium text-slate-700 dark:text-slate-300">
+            <div className="flex items-center justify-center text-[16px] font-bold text-slate-700 dark:text-slate-300">
                 {positionPct != null ? `${positionPct.toFixed(1)}%` : '-'}
             </div>
         </div>
