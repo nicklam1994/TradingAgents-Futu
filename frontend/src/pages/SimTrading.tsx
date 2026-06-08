@@ -245,7 +245,7 @@ export default function SimTrading() {
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                     <AccountCard icon={Wallet} label="总资产" value={fmt(activeAccount.total_assets)} subValue={activeAccount.currency} color="blue" />
                     <AccountCard icon={Package} label="可用资金" value={fmt(activeAccount.available_cash)} subValue={`冻结 ${fmt(activeAccount.frozen_cash)}`} color="green" />
-                    <AccountCard icon={TrendingUp} label="持仓市值" value={fmt(activeAccount.market_val)} subValue={`${positions.length} 只标的`} color="purple" />
+                    <AccountCard icon={TrendingUp} label="持仓市值" value={fmt(activeAccount.market_val)} subValue={`${positions.length} 只股票`} color="purple" />
                     <AccountCard icon={activeAccount.unrealized_pnl >= 0 ? TrendingUp : TrendingDown} label="浮动盈亏" value={fmt(activeAccount.unrealized_pnl)} subValue={`已实现 ${fmt(activeAccount.realized_pnl)}`} color={activeAccount.unrealized_pnl >= 0 ? 'green' : 'red'} />
                 </div>
             )}
@@ -260,7 +260,7 @@ export default function SimTrading() {
                     <div className="card space-y-3" ref={dropdownRef}>
                         <div className="flex items-center gap-2">
                             <Search className="h-5 w-5 text-blue-500" />
-                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">选择标的</h2>
+                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">选择股票</h2>
                         </div>
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -391,7 +391,7 @@ export default function SimTrading() {
 
                     {!selectedStock && (
                         <div className="card flex items-center justify-center py-12 text-sm text-slate-400 dark:text-slate-500">
-                            搜索并选择标的开始交易
+                            搜索并选择股票开始交易
                         </div>
                     )}
                 </div>
