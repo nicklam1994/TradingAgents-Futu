@@ -5,7 +5,7 @@
  * 切换市场标签时自动重新加载持仓/订单/成交。
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import {
     Wallet, TrendingUp, TrendingDown, Package,
     RefreshCw, ArrowUpCircle, ArrowDownCircle,
@@ -30,6 +30,8 @@ export default function SimTrading() {
     const [deals, setDeals] = useState<SimDeal[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const wsRef = useRef<WebSocket | null>(null)
+    const [wsConnected, setWsConnected] = useState(false)
 
     // Load accounts once
     const loadAccounts = useCallback(async () => {
@@ -71,6 +73,67 @@ export default function SimTrading() {
     useEffect(() => { loadAccounts() }, [loadAccounts])
     useEffect(() => { loadMarketData() }, [loadMarketData])
 
+    // WebSocket real-time price updates
+    useEffect(() => {
+        const token = localStorage.getItem('ta-access-token') || ''
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/quotes?token=${token}`)
+        wsRef.current = ws
+
+        ws.onopen = () => setWsConnected(true)
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data)
+                // Full snapshot
+                if (msg.type === 'quotes' && msg.data) {
+                    setPositions(prev => prev.map(p => {
+                        const q = msg.data[p.code]
+                        if (!q) return p
+                        const newPrice = q.price ?? p.current_price
+                        const newMarketVal = newPrice * p.qty
+                        const todayPnl = p.prev_close ? (newPrice - p.prev_close) * p.qty : p.today_pnl
+                        return {
+                            ...p,
+                            current_price: newPrice,
+                            market_val: Math.round(newMarketVal * 1000) / 1000,
+                            unrealized_pnl: Math.round((newPrice - p.cost_price) * p.qty * 1000) / 1000,
+                            unrealized_pnl_pct: p.cost_price > 0 ? Math.round((newPrice / p.cost_price - 1) * 10000) / 100 : p.unrealized_pnl_pct,
+                            today_pnl: Math.round(todayPnl * 1000) / 1000,
+                        }
+                    }))
+                }
+                // Individual symbol push
+                if (msg.type === 'quote_update' && msg.symbol && msg.data) {
+                    const q = msg.data
+                    setPositions(prev => prev.map(p => {
+                        if (p.code !== msg.symbol) return p
+                        const newPrice = q.price ?? p.current_price
+                        const newMarketVal = newPrice * p.qty
+                        const todayPnl = p.prev_close ? (newPrice - p.prev_close) * p.qty : p.today_pnl
+                        return {
+                            ...p,
+                            current_price: newPrice,
+                            market_val: Math.round(newMarketVal * 1000) / 1000,
+                            unrealized_pnl: Math.round((newPrice - p.cost_price) * p.qty * 1000) / 1000,
+                            unrealized_pnl_pct: p.cost_price > 0 ? Math.round((newPrice / p.cost_price - 1) * 10000) / 100 : p.unrealized_pnl_pct,
+                            today_pnl: Math.round(todayPnl * 1000) / 1000,
+                        }
+                    }))
+                }
+            } catch {}
+        }
+        ws.onclose = () => setWsConnected(false)
+        ws.onerror = () => setWsConnected(false)
+        return () => { ws.close() }
+    }, [])
+
+    // Subscribe to position codes when positions change
+    useEffect(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN && positions.length > 0) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: positions.map(p => p.code) }))
+        }
+    }, [positions.map(p => p.code).join(',')])
+
     const refresh = () => {
         loadAccounts()
         loadMarketData()
@@ -87,7 +150,11 @@ export default function SimTrading() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">模拟交易</h1>
-                    <p className="mt-1 text-slate-500 dark:text-slate-400">查看模拟账户资金、持仓与交易记录</p>
+                    <p className="mt-1 text-slate-500 dark:text-slate-400">
+                        查看模拟账户资金、持仓与交易记录
+                        <span className={`ml-2 inline-block h-2 w-2 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                        <span className="ml-1 text-xs">{wsConnected ? '实时' : '离线'}</span>
+                    </p>
                 </div>
                 <button onClick={refresh} disabled={loading}
                     className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
