@@ -459,11 +459,11 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             {/* 名称/代码 + 状态 + 涨跌幅 */}
             <div className="min-w-0 flex flex-col justify-center gap-1">
                 <div className="flex items-center gap-2">
-                    <TrackingMarketStateBadge state={item.market_state} />
                     <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
+                    <span className="text-sm text-slate-500 dark:text-slate-400">{item.symbol}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
-                    <span className="text-slate-500 dark:text-slate-400">{item.symbol}</span>
+                    <TrackingMarketStateBadge state={item.market_state} />
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${
                         priceChangePct == null
                             ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
