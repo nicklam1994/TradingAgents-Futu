@@ -587,7 +587,7 @@ def place_order(
             deal_market=deal_market,
             qty=deal_qty,
             price=deal_price,
-            order_type=order_type_upper,
+            order_type=_order_type_label(order_type_upper),
             currency="HKD" if deal_market == "HK" else "USD",
         )
 
@@ -1167,6 +1167,23 @@ def _resolve_order_type(order_type_str: str):
         "AUCTION": OrderType.AUCTION,
     }
     return mapping.get(order_type_str, OrderType.NORMAL)
+
+
+# Futu OrderType → display label (industry standard)
+_ORDER_TYPE_LABEL = {
+    "NORMAL": "LMT",
+    "MARKET": "MKT",
+    "AUCTION_LIMIT": "AUCTION_LMT",
+    "AUCTION": "AUCTION_MKT",
+    "STOP": "STOP",
+    "STOP_LIMIT": "STOP_LMT",
+    "TRAILING_STOP": "TRAIL_STOP",
+}
+
+
+def _order_type_label(futu_type: str) -> str:
+    """Convert Futu order type string to display label."""
+    return _ORDER_TYPE_LABEL.get(futu_type, futu_type)
 
 
 # ── Serialization helpers ────────────────────────────────────────────────────
