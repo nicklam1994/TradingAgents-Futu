@@ -61,9 +61,28 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
     # Fetch positions from Futu (with cache fallback)
     positions = _fetch_futu_positions()
     
-    # Calculate stats from positions
-    total_realized_pnl = sum(_to_float(p.get("realized_pl")) or 0 for p in positions)
-    total_unrealized_pnl = sum(_to_float(p.get("unrealized_pl")) or 0 for p in positions)
+    # Get account stats from accinfo_query
+    try:
+        from futu import OpenSecTradeContext, TrdEnv, SecurityFirm
+        ctx = OpenSecTradeContext(
+            host=_opend_host(),
+            port=_opend_port(),
+            security_firm=SecurityFirm.FUTUSECURITIES,
+        )
+        ret, acc_data = ctx.accinfo_query(trd_env=TrdEnv.REAL)
+        ctx.close()
+        if ret == 0 and acc_data is not None and not acc_data.empty:
+            row = acc_data.iloc[0]
+            total_realized_pnl = _to_float(row.get("realized_pl")) or 0
+            total_unrealized_pnl = _to_float(row.get("unrealized_pl")) or 0
+        else:
+            total_realized_pnl = 0.0
+            total_unrealized_pnl = 0.0
+    except Exception:
+        total_realized_pnl = 0.0
+        total_unrealized_pnl = 0.0
+    
+    # Win rate from positions
     profitable_count = sum(1 for p in positions if (_to_float(p.get("unrealized_pl")) or 0) > 0)
     total_positions = len(positions)
     win_rate = round(profitable_count / total_positions * 100, 1) if total_positions > 0 else None
