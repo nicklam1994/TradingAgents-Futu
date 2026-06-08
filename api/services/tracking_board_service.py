@@ -313,6 +313,7 @@ def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
                     "previous_close": row.get("prev_close"),
                     "lot_size": row.get("lot_size"),
                     "sec_status": row.get("sec_status"),
+                    "amount": row.get("turnover"),
                 }
         return quotes
     except Exception as exc:
