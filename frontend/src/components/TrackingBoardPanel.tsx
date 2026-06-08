@@ -2,11 +2,9 @@ import {
     ArrowDownRight,
     ArrowUpRight,
     Loader2,
-    Package,
     RefreshCw,
     ShieldAlert,
     Target,
-    TrendingDown,
     TrendingUp,
     Wallet,
 } from 'lucide-react'
@@ -118,43 +116,122 @@ export default function TrackingBoardPanel() {
 
 
 
+    // Currency switch state
+    const [displayCurrency, setDisplayCurrency] = useState<'HKD' | 'USD'>('HKD')
+    const [activeTab, setActiveTab] = useState<'securities' | 'fund' | 'bond'>('securities')
+
+    // Get accounts by currency
+    const hkAccount = realAccounts.find(a => a.market === 'HK')
+    const usAccount = realAccounts.find(a => a.market === 'US')
+    const displayAccount = displayCurrency === 'HKD' ? hkAccount : usAccount
+
+    // Totals based on currency switch
+    const totalAssets = displayAccount?.total_assets ?? realAccounts.reduce((s, a) => s + a.total_assets, 0)
+    const availableCash = displayAccount?.available_cash ?? realAccounts.reduce((s, a) => s + a.available_cash, 0)
+    const frozenCash = displayAccount?.frozen_cash ?? realAccounts.reduce((s, a) => s + a.frozen_cash, 0)
+    const marketVal = displayAccount?.market_val ?? realAccounts.reduce((s, a) => s + a.market_val, 0)
+    const unrealizedPnl = displayAccount?.unrealized_pnl ?? realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0)
+    const realizedPnl = displayAccount?.realized_pnl ?? realAccounts.reduce((s, a) => s + a.realized_pnl, 0)
+
+    const fmtNum = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
     return (
         <div className="space-y-4">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            {/* Account Title + Currency Switch */}
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">真仓</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">保证金综合账户(9967)</h1>
                 </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
-                        自动刷新：{trackingRefreshSeconds}s
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
-                        上一交易日：{trackingBoard?.previous_trade_date || '--'}
-                    </span>
-                    <ViewModeSwitch value={viewMode} onChange={setViewMode} />
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setDisplayCurrency('HKD')}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${displayCurrency === 'HKD' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                        HKD
+                    </button>
+                    <button onClick={() => setDisplayCurrency('USD')}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${displayCurrency === 'USD' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                        USD
+                    </button>
                 </div>
             </div>
 
-            {/* Real Account Asset Cards */}
+            {/* Tabs: 证券 | 基金 | 债券 */}
+            <div className="flex gap-1 border-b border-slate-200 dark:border-slate-700">
+                <button onClick={() => setActiveTab('securities')}
+                    className={`px-4 py-2.5 text-sm font-medium transition border-b-2 ${activeTab === 'securities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300'}`}>
+                    证券
+                </button>
+                <button disabled className="px-4 py-2.5 text-sm font-medium text-slate-300 dark:text-slate-600 cursor-not-allowed">
+                    基金
+                </button>
+                <button disabled className="px-4 py-2.5 text-sm font-medium text-slate-300 dark:text-slate-600 cursor-not-allowed">
+                    债券
+                </button>
+            </div>
+
+            {/* Asset Cards */}
             {realAccounts.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                    <AccountCardSimple icon={Wallet} label="总资产" value={realAccounts.reduce((s, a) => s + a.total_assets, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={realAccounts.map(a => a.currency).join(' + ')} color="blue" />
-                    <AccountCardSimple icon={Package} label="可用资金" value={realAccounts.reduce((s, a) => s + a.available_cash, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={`冻结 ${realAccounts.reduce((s, a) => s + a.frozen_cash, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="green" />
-                    <AccountCardSimple icon={TrendingUp} label="持仓市值" value={realAccounts.reduce((s, a) => s + a.market_val, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={`${trackingItems.length} 只股票`} color="purple" />
-                    <AccountCardSimple
-                        icon={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0) >= 0 ? TrendingUp : TrendingDown}
-                        label="浮动盈亏"
-                        value={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        subValue={`已实现 ${realAccounts.reduce((s, a) => s + a.realized_pnl, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                        color={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0) >= 0 ? 'green' : 'red'}
-                    />
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">资产净值</div>
+                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(totalAssets)}</div>
+                        <div className="text-xs text-slate-400">{displayCurrency}</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">可用资金</div>
+                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(availableCash)}</div>
+                        <div className="text-xs text-slate-400">冻结 {fmtNum(frozenCash)}</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">持仓市值</div>
+                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(marketVal)}</div>
+                        <div className="text-xs text-slate-400">{trackingItems.length} 只股票</div>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
+                        <div className="text-xs text-slate-500 dark:text-slate-400">持仓盈亏</div>
+                        <div className={`mt-1 text-xl font-bold ${unrealizedPnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtNum(unrealizedPnl)}</div>
+                        <div className="text-xs text-slate-400">已实现 {fmtNum(realizedPnl)}</div>
+                    </div>
                 </div>
             )}
+
+            {/* Cash Balance Table */}
+            {realAccounts.length > 0 && (
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                    <table className="w-full text-sm">
+                        <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-800/50">
+                                <th className="px-4 py-2 text-left font-medium text-slate-500">币种/现金</th>
+                                <th className="px-4 py-2 text-right font-medium text-slate-500">可提</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {hkAccount && (
+                                <tr className="border-t border-slate-100 dark:border-slate-800">
+                                    <td className="px-4 py-2 text-slate-700 dark:text-slate-300">HKD</td>
+                                    <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.cash_balance)}</td>
+                                </tr>
+                            )}
+                            {usAccount && (
+                                <tr className="border-t border-slate-100 dark:border-slate-800">
+                                    <td className="px-4 py-2 text-slate-700 dark:text-slate-300">USD</td>
+                                    <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.cash_balance)}</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Current Positions */}
+            <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
+                <ViewModeSwitch value={viewMode} onChange={setViewMode} />
+            </div>
 
             {trackingLoading && !trackingBoard ? (
                 <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    正在加载真仓...
+                    正在加载...
                 </div>
             ) : trackingItems.length === 0 ? (
                 <div className="py-10 text-center">
@@ -1035,21 +1112,4 @@ function parseLooseDate(value?: string | null): Date | null {
 
     const parsed = new Date(trimmed)
     return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-/* ─── Account Card Component ─── */
-
-function AccountCardSimple({ icon: Icon, label, value, subValue, color }: {
-    icon: typeof Wallet; label: string; value: string; subValue?: string
-    color: 'blue' | 'green' | 'purple' | 'red'
-}) {
-    const bgMap = { blue: 'from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20', green: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20', purple: 'from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20', red: 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20' }
-    const iconMap = { blue: 'text-blue-500', green: 'text-emerald-500', purple: 'text-purple-500', red: 'text-rose-500' }
-    return (
-        <div className={`rounded-2xl bg-gradient-to-br ${bgMap[color]} p-4`}>
-            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><Icon className={`h-4 w-4 ${iconMap[color]}`} />{label}</div>
-            <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
-            {subValue && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</div>}
-        </div>
-    )
 }
