@@ -348,6 +348,29 @@ function ViewModeSwitch({
     )
 }
 
+const TRACKING_STATE_MAP: Record<string, { label: string; color: string }> = {
+    TRADING:        { label: '交易中', color: 'bg-emerald-500 text-white' },
+    MORNING:        { label: '早盘',   color: 'bg-emerald-500 text-white' },
+    AFTERNOON:      { label: '午盘',   color: 'bg-emerald-500 text-white' },
+    CLOSED:         { label: '休市',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    PRE_MARKET:     { label: '盘前',   color: 'bg-amber-400 text-white' },
+    AFTER_HOURS:    { label: '盘后',   color: 'bg-amber-400 text-white' },
+    AFTER_HOURS_END:{ label: '盘后结束', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    NIGHT:          { label: '夜盘',   color: 'bg-indigo-400 text-white' },
+}
+
+function TrackingMarketStateBadge({ state }: { state?: string | null }) {
+    if (!state) return <div className="text-center text-xs text-slate-400">--</div>
+    const info = TRACKING_STATE_MAP[state]
+    const label = info?.label ?? state
+    const color = info?.color ?? 'bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+    return (
+        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
+            {label}
+        </span>
+    )
+}
+
 function SimpleBoardView({
     items,
     trackingRefreshing,
@@ -410,14 +433,32 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const marketValue = item.live_price && item.current_position ? item.live_price * item.current_position : item.market_value ?? null
     const costValue = item.average_cost && item.current_position ? item.average_cost * item.current_position : null
     
-    // Position ratio = this position's market value / total market value (use backend pct if available)
+    // Lots = shares / lot_size (HK default 1000, US default 1)
+    const lotSize = item.lot_size ?? (item.symbol.endsWith('.HK') ? 1000 : 1)
+    const lots = item.current_position ? Math.floor(item.current_position / lotSize) : null
+    
+    // Position ratio
     const positionPct = item.current_position_pct ?? null
+    
+    // Range progress for day range bar
+    const rangeProgress = (low?: number | null, high?: number | null, val?: number | null): number | null => {
+        if (low == null || high == null || val == null) return null
+        if (!Number.isFinite(low) || !Number.isFinite(high) || !Number.isFinite(val)) return null
+        const min = Math.min(low, high)
+        const max = Math.max(low, high)
+        if (max === min) return 50
+        return Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100))
+    }
+    
+    const liveP = rangeProgress(item.day_low, item.day_high, item.live_price)
+    const prevP = rangeProgress(item.day_low, item.day_high, item.previous_close)
+    const openP = rangeProgress(item.day_low, item.day_high, item.day_open)
 
     return (
         <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-4 last:border-b-0 dark:border-slate-700">
-            {/* 状态 - 简单用持仓状态指示 */}
+            {/* 状态 */}
             <div className="flex items-center">
-                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" title="持仓中" />
+                <TrackingMarketStateBadge state={item.market_state} />
             </div>
 
             {/* 名称/代码 */}
@@ -426,9 +467,10 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{item.symbol}</div>
             </div>
 
-            {/* 持仓数量 */}
-            <div className="flex items-center text-[15px] font-medium text-slate-800 dark:text-slate-200">
-                {formatShares(item.current_position)}
+            {/* 持仓数量 + 手数 */}
+            <div className="flex flex-col justify-center">
+                <div className="text-[15px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
+                <div className="mt-0.5 text-xs text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
             </div>
 
             {/* 市值/成本市值 */}
@@ -443,9 +485,9 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 <div className="text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
             </div>
 
-            {/* 涨跌幅 */}
-            <div className="flex items-center">
-                <span className={`inline-flex min-w-[72px] items-center justify-center rounded-full px-2.5 py-1 text-[13px] font-semibold ${
+            {/* 涨跌幅 (自选样式) */}
+            <div className="flex flex-col items-center justify-center">
+                <span className={`inline-flex min-w-[80px] items-center justify-center rounded-full px-2.5 py-1.5 text-base font-semibold ${
                     priceChangePct == null
                         ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
@@ -454,15 +496,39 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 }`}>
                     {formatSignedPercent(priceChangePct)}
                 </span>
+                <div className={`mt-1 text-xs font-bold ${
+                    priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
+                    : isUp ? 'text-rose-500 dark:text-rose-400'
+                    : 'text-emerald-500 dark:text-emerald-400'
+                }`}>
+                    {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : '--'}
+                </div>
             </div>
 
-            {/* 当日区间 */}
-            <div className="flex flex-col justify-center gap-1">
-                <div className="flex items-center gap-1.5">
-                    <span className="w-12 text-right text-[11px] text-slate-400">{formatPlainPrice(item.day_low)}</span>
-                    <SimpleRangeTrack item={item} />
-                    <span className="w-12 text-[11px] text-slate-400">{formatPlainPrice(item.day_high)}</span>
+            {/* 当日区间 (自选样式) + 模型高低 */}
+            <div className="flex flex-col justify-center gap-2">
+                <div className="flex items-center gap-2">
+                    <span className="w-12 text-right text-xs text-slate-400">{formatPlainPrice(item.day_low)}</span>
+                    <div className="relative h-5 flex-1">
+                        <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
+                        {prevP != null && <div className="absolute top-1/2 h-3.5 w-1 -translate-y-1/2 rounded-full bg-rose-500 shadow-sm" style={{ left: `calc(${prevP}% - 2px)` }} />}
+                        {openP != null && <div className="absolute top-1/2 h-3.5 w-1 -translate-y-1/2 rounded-full bg-emerald-500 shadow-sm" style={{ left: `calc(${openP}% - 2px)` }} />}
+                        {liveP != null && <div className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-blue-500 shadow-sm" style={{ left: `calc(${liveP}% - 3px)` }} />}
+                    </div>
+                    <span className="w-12 text-xs text-slate-400">{formatPlainPrice(item.day_high)}</span>
                 </div>
+                <div className="flex items-center justify-center gap-3 text-[11px]">
+                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-rose-500" /><span className="text-slate-500 dark:text-slate-400">昨收 {formatPlainPrice(item.previous_close)}</span></span>
+                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-emerald-500" /><span className="text-slate-500 dark:text-slate-400">今开 {formatPlainPrice(item.day_open)}</span></span>
+                    <span className="inline-flex items-center gap-1"><span className="h-2 w-0.5 rounded-full bg-blue-500" /><span className="text-slate-500 dark:text-slate-400">现价 {formatPlainPrice(item.live_price)}</span></span>
+                </div>
+                {item.analysis && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/70 px-2 py-1 text-[10px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+                        <span>模型低 {formatPlainPrice(item.analysis.low_price)}</span>
+                        <span className="mx-1.5">·</span>
+                        <span>模型高 {formatPlainPrice(item.analysis.high_price)}</span>
+                    </div>
+                )}
             </div>
 
             {/* 持仓盈亏/盈亏比 */}
@@ -476,7 +542,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             </div>
 
             {/* 持仓比 */}
-            <div className="flex items-center text-[14px] text-slate-700 dark:text-slate-300">
+            <div className="flex items-center text-[14px] font-medium text-slate-700 dark:text-slate-300">
                 {positionPct != null ? `${positionPct.toFixed(1)}%` : '-'}
             </div>
         </div>
@@ -795,34 +861,6 @@ function RangeInfoTooltip({ variant }: { variant: 'simple' | 'detailed' }) {
     )
 }
 
-function SimpleRangeTrack({ item }: { item: TrackingBoardItem }) {
-    const low = item.day_low
-    const high = item.day_high
-    const live = item.live_price
-    const cost = item.average_cost
-    const liveProgress = getRangeMarkerProgress(low, high, live)
-    const costProgress = getRangeMarkerProgress(low, high, cost)
-    const costAboveLive = cost != null && live != null && Number.isFinite(cost) && Number.isFinite(live) && cost > live
-    const costToneClass = costAboveLive ? 'bg-emerald-500' : 'bg-rose-500'
-
-    return (
-        <div className="relative h-6 flex-1">
-            <div className="absolute inset-y-0 left-0 right-0 my-auto h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
-            {costProgress != null && (
-                <div
-                    className={`absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full shadow-sm ${costToneClass}`}
-                    style={{ left: `calc(${costProgress}% - 2px)` }}
-                />
-            )}
-            {liveProgress != null && (
-                <div
-                    className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-slate-700 shadow-sm dark:bg-slate-200"
-                    style={{ left: `calc(${liveProgress}% - 3px)` }}
-                />
-            )}
-        </div>
-    )
-}
 
 function CombinedRangeTrack({ item }: { item: TrackingBoardItem }) {
     const limitPct = getDailyLimitPercent(item)

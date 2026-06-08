@@ -113,6 +113,8 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
                 "quote_source": quote.get("source"),
                 "currency": pos.get("currency", ""),
                 "position_side": pos.get("position_side", "LONG"),
+                "market_state": quote.get("market_state"),
+                "lot_size": 1000 if symbol.endswith(".HK") else 1,
                 "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
             }
         )
@@ -253,6 +255,8 @@ def _fetch_live_quotes(symbols: list[str]) -> dict[str, dict[str, Any]]:
                     "high": row.get("high"),
                     "low": row.get("low"),
                     "open": row.get("open"),
+                    "previous_close": row.get("prev_close"),
+                    "market_state": row.get("market_state"),
                 }
         return quotes
     except Exception as exc:

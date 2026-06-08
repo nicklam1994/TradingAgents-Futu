@@ -513,6 +513,7 @@ class FutuProvider(BaseMarketDataProvider):
                         "prev_close": prev_close,
                         "amplitude": row.get("amplitude", 0),
                         "turnover_rate": row.get("turnover_rate", 0),
+                        "market_state": row.get("market_state", ""),
                     }
                 )
 

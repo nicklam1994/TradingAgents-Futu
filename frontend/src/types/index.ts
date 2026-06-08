@@ -525,6 +525,8 @@ export interface TrackingBoardAnalysis {
 export interface TrackingBoardItem {
     symbol: string
     name: string
+    market_state?: string | null
+    lot_size?: number | null
     current_position?: number | null
     available_position?: number | null
     average_cost?: number | null
