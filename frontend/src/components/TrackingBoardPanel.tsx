@@ -277,8 +277,8 @@ export default function TrackingBoardPanel() {
                         </div>
                     </div>
                     
-                    {/* Trading Stats Cards - only in simple view */}
-                    {viewMode === 'simple' && <div className="flex-1 grid grid-cols-3 gap-4">
+                    {/* Trading Stats Cards */}
+                    <div className="flex-1 grid grid-cols-3 gap-4">
                         <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
                             <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                                 <TrendingUp className="h-4 w-4 text-emerald-500" />累计盈利
@@ -297,7 +297,7 @@ export default function TrackingBoardPanel() {
                             </div>
                             <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">--</div>
                         </div>
-                    </div>}
+                    </div>
                 </div>
             )}
 
@@ -592,28 +592,6 @@ function DetailedBoardView({
 }) {
     return (
         <div className="space-y-4 pt-4">
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <BoardStatChip
-                    label="持仓股票"
-                    value={`${items.length} 只`}
-                    subValue={items.length > 0 ? `共 ${items.length} 只股票` : '等待首次导入'}
-                    tone="blue"
-                />
-                <BoardStatChip
-                    label="动态市值"
-                    value={formatMoney(liveMarketValueTotal)}
-                    subValue="基于实时行情估算"
-                    tone="emerald"
-                />
-                <BoardStatChip
-                    label="浮动盈亏"
-                    value={formatSignedMoney(floatingPnlTotal)}
-                    subValue={trackingError ? `最近刷新异常：${trackingError}` : `价格源：${items.filter(item => item.quote_source).length}/${items.length} 已更新`}
-                    tone={floatingPnlTotal >= 0 ? 'rose' : 'amber'}
-                    loading={trackingRefreshing}
-                />
-            </div>
-
             <div className="space-y-3">
                 {items.map(item => (
                     <DetailedTrackingRow
