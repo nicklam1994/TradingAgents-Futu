@@ -465,10 +465,8 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <TrackingMarketStateBadge state={item.market_state} />
         </div>
         <div className="flex flex-col justify-center gap-0.5">
-            <div className="flex items-center gap-2">
-                <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
-                <span className="text-sm text-slate-500 dark:text-slate-400">{item.symbol}</span>
-            </div>
+            <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
+            <span className="text-sm text-slate-500 dark:text-slate-400">{item.symbol}</span>
             <div className="flex items-center gap-2">
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${
                     priceChangePct == null
