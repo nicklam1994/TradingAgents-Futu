@@ -575,10 +575,6 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
 
 function DetailedBoardView({
     items,
-    trackingRefreshing,
-    trackingError,
-    liveMarketValueTotal,
-    floatingPnlTotal,
     onAnalyze,
     onOpenReport,
 }: {
@@ -917,38 +913,6 @@ function CombinedRangeTrack({ item }: { item: TrackingBoardItem }) {
                     style={{ left: `calc(16% + ${liveProgress * 0.68}% - 3px)` }}
                 />
             )}
-        </div>
-    )
-}
-
-function BoardStatChip({
-    label,
-    value,
-    subValue,
-    tone,
-    loading = false,
-}: {
-    label: string
-    value: string
-    subValue: string
-    tone: BoardTone
-    loading?: boolean
-}) {
-    const toneClasses: Record<BoardTone, string> = {
-        blue: 'from-blue-500/12 to-sky-500/10 border-blue-200/70 dark:border-blue-500/20',
-        emerald: 'from-emerald-500/12 to-teal-500/10 border-emerald-200/70 dark:border-emerald-500/20',
-        rose: 'from-rose-500/12 to-orange-500/10 border-rose-200/70 dark:border-rose-500/20',
-        amber: 'from-amber-500/12 to-orange-500/10 border-amber-200/70 dark:border-amber-500/20',
-    }
-
-    return (
-        <div className={`rounded-2xl border bg-gradient-to-br px-4 py-3 ${toneClasses[tone]}`}>
-            <div className="flex items-center justify-between">
-                <p className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</p>
-                {loading && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
-            </div>
-            <p className="mt-2 text-xl font-semibold text-slate-900 dark:text-slate-100">{value}</p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</p>
         </div>
     )
 }
