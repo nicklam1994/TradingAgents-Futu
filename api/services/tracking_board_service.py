@@ -72,6 +72,20 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
     # Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
 
+    # Calculate live market values first for position ratio
+    live_values: dict[str, float] = {}
+    for pos in positions:
+        symbol = pos["symbol"]
+        quote = quotes.get(symbol, {})
+        live_price = _to_float(quote.get("price")) or _to_float(pos.get("nominal_price"))
+        qty = _to_float(pos.get("qty"))
+        market_val = _to_float(pos.get("market_val"))
+        if live_price and qty:
+            live_values[symbol] = round(live_price * qty, 2)
+        else:
+            live_values[symbol] = market_val or 0
+    total_market_value = sum(live_values.values()) or 1
+
     items: list[dict[str, Any]] = []
     for pos in positions:
         symbol = pos["symbol"]
@@ -119,6 +133,7 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
                 "position_side": pos.get("position_side", "LONG"),
                 "market_state": market_states.get(symbol, ""),
                 "lot_size": int(quote.get("lot_size") or 0) or (100 if symbol.endswith(".HK") else 1),
+                "current_position_pct": round(live_values.get(symbol, 0) / total_market_value * 100, 1),
                 "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
             }
         )
