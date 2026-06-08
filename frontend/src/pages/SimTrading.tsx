@@ -56,7 +56,6 @@ export default function SimTrading() {
     // Order form
     const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY')
     const [orderType, setOrderType] = useState('NORMAL')
-    const [orderSession, setOrderSession] = useState('ALL')
     const [orderPrice, setOrderPrice] = useState('')
     const [orderQty, setOrderQty] = useState('')
     const [triggerPrice, setTriggerPrice] = useState('')
@@ -330,16 +329,6 @@ export default function SimTrading() {
                                     className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
                                     模拟卖出
                                 </button>
-                            </div>
-
-                            {/* Session */}
-                            <div>
-                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">时段</label>
-                                <select value={orderSession} onChange={e => setOrderSession(e.target.value)}
-                                    className="input w-full">
-                                    <option value="ALL">盘前+盘中+盘后</option>
-                                    <option value="REGULAR">盘中</option>
-                                </select>
                             </div>
 
                             {/* Type */}
