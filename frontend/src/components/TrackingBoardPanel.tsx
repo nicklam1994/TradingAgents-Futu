@@ -517,25 +517,25 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             </div>
 
             {/* 持仓数量 + 手数 */}
-            <div className="flex flex-col items-center justify-center">
+            <div className="flex flex-col justify-center">
                 <div className="text-[17px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
                 <div className="mt-0.5 text-sm text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
             </div>
 
             {/* 市值/成本市值 */}
-            <div className="flex flex-col items-end justify-center text-[15px]">
+            <div className="flex flex-col justify-center text-[15px]">
                 <div className="font-medium text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
                 <div className="mt-0.5 text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
             </div>
 
             {/* 现价/成本价 */}
-            <div className="flex flex-col items-end justify-center text-[15px]">
+            <div className="flex flex-col justify-center text-[15px]">
                 <div className={`text-[17px] font-bold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
                 <div className="mt-0.5 text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
             </div>
 
             {/* 持仓盈亏/盈亏比 */}
-            <div className="flex flex-col items-end justify-center text-[15px]">
+            <div className="flex flex-col justify-center text-[15px]">
                 <div className={`font-bold ${pnlColor}`}>
                     {item.floating_pnl != null ? (item.floating_pnl >= 0 ? '+' : '') + formatAmount(item.floating_pnl) : '-'}
                 </div>
