@@ -5440,6 +5440,7 @@ def sim_all_accounts(current_user: UserDB = Depends(_require_api_user)) -> Dict[
 
 @app.get("/v1/sim/positions")
 def sim_positions(
+    trd_market: str = Query("HK", description="市场 HK/US"),
     page_size: int = Query(100, ge=1, le=1000),
     page_index: int = Query(0, ge=0),
     current_user: UserDB = Depends(_require_api_user),
@@ -5447,7 +5448,7 @@ def sim_positions(
     """查询模拟交易持仓列表。"""
     try:
         positions = _sim_get_positions(
-            "SIMULATE", page_size=page_size, page_index=page_index
+            "SIMULATE", trd_market=trd_market, page_size=page_size, page_index=page_index
         )
         return {
             "ok": True,
@@ -5501,6 +5502,7 @@ def sim_cancel_order(
 @app.get("/v1/sim/orders")
 def sim_orders(
     symbol: Optional[str] = Query(None, description="股票代码筛选"),
+    trd_market: str = Query("HK", description="市场 HK/US"),
     page_size: int = Query(100, ge=1, le=1000),
     page_index: int = Query(0, ge=0),
     current_user: UserDB = Depends(_require_api_user),
@@ -5510,6 +5512,7 @@ def sim_orders(
         orders = _sim_get_orders(
             symbol=symbol,
             trd_env="SIMULATE",
+            trd_market=trd_market,
             page_size=page_size,
             page_index=page_index,
         )

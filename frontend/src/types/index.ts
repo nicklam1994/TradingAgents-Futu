@@ -728,12 +728,16 @@ export interface SimAccount {
 export interface SimPosition {
     code: string
     symbol: string
+    stock_name: string
     qty: number
     cost_price: number
     current_price: number
+    prev_close: number
     market_val: number
+    cost_val: number
     unrealized_pnl: number
     unrealized_pnl_pct: number
+    today_pnl: number
     currency: string
 }
 

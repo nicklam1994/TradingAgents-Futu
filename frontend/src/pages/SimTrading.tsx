@@ -2,7 +2,7 @@
  * SimTrading — 模拟交易页面
  *
  * 展示所有模拟账户（港股/美股）资金卡片、持仓列表、盈亏曲线、当日订单与成交记录。
- * 调用 /v1/sim/accounts, /v1/sim/positions, /v1/sim/orders, /v1/sim/deals
+ * 切换市场标签时自动重新加载持仓/订单/成交。
  */
 
 import { useEffect, useState, useCallback } from 'react'
@@ -28,22 +28,29 @@ export default function SimTrading() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
 
-    const loadAll = useCallback(async () => {
+    // Load accounts once
+    const loadAccounts = useCallback(async () => {
+        try {
+            const res = await api.getSimAllAccounts()
+            if (res.ok) setAccounts(res.data ?? [])
+        } catch { /* ignore */ }
+    }, [])
+
+    // Load market-specific data when activeMarket changes
+    const loadMarketData = useCallback(async () => {
         setLoading(true)
         setError(null)
         try {
-            const [accRes, posRes, ordRes, dealRes] = await Promise.allSettled([
-                api.getSimAllAccounts(),
-                api.getSimPositions(),
-                api.getSimOrders(),
+            const [posRes, ordRes, dealRes] = await Promise.allSettled([
+                api.getSimPositions(activeMarket),
+                api.getSimOrders(undefined, activeMarket),
                 api.getSimDeals(),
             ])
-            if (accRes.status === 'fulfilled') setAccounts(accRes.value.data ?? [])
             if (posRes.status === 'fulfilled') setPositions(posRes.value.data ?? [])
             if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? [])
             if (dealRes.status === 'fulfilled') setDeals(dealRes.value.data ?? [])
 
-            const firstError = [accRes, posRes, ordRes, dealRes].find(r => r.status === 'rejected')
+            const firstError = [posRes, ordRes, dealRes].find(r => r.status === 'rejected')
             if (firstError && firstError.status === 'rejected') {
                 setError(firstError.reason?.message ?? '加载模拟交易数据失败')
             }
@@ -52,12 +59,21 @@ export default function SimTrading() {
         } finally {
             setLoading(false)
         }
-    }, [])
+    }, [activeMarket])
 
-    useEffect(() => { loadAll() }, [loadAll])
+    useEffect(() => { loadAccounts() }, [loadAccounts])
+    useEffect(() => { loadMarketData() }, [loadMarketData])
+
+    const refresh = () => {
+        loadAccounts()
+        loadMarketData()
+    }
 
     const activeAccount = accounts.find(a => a.market === activeMarket) ?? accounts[0] ?? null
     const equityCurve = buildEquityCurve(deals)
+
+    // Portfolio total for position % calculation
+    const totalMarketVal = positions.reduce((s, p) => s + (p.market_val || 0), 0)
 
     return (
         <div className="space-y-6">
@@ -67,7 +83,7 @@ export default function SimTrading() {
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">模拟交易</h1>
                     <p className="mt-1 text-slate-500 dark:text-slate-400">查看模拟账户资金、持仓与交易记录</p>
                 </div>
-                <button onClick={loadAll} disabled={loading}
+                <button onClick={refresh} disabled={loading}
                     className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     刷新
@@ -149,31 +165,57 @@ export default function SimTrading() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    <th className="px-3 py-2 text-left font-medium text-slate-500">代码</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">成本</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">现价</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">浮动盈亏</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">盈亏%</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {positions.map(p => (
-                                    <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                        <td className="px-3 py-2 font-medium text-slate-900 dark:text-slate-100">{p.code}</td>
-                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
-                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.cost_price?.toFixed(3)}</td>
-                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.current_price?.toFixed(3)}</td>
-                                        <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{fmt(p.market_val)}</td>
-                                        <td className={`px-3 py-2 text-right font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {fmt(p.unrealized_pnl)}
-                                        </td>
-                                        <td className={`px-3 py-2 text-right font-medium ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {p.unrealized_pnl_pct?.toFixed(2)}%
-                                        </td>
-                                    </tr>
-                                ))}
+                                {positions.map(p => {
+                                    const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
+                                    return (
+                                        <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                            {/* 股票名称/代码 */}
+                                            <td className="px-3 py-2">
+                                                <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
+                                                <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
+                                            </td>
+                                            {/* 持仓数量 */}
+                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
+                                            {/* 现价/成本价 */}
+                                            <td className="px-3 py-2 text-right">
+                                                <div className="text-slate-900 dark:text-slate-100">{fmtPrice(p.current_price)}</div>
+                                                <div className="text-xs text-slate-400">{fmtPrice(p.cost_price)}</div>
+                                            </td>
+                                            {/* 市值/成本市值 */}
+                                            <td className="px-3 py-2 text-right">
+                                                <div className="text-slate-900 dark:text-slate-100">{fmt(p.market_val)}</div>
+                                                <div className="text-xs text-slate-400">{fmt(p.cost_val)}</div>
+                                            </td>
+                                            {/* 持仓盈亏/盈亏% */}
+                                            <td className="px-3 py-2 text-right">
+                                                <div className={`font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                    {fmt(p.unrealized_pnl)}
+                                                </div>
+                                                <div className={`text-xs ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                    {p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct?.toFixed(2)}%
+                                                </div>
+                                            </td>
+                                            {/* 今日盈亏 */}
+                                            <td className={`px-3 py-2 text-right font-medium ${p.today_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                {p.prev_close ? fmt(p.today_pnl) : '--'}
+                                            </td>
+                                            {/* 持仓% */}
+                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">
+                                                {posPct.toFixed(1)}%
+                                            </td>
+                                        </tr>
+                                    )
+                                })}
                             </tbody>
                         </table>
                     </div>
@@ -193,11 +235,12 @@ export default function SimTrading() {
                                 <div key={o.order_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
                                     <div className="flex items-center gap-2">
                                         {o.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{o.code}</span>
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{o.stock_name || o.code}</span>
                                         <span className={`text-xs ${o.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{o.side}</span>
+                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{o.status}</span>
                                     </div>
                                     <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                        <div>{o.qty} × {o.price?.toFixed(3)}</div>
+                                        <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
                                         <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
                                     </div>
                                 </div>
@@ -217,11 +260,11 @@ export default function SimTrading() {
                                 <div key={d.deal_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
                                     <div className="flex items-center gap-2">
                                         {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.code}</span>
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || d.code}</span>
                                         <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
                                     </div>
                                     <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                        <div>{d.qty} × {d.price?.toFixed(3)}</div>
+                                        <div>{d.qty} × {d.price?.toFixed(2)}</div>
                                         <div className="text-xs text-slate-400">{formatTime(d.deal_time)}</div>
                                     </div>
                                 </div>
@@ -282,9 +325,19 @@ function fmt(v: number | undefined | null): string {
     return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function fmtPrice(v: number | undefined | null): string {
+    if (v == null || v === 0) return '--'
+    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
+}
+
+/** Convert Futu code HK.00700 → 00700.HK, US.AAPL → AAPL */
+function displayCode(code: string): string {
+    if (code.startsWith('HK.')) return code.slice(3) + '.HK'
+    if (code.startsWith('US.')) return code.slice(3)
+    return code
+}
+
 function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number }> {
-    // NOTE: This FIFO P&L logic duplicates the backend /v1/sim/performance calculation.
-    // Kept here because the frontend needs per-deal data points for the chart rendering.
     if (!deals.length) return []
 
     const sorted = [...deals].sort((a, b) => (a.deal_time ?? '').localeCompare(b.deal_time ?? ''))

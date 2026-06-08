@@ -94,12 +94,16 @@ class Position:
     """Single position entry."""
     code: str = ""                  # 股票代码 (e.g., "HK.00700", "US.AAPL")
     symbol: str = ""                # 原始符号
+    stock_name: str = ""            # 股票名称
     qty: int = 0                    # 持仓数量
     cost_price: float = 0.0         # 成本价
     current_price: float = 0.0      # 现价
+    prev_close: float = 0.0         # 昨收价
     market_val: float = 0.0         # 市值
-    unrealized_pnl: float = 0.0     # 未实现盈亏
-    unrealized_pnl_pct: float = 0.0 # 未实现盈亏百分比
+    cost_val: float = 0.0           # 成本市值
+    unrealized_pnl: float = 0.0     # 持仓盈亏
+    unrealized_pnl_pct: float = 0.0 # 持仓盈亏%
+    today_pnl: float = 0.0          # 今日盈亏
     currency: str = "HKD"
 
 
@@ -359,6 +363,7 @@ def get_account(trd_env: str = "SIMULATE", trd_market: str = "HK") -> AccountInf
 
 def get_positions(
     trd_env: str = "SIMULATE",
+    trd_market: str = "HK",
     page_size: int = 100,
     page_index: int = 0,
 ) -> List[Position]:
@@ -366,6 +371,7 @@ def get_positions(
 
     Args:
         trd_env: Trading environment. Only "SIMULATE" is supported.
+        trd_market: "HK" or "US". Determines which Futu account to query.
         page_size: Number of positions per page (max 1000).
         page_index: Page index (0-based).
 
@@ -375,12 +381,24 @@ def get_positions(
     Raises:
         RuntimeError: If FutuOpenD is offline or API call fails.
     """
-    from futu import RET_OK, TrdEnv
+    from futu import RET_OK, TrdEnv, TrdMarket, OpenSecTradeContext, SecurityFirm, SysConfig
 
     if trd_env != "SIMULATE":
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
-    ctx = _get_trade_ctx()
+    market = TrdMarket.US if trd_market.upper() == "US" else TrdMarket.HK
+    encrypt = _need_encrypt()
+    if encrypt:
+        rsa_path = _get_rsa_path()
+        SysConfig.enable_proto_encrypt(is_encrypt=True)
+        SysConfig.set_init_rsa_file(rsa_path)
+    ctx = OpenSecTradeContext(
+        host=_opend_host(),
+        port=_opend_port(),
+        filter_trdmarket=market,
+        security_firm=SecurityFirm.FUTUSECURITIES,
+        is_encrypt=True if encrypt else None,
+    )
     try:
         ret, data = ctx.position_list_query(
             trd_env=TrdEnv.SIMULATE,
@@ -391,26 +409,60 @@ def get_positions(
         if data is None or data.empty:
             return []
 
-        positions = []
+        # Collect codes for snapshot lookup
+        raw_rows = []
+        codes_for_snapshot = []
         for _, row in data.iterrows():
             qty = int(row.get("qty", 0))
             if qty == 0:
-                continue  # Skip zero-qty positions
+                continue
+            raw_rows.append(row)
+            codes_for_snapshot.append(str(row.get("code", "")))
+
+        # Fetch prev_close via quote snapshot
+        prev_close_map: dict[str, float] = {}
+        if codes_for_snapshot:
+            try:
+                from futu import OpenQuoteContext
+                qctx = OpenQuoteContext(
+                    host=_opend_host(), port=_opend_port(),
+                    security_firm=SecurityFirm.FUTUSECURITIES,
+                    is_encrypt=True if encrypt else None,
+                )
+                try:
+                    ret2, snap = qctx.get_market_snapshot(codes_for_snapshot)
+                    if ret2 == RET_OK and snap is not None and not snap.empty:
+                        for _, sr in snap.iterrows():
+                            prev_close_map[str(sr.get("code", ""))] = float(sr.get("prev_close_price", 0) or 0)
+                finally:
+                    qctx.close()
+            except Exception:
+                pass  # prev_close stays 0
+
+        positions = []
+        for row in raw_rows:
+            qty = int(row.get("qty", 0))
+            code = str(row.get("code", ""))
             cost_price = float(row.get("cost_price", 0))
             current_price = float(row.get("nominal_price", row.get("last_price", 0)))
             market_val = float(row.get("market_val", 0))
             unrealized_pnl = float(row.get("pl_val", 0))
             pl_ratio = float(row.get("pl_ratio", 0))
+            prev_close = prev_close_map.get(code, 0.0)
 
             positions.append(Position(
-                code=str(row.get("code", "")),
-                symbol=_symbol_from_futu_code(str(row.get("code", ""))),
+                code=code,
+                symbol=_symbol_from_futu_code(code),
+                stock_name=str(row.get("stock_name", "")),
                 qty=qty,
                 cost_price=cost_price,
                 current_price=current_price,
+                prev_close=prev_close,
                 market_val=market_val,
+                cost_val=round(cost_price * qty, 2),
                 unrealized_pnl=unrealized_pnl,
                 unrealized_pnl_pct=round(pl_ratio * 100, 2) if pl_ratio else 0.0,
+                today_pnl=round((current_price - prev_close) * qty, 2) if prev_close else 0.0,
                 currency=str(row.get("currency", "HKD")),
             ))
 
@@ -589,31 +641,45 @@ def cancel_order(
 def get_orders(
     symbol: Optional[str] = None,
     trd_env: str = "SIMULATE",
+    trd_market: str = "HK",
     page_size: int = 100,
     page_index: int = 0,
 ) -> List[OrderInfo]:
     """Query simulated trading orders.
 
     Args:
-        symbol: Optional stock symbol filter. If None, queries all markets.
+        symbol: Optional stock symbol filter. If None, queries the specified market.
         trd_env: Trading environment. Only "SIMULATE" is supported.
+        trd_market: "HK" or "US". Determines which market context to query.
         page_size: Number of orders per page (max 1000).
         page_index: Page index (0-based).
 
     Returns:
         List of OrderInfo objects.
     """
-    from futu import RET_OK, TrdEnv, OpenSecTradeContext, TrdMarket, SecurityFirm
+    from futu import RET_OK, TrdEnv, OpenSecTradeContext, TrdMarket, SecurityFirm, SysConfig
 
     if trd_env != "SIMULATE":
         raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
 
     if symbol:
-        market, code = _to_futu_trade_code(symbol)
+        market_val, code = _to_futu_trade_code(symbol)
         ctx = _get_trade_ctx(symbol)
         code_filter = code
     else:
-        ctx = _get_trade_ctx()
+        market_val = TrdMarket.US if trd_market.upper() == "US" else TrdMarket.HK
+        encrypt = _need_encrypt()
+        if encrypt:
+            rsa_path = _get_rsa_path()
+            SysConfig.enable_proto_encrypt(is_encrypt=True)
+            SysConfig.set_init_rsa_file(rsa_path)
+        ctx = OpenSecTradeContext(
+            host=_opend_host(),
+            port=_opend_port(),
+            filter_trdmarket=market_val,
+            security_firm=SecurityFirm.FUTUSECURITIES,
+            is_encrypt=True if encrypt else None,
+        )
         code_filter = None
 
     try:
@@ -1113,12 +1179,16 @@ def position_to_dict(p: Position) -> Dict[str, Any]:
     return {
         "code": p.code,
         "symbol": p.symbol,
+        "stock_name": p.stock_name,
         "qty": p.qty,
         "cost_price": p.cost_price,
         "current_price": p.current_price,
+        "prev_close": p.prev_close,
         "market_val": p.market_val,
+        "cost_val": p.cost_val,
         "unrealized_pnl": p.unrealized_pnl,
         "unrealized_pnl_pct": p.unrealized_pnl_pct,
+        "today_pnl": p.today_pnl,
         "currency": p.currency,
     }
 

@@ -364,13 +364,14 @@ class ApiService {
         return this.request('/v1/sim/accounts')
     }
 
-    async getSimPositions(): Promise<{ ok: boolean; data: SimPosition[]; total: number }> {
-        return this.request('/v1/sim/positions')
+    async getSimPositions(trdMarket: string = 'HK'): Promise<{ ok: boolean; data: SimPosition[]; total: number }> {
+        return this.request(`/v1/sim/positions?trd_market=${trdMarket}`)
     }
 
-    async getSimOrders(symbol?: string): Promise<{ ok: boolean; data: SimOrder[]; total: number }> {
+    async getSimOrders(symbol?: string, trdMarket: string = 'HK'): Promise<{ ok: boolean; data: SimOrder[]; total: number }> {
         const params = new URLSearchParams()
         if (symbol) params.append('symbol', symbol)
+        params.append('trd_market', trdMarket)
         return this.request(`/v1/sim/orders?${params}`)
     }
 
