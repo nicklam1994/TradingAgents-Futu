@@ -8,7 +8,7 @@ import {
     TrendingUp,
     Wallet,
 } from 'lucide-react'
-import { type CSSProperties, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '@/services/api'
@@ -31,6 +31,8 @@ export default function TrackingBoardPanel() {
     const [trackingLoading, setTrackingLoading] = useState(true)
     const [trackingRefreshing, setTrackingRefreshing] = useState(false)
     const [trackingError, setTrackingError] = useState<string | null>(null)
+    const [wsConnected, setWsConnected] = useState(false)
+    const wsRef = useRef<WebSocket | null>(null)
     const [viewMode, setViewMode] = useState<BoardViewMode>(() => {
         try {
             const stored = localStorage.getItem('ta-tracking-board-view')
@@ -114,7 +116,49 @@ export default function TrackingBoardPanel() {
         }
     }, [trackingRefreshSeconds, user?.id])
 
+    // WebSocket for real-time price updates
+    useEffect(() => {
+        const token = localStorage.getItem('ta-access-token') || ''
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws/quotes?token=${token}`)
+        wsRef.current = ws
+        ws.onopen = () => setWsConnected(true)
+        ws.onmessage = (event) => {
+            try {
+                const msg = JSON.parse(event.data)
+                if ((msg.type === 'quotes' || msg.type === 'quote_update') && msg.data) {
+                    setTrackingBoard(prev => {
+                        if (!prev) return prev
+                        const updatedItems = prev.items.map(item => {
+                            const q = msg.type === 'quote_update' ? (msg.symbol === item.symbol ? msg.data : null) : msg.data[item.symbol]
+                            if (!q) return item
+                            return {
+                                ...item,
+                                live_price: q.price ?? item.live_price,
+                                price_change: q.change ?? item.price_change,
+                                price_change_pct: q.change_pct ?? item.price_change_pct,
+                                day_open: q.open ?? item.day_open,
+                                day_high: q.high ?? item.day_high,
+                                day_low: q.low ?? item.day_low,
+                                volume: q.volume ?? item.volume,
+                            }
+                        })
+                        return { ...prev, items: updatedItems }
+                    })
+                }
+            } catch {}
+        }
+        ws.onclose = () => setWsConnected(false)
+        ws.onerror = () => setWsConnected(false)
+        return () => { ws.close() }
+    }, [])
 
+    // Subscribe to position symbols
+    useEffect(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN && trackingItems.length > 0) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: trackingItems.map(i => i.symbol) }))
+        }
+    }, [trackingItems.map(i => i.symbol).join(',')])
 
     // Currency switch state
     const [displayCurrency, setDisplayCurrency] = useState<'HKD' | 'USD'>('HKD')
@@ -257,6 +301,7 @@ export default function TrackingBoardPanel() {
                     trackingRefreshing={trackingRefreshing}
                     trackingError={trackingError}
                     lastQuoteTime={lastQuoteTime}
+                    wsConnected={wsConnected}
                 />
             ) : (
                 <DetailedBoardView
@@ -308,27 +353,28 @@ function SimpleBoardView({
     trackingRefreshing,
     trackingError,
     lastQuoteTime,
+    wsConnected,
 }: {
     items: TrackingBoardItem[]
     trackingRefreshing: boolean
     trackingError: string | null
     lastQuoteTime: string | null
+    wsConnected: boolean
 }) {
     return (
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
-                <div className="min-w-[1180px]">
-                    <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
-                        <div>股票</div>
-                        <div>当日 K 线</div>
-                        <div>最新价</div>
+                <div className="min-w-[1280px]">
+                    <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+                        <div>状态</div>
+                        <div>名称/代码</div>
+                        <div>持仓数量</div>
+                        <div>市值/成本市值</div>
+                        <div>现价/成本价</div>
                         <div>涨跌幅</div>
-                        <div className="flex items-center gap-1">
-                            <span>当日区间</span>
-                            <RangeInfoTooltip variant="simple" />
-                        </div>
-                        <div>持仓盈亏%</div>
-                        <div>成交量 / 成交额</div>
+                        <div>当日区间</div>
+                        <div>持仓盈亏/盈亏比</div>
+                        <div>持仓比</div>
                     </div>
 
                     {items.map(item => (
@@ -339,8 +385,8 @@ function SimpleBoardView({
 
             <div className="flex flex-col gap-2 border-t border-slate-200 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between dark:border-slate-700 dark:text-slate-400">
                 <div className="flex items-center gap-2">
-                    <span className={`inline-flex h-2.5 w-2.5 rounded-full ${trackingError ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                    <span>{trackingError ? `最近刷新异常：${trackingError}` : '实时监控中'}</span>
+                    <span className={`inline-flex h-2.5 w-2.5 rounded-full ${wsConnected ? 'bg-emerald-400' : trackingError ? 'bg-amber-400' : 'bg-slate-400'}`} />
+                    <span>{wsConnected ? 'WS 实时连接中' : trackingError ? `最近刷新异常：${trackingError}` : '连接中...'}</span>
                     {trackingRefreshing && <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />}
                 </div>
                 <div className="text-slate-400">更新：{formatFooterTime(lastQuoteTime)}</div>
@@ -352,36 +398,54 @@ function SimpleBoardView({
 function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const priceChangePct = item.price_change_pct ?? null
     const isUp = (priceChangePct ?? 0) >= 0
-    const costToneClass = item.average_cost != null && item.live_price != null && item.average_cost > item.live_price
-        ? 'bg-emerald-500'
-        : 'bg-rose-500'
     const holdingChangePct = item.floating_pnl_pct ?? null
     const priceColor = priceChangePct == null
         ? 'text-slate-800 dark:text-slate-200'
         : isUp
             ? 'text-rose-600 dark:text-rose-400'
             : 'text-emerald-600 dark:text-emerald-400'
-    const rangeAlert = getModelRangeAlert(item)
+    const pnlColor = (item.floating_pnl ?? 0) >= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+    
+    // Market value = live_price * qty, cost value = average_cost * qty
+    const marketValue = item.live_price && item.current_position ? item.live_price * item.current_position : item.market_value ?? null
+    const costValue = item.average_cost && item.current_position ? item.average_cost * item.current_position : null
+    
+    // Position ratio = this position's market value / total market value (use backend pct if available)
+    const positionPct = item.current_position_pct ?? null
 
     return (
-        <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 px-5 py-5 last:border-b-0 dark:border-slate-700">
+        <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-4 last:border-b-0 dark:border-slate-700">
+            {/* 状态 - 简单用持仓状态指示 */}
+            <div className="flex items-center">
+                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" title="持仓中" />
+            </div>
+
+            {/* 名称/代码 */}
             <div className="min-w-0">
-                <div className="truncate text-[18px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-                    <span>{item.symbol}</span>
-                    <span>成本 {formatPlainPrice(item.average_cost)}</span>
-                    <span>持仓 {formatShares(item.current_position)}</span>
-                </div>
+                <div className="truncate text-[15px] font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                <div className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">{item.symbol}</div>
             </div>
 
-            <SimpleDayCandle item={item} />
-
-            <div className={`self-center text-[22px] font-semibold ${priceColor}`}>
-                {formatPlainPrice(item.live_price)}
+            {/* 持仓数量 */}
+            <div className="flex items-center text-[15px] font-medium text-slate-800 dark:text-slate-200">
+                {formatShares(item.current_position)}
             </div>
 
-            <div className="self-center">
-                <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[18px] font-semibold ${
+            {/* 市值/成本市值 */}
+            <div className="flex flex-col justify-center text-[14px]">
+                <div className="text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
+                <div className="text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
+            </div>
+
+            {/* 现价/成本价 */}
+            <div className="flex flex-col justify-center text-[14px]">
+                <div className={`font-semibold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
+                <div className="text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
+            </div>
+
+            {/* 涨跌幅 */}
+            <div className="flex items-center">
+                <span className={`inline-flex min-w-[72px] items-center justify-center rounded-full px-2.5 py-1 text-[13px] font-semibold ${
                     priceChangePct == null
                         ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
@@ -392,123 +456,28 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 </span>
             </div>
 
-            <div className="space-y-2 self-center">
-                <div className="flex items-center gap-3">
-                    <span className="w-14 text-right text-sm text-slate-400">{formatPlainPrice(item.day_low)}</span>
+            {/* 当日区间 */}
+            <div className="flex flex-col justify-center gap-1">
+                <div className="flex items-center gap-1.5">
+                    <span className="w-12 text-right text-[11px] text-slate-400">{formatPlainPrice(item.day_low)}</span>
                     <SimpleRangeTrack item={item} />
-                    <span className="w-14 text-sm text-slate-400">{formatPlainPrice(item.day_high)}</span>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    <span className="inline-flex items-center gap-1">
-                        <span className="h-2.5 w-0.5 rounded-full bg-slate-700 dark:bg-slate-300" />
-                        现价 {formatPlainPrice(item.live_price)}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                        <span className={`h-2.5 w-0.5 rounded-full ${costToneClass}`} />
-                        成本 {formatPlainPrice(item.average_cost)}
-                    </span>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-[11px] text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                        <span>模型低位 {formatPlainPrice(item.analysis?.low_price)}</span>
-                        <span>模型高位 {formatPlainPrice(item.analysis?.high_price)}</span>
-                    </div>
-                    {rangeAlert && (
-                        <div className={`mt-1 font-medium ${rangeAlert.tone === 'danger' ? 'text-rose-600' : 'text-amber-600'}`}>
-                            {rangeAlert.message}
-                        </div>
-                    )}
+                    <span className="w-12 text-[11px] text-slate-400">{formatPlainPrice(item.day_high)}</span>
                 </div>
             </div>
 
-            <div className="self-center">
-                <span className={`inline-flex min-w-[96px] items-center justify-center rounded-full px-3 py-2 text-[16px] font-semibold ${
-                    holdingChangePct == null
-                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
-                        : holdingChangePct >= 0
-                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
-                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
-                }`}>
-                    {formatSignedPercent(holdingChangePct)}
-                </span>
+            {/* 持仓盈亏/盈亏比 */}
+            <div className="flex flex-col justify-center text-[13px]">
+                <div className={`font-semibold ${pnlColor}`}>
+                    {item.floating_pnl != null ? (item.floating_pnl >= 0 ? '+' : '') + formatAmount(item.floating_pnl) : '-'}
+                </div>
+                <div className={`text-[12px] ${pnlColor}`}>
+                    {holdingChangePct != null ? formatSignedPercent(holdingChangePct) : '-'}
+                </div>
             </div>
 
-            <div className="self-center space-y-1 text-[15px] text-slate-700 dark:text-slate-200">
-                <div>{formatVolume(item.volume)}</div>
-                <div className="text-[14px] text-slate-500 dark:text-slate-400">{formatAmount(item.amount)}</div>
-            </div>
-        </div>
-    )
-}
-
-function SimpleDayCandle({ item }: { item: TrackingBoardItem }) {
-    const open = item.day_open ?? item.previous_close ?? null
-    const close = item.live_price ?? null
-    const high = item.day_high ?? null
-    const low = item.day_low ?? null
-
-    if (open == null || close == null || high == null || low == null) {
-        return (
-            <div className="flex h-[56px] items-center text-sm text-slate-400 dark:text-slate-500">
-                暂无数据
-            </div>
-        )
-    }
-
-    const maxPrice = Math.max(high, low, open, close)
-    const minPrice = Math.min(high, low, open, close)
-    const range = maxPrice - minPrice || Math.max(maxPrice * 0.01, 0.01)
-    const chartTop = 4
-    const chartBottom = 44
-    const chartHeight = chartBottom - chartTop
-    const toY = (value: number) => chartTop + ((maxPrice - value) / range) * chartHeight
-
-    const wickTop = toY(high)
-    const wickBottom = toY(low)
-    const openY = toY(open)
-    const closeY = toY(close)
-    const bodyTop = Math.min(openY, closeY)
-    const bodyHeight = Math.max(Math.abs(closeY - openY), 2)
-    const isUp = close >= open
-    const candleColor = isUp ? '#e11d48' : '#059669'
-
-    const previousClose = item.previous_close
-    const previousCloseY = previousClose == null
-        ? null
-        : previousClose > maxPrice || previousClose < minPrice
-            ? null
-            : toY(previousClose)
-
-    return (
-        <div className="flex items-center gap-3">
-            <svg width="44" height="48" viewBox="0 0 44 48" className="shrink-0 overflow-visible">
-                <rect x="0.5" y="0.5" width="43" height="47" rx="11.5" className="fill-slate-50 stroke-slate-200 dark:fill-slate-800 dark:stroke-slate-700" />
-                {previousCloseY != null && (
-                    <line
-                        x1="8"
-                        y1={previousCloseY}
-                        x2="36"
-                        y2={previousCloseY}
-                        stroke="#cbd5e1"
-                        strokeDasharray="2 2"
-                        strokeWidth="1"
-                    />
-                )}
-                <line x1="22" y1={wickTop} x2="22" y2={wickBottom} stroke={candleColor} strokeWidth="2" strokeLinecap="round" />
-                <rect
-                    x="15"
-                    y={bodyTop}
-                    width="14"
-                    height={bodyHeight}
-                    rx="3"
-                    fill={isUp ? '#ffe4e6' : '#dcfce7'}
-                    stroke={candleColor}
-                    strokeWidth="1.5"
-                />
-            </svg>
-            <div className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                <div>开 {formatPlainPrice(open)}</div>
-                <div className={isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>现 {formatPlainPrice(close)}</div>
+            {/* 持仓比 */}
+            <div className="flex items-center text-[14px] text-slate-700 dark:text-slate-300">
+                {positionPct != null ? `${positionPct.toFixed(1)}%` : '-'}
             </div>
         </div>
     )
