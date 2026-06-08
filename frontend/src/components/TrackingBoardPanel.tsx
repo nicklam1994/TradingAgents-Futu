@@ -243,62 +243,65 @@ export default function TrackingBoardPanel() {
                 </div>
             )}
 
-            {/* Cash Balance Table (same width as first card) */}
+            {/* Cash Balance Table + Trading Stats Cards */}
             {realAccounts.length > 0 && (
-                <div className="w-1/4">
-                    <div className="card overflow-hidden">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    <th className="px-4 py-2 text-left font-medium text-slate-500">币种</th>
-                                    <th className="px-4 py-2 text-right font-medium text-slate-500">现金</th>
-                                    <th className="px-4 py-2 text-right font-medium text-slate-500">可提</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {hkAccount && (
-                                    <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                        <td className="px-4 py-2 text-slate-700 dark:text-slate-300">HKD</td>
-                                        <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.cash_balance)}</td>
-                                        <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.available_cash)}</td>
+                <div className="flex gap-4">
+                    {/* Cash Table */}
+                    <div className="w-1/4">
+                        <div className="card overflow-hidden">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                                        <th className="px-4 py-2 text-left font-medium text-slate-500">币种</th>
+                                        <th className="px-4 py-2 text-right font-medium text-slate-500">现金</th>
+                                        <th className="px-4 py-2 text-right font-medium text-slate-500">可提</th>
                                     </tr>
-                                )}
-                                {usAccount && (
-                                    <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                        <td className="px-4 py-2 text-slate-700 dark:text-slate-300">USD</td>
-                                        <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.cash_balance)}</td>
-                                        <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.available_cash)}</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
-
-            {/* Trading Stats Cards */}
-            {realAccounts.length > 0 && trackingBoard?.stats && (
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
-                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                            <TrendingUp className="h-4 w-4 text-emerald-500" />累计盈利
-                        </div>
-                        <div className="mt-2 text-2xl font-bold text-emerald-600">{fmtNum(trackingBoard.stats.cumulative_profit ?? 0)}</div>
-                    </div>
-                    <div className="rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/50 p-4 dark:from-rose-950/30 dark:to-rose-900/20">
-                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                            <ArrowDownRight className="h-4 w-4 text-rose-500" />累计亏损
-                        </div>
-                        <div className="mt-2 text-2xl font-bold text-rose-600">{fmtNum(trackingBoard.stats.cumulative_loss ?? 0)}</div>
-                    </div>
-                    <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 dark:from-amber-950/30 dark:to-amber-900/20">
-                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                            <Target className="h-4 w-4 text-amber-500" />交易胜率
-                        </div>
-                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
-                            {trackingBoard.stats.win_rate != null ? `${trackingBoard.stats.win_rate.toFixed(1)}%` : '--'}
+                                </thead>
+                                <tbody>
+                                    {hkAccount && (
+                                        <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">HKD</td>
+                                            <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.cash_balance)}</td>
+                                            <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.available_cash)}</td>
+                                        </tr>
+                                    )}
+                                    {usAccount && (
+                                        <tr className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                            <td className="px-4 py-2 text-slate-700 dark:text-slate-300">USD</td>
+                                            <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.cash_balance)}</td>
+                                            <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.available_cash)}</td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
+                    
+                    {/* Trading Stats Cards */}
+                    {trackingBoard?.stats && (
+                        <div className="flex-1 grid grid-cols-3 gap-4">
+                            <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
+                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                    <TrendingUp className="h-4 w-4 text-emerald-500" />累计盈利
+                                </div>
+                                <div className="mt-2 text-2xl font-bold text-emerald-600">{fmtNum(trackingBoard.stats.cumulative_profit ?? 0)}</div>
+                            </div>
+                            <div className="rounded-2xl bg-gradient-to-br from-rose-50 to-rose-100/50 p-4 dark:from-rose-950/30 dark:to-rose-900/20">
+                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                    <ArrowDownRight className="h-4 w-4 text-rose-500" />累计亏损
+                                </div>
+                                <div className="mt-2 text-2xl font-bold text-rose-600">{fmtNum(trackingBoard.stats.cumulative_loss ?? 0)}</div>
+                            </div>
+                            <div className="rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100/50 p-4 dark:from-amber-950/30 dark:to-amber-900/20">
+                                <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                    <Target className="h-4 w-4 text-amber-500" />交易胜率
+                                </div>
+                                <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                                    {trackingBoard.stats.win_rate != null ? `${trackingBoard.stats.win_rate.toFixed(1)}%` : '--'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
