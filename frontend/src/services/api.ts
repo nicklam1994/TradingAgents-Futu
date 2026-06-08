@@ -364,6 +364,10 @@ class ApiService {
         return this.request('/v1/sim/accounts')
     }
 
+    async getRealAllAccounts(): Promise<{ ok: boolean; data: SimAccount[] }> {
+        return this.request('/v1/real/accounts')
+    }
+
     async getSimPositions(trdMarket: string = 'HK'): Promise<{ ok: boolean; data: SimPosition[]; total: number }> {
         return this.request(`/v1/sim/positions?trd_market=${trdMarket}`)
     }

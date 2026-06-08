@@ -45,7 +45,7 @@ export default function Dashboard() {
                 if (cancelled) return
                 console.error('Failed to load tracking board summary:', error)
                 setTrackingBoard(null)
-                setDashboardError(prev => prev || (error instanceof Error ? error.message : '加载跟踪看板摘要失败'))
+                setDashboardError(prev => prev || (error instanceof Error ? error.message : '加载真仓摘要失败'))
             })
 
         return () => {
@@ -210,7 +210,7 @@ function TrackingBoardSummary({
         <div className="card">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">跟踪看板摘要</h2>
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">真仓摘要</h2>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                         控制台仅展示元数据，持仓明细、区间图和交易建议请进入完整看板查看。
                     </p>
@@ -243,7 +243,7 @@ function TrackingBoardSummary({
                 <MetaCard
                     label="状态"
                     value={itemCount > 0 ? '已就绪' : '待导入'}
-                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '前往跟踪看板导入持仓'}
+                    subValue={itemCount > 0 ? '明细已收起，点击进入查看' : '前往真仓导入持仓'}
                 />
             </div>
         </div>

@@ -2,9 +2,11 @@ import {
     ArrowDownRight,
     ArrowUpRight,
     Loader2,
+    Package,
     RefreshCw,
     ShieldAlert,
     Target,
+    TrendingDown,
     TrendingUp,
     Wallet,
 } from 'lucide-react'
@@ -40,6 +42,11 @@ export default function TrackingBoardPanel() {
         }
     })
     const navigate = useNavigate()
+    const [realAccounts, setRealAccounts] = useState<Array<{
+        market: string; total_assets: number; cash_balance: number; frozen_cash: number
+        market_val: number; currency: string; available_cash: number
+        unrealized_pnl: number; realized_pnl: number
+    }>>([])
 
     const trackingItems = trackingBoard?.items || []
     const trackingRefreshSeconds = trackingBoard?.refresh_interval_seconds || 20
@@ -64,6 +71,13 @@ export default function TrackingBoardPanel() {
         } catch {}
     }, [viewMode])
 
+    // Fetch real account info
+    useEffect(() => {
+        api.getRealAllAccounts().then(res => {
+            if (res.ok) setRealAccounts(res.data ?? [])
+        }).catch(() => {})
+    }, [])
+
     useEffect(() => {
         if (!user?.id) return
         let cancelled = false
@@ -82,7 +96,7 @@ export default function TrackingBoardPanel() {
                 setTrackingError(null)
             } catch (error) {
                 if (cancelled) return
-                setTrackingError(error instanceof Error ? error.message : '跟踪看板加载失败')
+                setTrackingError(error instanceof Error ? error.message : '真仓加载失败')
             } finally {
                 if (!cancelled) {
                     setTrackingLoading(false)
@@ -108,7 +122,7 @@ export default function TrackingBoardPanel() {
         <div className="space-y-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">跟踪看板</h1>
+                    <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">真仓</h1>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">
@@ -121,10 +135,26 @@ export default function TrackingBoardPanel() {
                 </div>
             </div>
 
+            {/* Real Account Asset Cards */}
+            {realAccounts.length > 0 && (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <AccountCardSimple icon={Wallet} label="总资产" value={realAccounts.reduce((s, a) => s + a.total_assets, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={realAccounts.map(a => a.currency).join(' + ')} color="blue" />
+                    <AccountCardSimple icon={Package} label="可用资金" value={realAccounts.reduce((s, a) => s + a.available_cash, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={`冻结 ${realAccounts.reduce((s, a) => s + a.frozen_cash, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="green" />
+                    <AccountCardSimple icon={TrendingUp} label="持仓市值" value={realAccounts.reduce((s, a) => s + a.market_val, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} subValue={`${trackingItems.length} 只股票`} color="purple" />
+                    <AccountCardSimple
+                        icon={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0) >= 0 ? TrendingUp : TrendingDown}
+                        label="浮动盈亏"
+                        value={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        subValue={`已实现 ${realAccounts.reduce((s, a) => s + a.realized_pnl, 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        color={realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0) >= 0 ? 'green' : 'red'}
+                    />
+                </div>
+            )}
+
             {trackingLoading && !trackingBoard ? (
                 <div className="flex items-center justify-center py-12 text-slate-500 dark:text-slate-400">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    正在加载跟踪看板...
+                    正在加载真仓...
                 </div>
             ) : trackingItems.length === 0 ? (
                 <div className="py-10 text-center">
@@ -1005,4 +1035,21 @@ function parseLooseDate(value?: string | null): Date | null {
 
     const parsed = new Date(trimmed)
     return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+/* ─── Account Card Component ─── */
+
+function AccountCardSimple({ icon: Icon, label, value, subValue, color }: {
+    icon: typeof Wallet; label: string; value: string; subValue?: string
+    color: 'blue' | 'green' | 'purple' | 'red'
+}) {
+    const bgMap = { blue: 'from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20', green: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20', purple: 'from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20', red: 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20' }
+    const iconMap = { blue: 'text-blue-500', green: 'text-emerald-500', purple: 'text-purple-500', red: 'text-rose-500' }
+    return (
+        <div className={`rounded-2xl bg-gradient-to-br ${bgMap[color]} p-4`}>
+            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><Icon className={`h-4 w-4 ${iconMap[color]}`} />{label}</div>
+            <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
+            {subValue && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</div>}
+        </div>
+    )
 }

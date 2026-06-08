@@ -5439,6 +5439,18 @@ def sim_all_accounts(current_user: UserDB = Depends(_require_api_user)) -> Dict[
     return {"ok": True, "data": accounts}
 
 
+@app.get("/v1/real/accounts")
+def real_all_accounts(current_user: UserDB = Depends(_require_api_user)) -> Dict[str, Any]:
+    """Query all real trading accounts (HK + US)."""
+    from api.services.real_account_service import get_all_real_accounts, account_to_dict
+    try:
+        accounts = get_all_real_accounts()
+        return {"ok": True, "data": [account_to_dict(a) for a in accounts]}
+    except Exception as e:
+        logger.error(f"real_all_accounts error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @app.get("/v1/sim/positions")
 def sim_positions(
     trd_market: str = Query("HK", description="市场 HK/US"),
