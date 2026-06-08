@@ -1,7 +1,7 @@
 /**
  * SimTrading — 模拟交易页面
  *
- * 展示所有模拟账户（港股/美股）资金卡片、持仓列表、盈亏曲线、当日订单与成交记录。
+ * 展示所有模拟账户（港股/美股）资金卡片、持仓列表、当日订单与成交记录。
  * 切换市场标签时自动重新加载持仓/订单/成交。
  */
 
@@ -10,8 +10,6 @@ import {
     Wallet, TrendingUp, TrendingDown, Package,
     RefreshCw, ArrowUpCircle, ArrowDownCircle,
 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
-
 import { api } from '@/services/api'
 import { formatTime } from '@/utils/formatTime'
 import type { SimAccount, SimPosition, SimOrder, SimDeal } from '@/types'
@@ -79,7 +77,6 @@ export default function SimTrading() {
     }
 
     const activeAccount = accounts.find(a => a.market === activeMarket) ?? accounts[0] ?? null
-    const equityCurve = buildEquityCurve(deals)
 
     // Portfolio total for position % calculation
     const totalMarketVal = positions.reduce((s, p) => s + (p.market_val || 0), 0)
@@ -137,30 +134,6 @@ export default function SimTrading() {
                         subValue={`已实现 ${fmt(activeAccount.realized_pnl)}`}
                         color={activeAccount.unrealized_pnl >= 0 ? 'green' : 'red'}
                     />
-                </div>
-            )}
-
-            {/* Equity Curve */}
-            {equityCurve.length > 1 && (
-                <div className="card">
-                    <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">累计盈亏曲线</h2>
-                    <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={equityCurve}>
-                                <defs>
-                                    <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
-                                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                                <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                                <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-                                <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, '累计盈亏']} />
-                                <Area type="monotone" dataKey="value" stroke="#22c55e" fill="url(#equityGrad)" strokeWidth={2} />
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
                 </div>
             )}
 
@@ -347,34 +320,4 @@ function displayCode(code: string): string {
     return code
 }
 
-function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number }> {
-    if (!deals.length) return []
 
-    const sorted = [...deals].sort((a, b) => (a.create_time ?? '').localeCompare(b.create_time ?? ''))
-    const buys: Record<string, Array<{ price: number; qty: number }>> = {}
-    let cumulative = 0
-    const points: Array<{ time: string; value: number }> = []
-
-    for (const d of sorted) {
-        const code = d.code ?? ''
-        if (!buys[code]) buys[code] = []
-
-        if (d.side === 'BUY') {
-            buys[code].push({ price: d.price, qty: d.qty })
-        } else if (d.side === 'SELL' && buys[code].length > 0) {
-            let remaining = d.qty
-            while (remaining > 0 && buys[code].length > 0) {
-                const lot = buys[code][0]
-                const matchQty = Math.min(remaining, lot.qty)
-                cumulative += (d.price - lot.price) * matchQty
-                lot.qty -= matchQty
-                remaining -= matchQty
-                if (lot.qty <= 0) buys[code].shift()
-            }
-        }
-
-        points.push({ time: d.create_time ?? '', value: Math.round(cumulative * 100) / 100 })
-    }
-
-    return points
-}
