@@ -4446,8 +4446,11 @@ def list_strategies():
     strategies = list_strategies()
     default = get_default_strategy()
     return {
-        "strategies": strategies,
-        "default": default,
+        "ok": True,
+        "data": {
+            "strategies": strategies,
+            "default": default,
+        },
     }
 
 
@@ -4458,7 +4461,7 @@ def get_strategy(name: str):
     strategy = load_strategy(name)
     if not strategy:
         raise HTTPException(404, f"Strategy '{name}' not found")
-    return strategy
+    return {"ok": True, "data": strategy}
 
 
 @app.get("/v1/models")
