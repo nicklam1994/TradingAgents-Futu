@@ -142,29 +142,43 @@ def get_real_account(trd_market: str = "HK") -> RealAccountInfo:
 def get_all_real_accounts() -> list[RealAccountInfo]:
     """Query both HK and US real accounts."""
     accounts = []
+    # First get account info for each market
     for market in ["HK", "US"]:
         try:
             acc = get_real_account(market)
-            # Fallback: if unrealized/realized are 0, calculate from positions
-            if acc.unrealized_pnl == 0 and acc.realized_pnl == 0:
-                try:
-                    from futu import OpenSecTradeContext, TrdEnv, SecurityFirm, TrdMarket
-                    ctx = OpenSecTradeContext(
-                        host=_opend_host(),
-                        port=_opend_port(),
-                        filter_trdmarket=TrdMarket.US if market == "US" else TrdMarket.HK,
-                        security_firm=SecurityFirm.FUTUSECURITIES,
-                    )
-                    ret, pos_data = ctx.position_list_query(trd_env=TrdEnv.REAL)
-                    ctx.close()
-                    if ret == 0 and pos_data is not None:
-                        acc.unrealized_pnl = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows())
-                        acc.realized_pnl = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows())
-                except Exception:
-                    pass
             accounts.append(acc)
         except Exception as e:
             logger.warning(f"Failed to get {market} real account: {e}")
+    
+    # Then query ALL positions once (no market filter) for P&L
+    try:
+        from futu import OpenSecTradeContext, TrdEnv, SecurityFirm
+        ctx = OpenSecTradeContext(
+            host=_opend_host(),
+            port=_opend_port(),
+            security_firm=SecurityFirm.FUTUSECURITIES,
+        )
+        ret, pos_data = ctx.position_list_query(trd_env=TrdEnv.REAL)
+        ctx.close()
+        if ret == 0 and pos_data is not None and not pos_data.empty:
+            total_unrealized = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows())
+            total_realized = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows())
+            # Split by currency
+            hk_unreal = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "HKD")
+            hk_real = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "HKD")
+            us_unreal = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "USD")
+            us_real = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "USD")
+            # Apply to accounts
+            for acc in accounts:
+                if acc.market == "HK":
+                    acc.unrealized_pnl = hk_unreal
+                    acc.realized_pnl = hk_real
+                elif acc.market == "US":
+                    acc.unrealized_pnl = us_unreal
+                    acc.realized_pnl = us_real
+    except Exception as e:
+        logger.warning(f"Failed to get positions for P&L: {e}")
+    
     return accounts
 
 
