@@ -212,7 +212,7 @@ export default function Header() {
                         <span className="text-[13px] font-medium text-amber-600 dark:text-amber-400 group-hover:text-amber-700 dark:group-hover:text-amber-300 hidden sm:inline">致谢</span>
                     </Link>
                     <a
-                        href="https://github.com/KylinMountain/TradingAgents-AShare"
+                        href="https://github.com/nicklam1994/TradingAgents-Futu"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="group flex items-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/90 transition-all mr-1"
