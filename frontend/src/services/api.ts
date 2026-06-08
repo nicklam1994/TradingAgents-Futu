@@ -381,6 +381,10 @@ class ApiService {
         return this.request(`/v1/sim/deals?${params}`)
     }
 
+    async placeSimOrder(req: { symbol: string; side: string; quantity: number; price: number; order_type?: string; remark?: string }): Promise<{ ok: boolean; data?: { order_id: string } }> {
+        return this.request('/v1/sim/order', { method: 'POST', body: JSON.stringify(req) })
+    }
+
     async getSimPerformance(): Promise<{ ok: boolean; data: SimPerformance }> {
         return this.request('/v1/sim/performance')
     }

@@ -1,18 +1,20 @@
 /**
  * SimTrading — 模拟交易页面
  *
- * 展示所有模拟账户（港股/美股）资金卡片、持仓列表、当日订单与成交记录。
- * 切换市场标签时自动重新加载持仓/订单/成交。
+ * 左侧：交易面板（搜索 → 行情条 → 下单表单）
+ * 右侧：持仓 + 当日订单 + 成交记录
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import {
     Wallet, TrendingUp, TrendingDown, Package,
     RefreshCw, ArrowUpCircle, ArrowDownCircle,
+    Search, Loader2,
 } from 'lucide-react'
+
 import { api } from '@/services/api'
 import { formatTime } from '@/utils/formatTime'
-import type { SimAccount, SimPosition, SimOrder, SimDeal } from '@/types'
+import type { SimAccount, SimPosition, SimOrder, SimDeal, StockSearchResult } from '@/types'
 
 const MARKET_LABELS: Record<string, string> = { HK: '港股', US: '美股' }
 const MARKET_FLAGS: Record<string, string> = { HK: '🇭🇰', US: '🇺🇸' }
@@ -20,6 +22,12 @@ const ORDER_TYPE_LABEL: Record<string, string> = {
     NORMAL: 'LMT', MARKET: 'MKT',
     AUCTION_LIMIT: 'AUCTION_LMT', AUCTION: 'AUCTION_MKT',
     STOP: 'STOP', STOP_LIMIT: 'STOP_LMT',
+}
+
+interface QuoteData {
+    price: number; change: number; change_pct: number
+    open: number; high: number; low: number; volume: number
+    name?: string
 }
 
 export default function SimTrading() {
@@ -33,18 +41,36 @@ export default function SimTrading() {
     const wsRef = useRef<WebSocket | null>(null)
     const [wsConnected, setWsConnected] = useState(false)
 
-    // Load accounts once
+    // ── Trading panel state ──
+    const [searchQuery, setSearchQuery] = useState('')
+    const [searchResults, setSearchResults] = useState<StockSearchResult[]>([])
+    const [searchLoading, setSearchLoading] = useState(false)
+    const [showDropdown, setShowDropdown] = useState(false)
+    const dropdownRef = useRef<HTMLDivElement>(null)
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
+    const [selectedStock, setSelectedStock] = useState<{ code: string; name: string } | null>(null)
+    const [quote, setQuote] = useState<QuoteData | null>(null)
+
+    // Order form
+    const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY')
+    const [orderType, setOrderType] = useState('NORMAL')
+    const [orderPrice, setOrderPrice] = useState('')
+    const [orderQty, setOrderQty] = useState('')
+    const [triggerPrice, setTriggerPrice] = useState('')
+    const [submitting, setSubmitting] = useState(false)
+    const [orderMsg, setOrderMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+    const isStopOrder = orderType === 'STOP' || orderType === 'STOP_LIMIT'
+    const isMarketOrder = orderType === 'MARKET'
+    const orderAmount = (parseFloat(orderPrice) || 0) * (parseFloat(orderQty) || 0)
+
+    // ── Data loading ──
     const loadAccounts = useCallback(async () => {
-        try {
-            const res = await api.getSimAllAccounts()
-            if (res.ok) setAccounts(res.data ?? [])
-        } catch { /* ignore */ }
+        try { const res = await api.getSimAllAccounts(); if (res.ok) setAccounts(res.data ?? []) } catch {}
     }, [])
 
-    // Load market-specific data when activeMarket changes
     const loadMarketData = useCallback(async () => {
-        setLoading(true)
-        setError(null)
+        setLoading(true); setError(null)
         try {
             const [posRes, ordRes, dealRes] = await Promise.allSettled([
                 api.getSimPositions(activeMarket),
@@ -53,95 +79,130 @@ export default function SimTrading() {
             ])
             if (posRes.status === 'fulfilled') setPositions(posRes.value.data ?? [])
             if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? [])
-            if (dealRes.status === 'fulfilled') {
-                // Filter deals by active market
-                const allDeals = dealRes.value.data ?? []
-                setDeals(allDeals.filter(d => (d.deal_market ?? '') === activeMarket))
-            }
-
+            if (dealRes.status === 'fulfilled') setDeals((dealRes.value.data ?? []).filter(d => (d.deal_market ?? '') === activeMarket))
             const firstError = [posRes, ordRes, dealRes].find(r => r.status === 'rejected')
-            if (firstError && firstError.status === 'rejected') {
-                setError(firstError.reason?.message ?? '加载模拟交易数据失败')
-            }
-        } catch (e) {
-            setError(e instanceof Error ? e.message : '加载失败')
-        } finally {
-            setLoading(false)
-        }
+            if (firstError?.status === 'rejected') setError(firstError.reason?.message ?? '加载失败')
+        } catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
+        finally { setLoading(false) }
     }, [activeMarket])
 
     useEffect(() => { loadAccounts() }, [loadAccounts])
     useEffect(() => { loadMarketData() }, [loadMarketData])
 
-    // WebSocket real-time price updates
+    // ── WebSocket ──
     useEffect(() => {
         const token = localStorage.getItem('ta-access-token') || ''
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/quotes?token=${token}`)
         wsRef.current = ws
-
         ws.onopen = () => setWsConnected(true)
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data)
-                // Full snapshot
+                const updateQuote = (code: string, q: Record<string, number | string>) => {
+                    if (!selectedStock || code !== selectedStock.code) return
+                    setQuote(prev => prev ? {
+                        ...prev,
+                        price: (q.price as number) ?? prev.price,
+                        change: (q.change as number) ?? prev.change,
+                        change_pct: (q.change_pct as number) ?? prev.change_pct,
+                        open: (q.open as number) ?? prev.open,
+                        high: (q.high as number) ?? prev.high,
+                        low: (q.low as number) ?? prev.low,
+                        volume: (q.volume as number) ?? prev.volume,
+                    } : prev)
+                }
                 if (msg.type === 'quotes' && msg.data) {
                     setPositions(prev => prev.map(p => {
-                        const q = msg.data[p.code]
-                        if (!q) return p
-                        const newPrice = q.price ?? p.current_price
-                        const newMarketVal = newPrice * p.qty
-                        const todayPnl = p.prev_close ? (newPrice - p.prev_close) * p.qty : p.today_pnl
-                        return {
-                            ...p,
-                            current_price: newPrice,
-                            market_val: Math.round(newMarketVal * 1000) / 1000,
-                            unrealized_pnl: Math.round((newPrice - p.cost_price) * p.qty * 1000) / 1000,
-                            unrealized_pnl_pct: p.cost_price > 0 ? Math.round((newPrice / p.cost_price - 1) * 10000) / 100 : p.unrealized_pnl_pct,
-                            today_pnl: Math.round(todayPnl * 1000) / 1000,
-                        }
+                        const q = msg.data[p.code]; if (!q) return p
+                        const np = q.price ?? p.current_price
+                        return { ...p, current_price: np, market_val: round(np * p.qty), unrealized_pnl: round((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? round((np / p.cost_price - 1) * 100, 2) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? round((np - p.prev_close) * p.qty) : p.today_pnl }
                     }))
+                    for (const [code, q] of Object.entries(msg.data)) updateQuote(code, q as Record<string, number | string>)
                 }
-                // Individual symbol push
                 if (msg.type === 'quote_update' && msg.symbol && msg.data) {
                     const q = msg.data
                     setPositions(prev => prev.map(p => {
                         if (p.code !== msg.symbol) return p
-                        const newPrice = q.price ?? p.current_price
-                        const newMarketVal = newPrice * p.qty
-                        const todayPnl = p.prev_close ? (newPrice - p.prev_close) * p.qty : p.today_pnl
-                        return {
-                            ...p,
-                            current_price: newPrice,
-                            market_val: Math.round(newMarketVal * 1000) / 1000,
-                            unrealized_pnl: Math.round((newPrice - p.cost_price) * p.qty * 1000) / 1000,
-                            unrealized_pnl_pct: p.cost_price > 0 ? Math.round((newPrice / p.cost_price - 1) * 10000) / 100 : p.unrealized_pnl_pct,
-                            today_pnl: Math.round(todayPnl * 1000) / 1000,
-                        }
+                        const np = q.price ?? p.current_price
+                        return { ...p, current_price: np, market_val: round(np * p.qty), unrealized_pnl: round((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? round((np / p.cost_price - 1) * 100, 2) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? round((np - p.prev_close) * p.qty) : p.today_pnl }
                     }))
+                    updateQuote(msg.symbol, q)
                 }
             } catch {}
         }
         ws.onclose = () => setWsConnected(false)
         ws.onerror = () => setWsConnected(false)
         return () => { ws.close() }
-    }, [])
+    }, [selectedStock?.code])
 
-    // Subscribe to position codes when positions change
+    // Subscribe position codes
     useEffect(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN && positions.length > 0) {
             wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: positions.map(p => p.code) }))
         }
     }, [positions.map(p => p.code).join(',')])
 
-    const refresh = () => {
-        loadAccounts()
-        loadMarketData()
+    // ── Search ──
+    useEffect(() => {
+        if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+        const q = searchQuery.trim()
+        if (!q) { setSearchResults([]); setShowDropdown(false); setSearchLoading(false); return }
+        setSearchLoading(true)
+        searchTimerRef.current = setTimeout(async () => {
+            try {
+                const res = await api.searchStocks(q)
+                setSearchResults((res.results ?? []).slice(0, 8))
+                setShowDropdown(true)
+            } catch { setSearchResults([]) }
+            finally { setSearchLoading(false) }
+        }, 300)
+    }, [searchQuery])
+
+    // Close dropdown on outside click
+    useEffect(() => {
+        const handler = (e: MouseEvent) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false) }
+        document.addEventListener('mousedown', handler)
+        return () => document.removeEventListener('mousedown', handler)
+    }, [])
+
+    const selectStock = (r: StockSearchResult) => {
+        setSelectedStock({ code: r.symbol, name: r.name })
+        setSearchQuery(''); setShowDropdown(false); setSearchResults([]); setQuote(null)
+        // Subscribe to this stock for real-time quotes
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
+        }
+        // Fetch initial snapshot
+        api.getSimPositions(activeMarket).catch(() => {})
     }
 
-    const activeAccount = accounts.find(a => a.market === activeMarket) ?? accounts[0] ?? null
+    // ── Order submit ──
+    const submitOrder = async () => {
+        if (!selectedStock) return
+        setSubmitting(true); setOrderMsg(null)
+        try {
+            const res = await api.placeSimOrder({
+                symbol: selectedStock.code,
+                side: orderSide,
+                quantity: parseFloat(orderQty) || 0,
+                price: isMarketOrder ? 0 : (parseFloat(orderPrice) || 0),
+                order_type: orderType,
+            })
+            if (res.ok) {
+                setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
+                setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
+                loadMarketData()
+            } else {
+                setOrderMsg({ type: 'err', text: '下单失败' })
+            }
+        } catch (e) {
+            setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '下单失败' })
+        } finally { setSubmitting(false) }
+    }
 
-    // Portfolio total for position % calculation
+    // ── Derived ──
+    const activeAccount = accounts.find(a => a.market === activeMarket) ?? accounts[0] ?? null
     const totalMarketVal = positions.reduce((s, p) => s + (p.market_val || 0), 0)
 
     return (
@@ -151,36 +212,25 @@ export default function SimTrading() {
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">模拟交易</h1>
                     <p className="mt-1 text-slate-500 dark:text-slate-400">
-                        查看模拟账户资金、持仓与交易记录
+                        模拟账户资金、持仓与交易
                         <span className={`ml-2 inline-block h-2 w-2 rounded-full ${wsConnected ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                         <span className="ml-1 text-xs">{wsConnected ? '实时' : '离线'}</span>
                     </p>
                 </div>
-                <button onClick={refresh} disabled={loading}
+                <button onClick={() => { loadAccounts(); loadMarketData() }} disabled={loading}
                     className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
                     <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
                     刷新
                 </button>
             </div>
 
-            {error && (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
-                    {error}
-                </div>
-            )}
+            {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
 
             {/* Market Tabs */}
             <div className="flex gap-2">
                 {accounts.map(acc => (
-                    <button
-                        key={acc.market}
-                        onClick={() => setActiveMarket(acc.market)}
-                        className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-                            activeMarket === acc.market
-                                ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/30'
-                                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'
-                        }`}
-                    >
+                    <button key={acc.market} onClick={() => setActiveMarket(acc.market)}
+                        className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${activeMarket === acc.market ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:ring-blue-500/30' : 'bg-slate-50 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
                         <span>{MARKET_FLAGS[acc.market] ?? '🏳️'}</span>
                         <span>{MARKET_LABELS[acc.market] ?? acc.market}</span>
                         <span className="text-xs opacity-70">{acc.currency}</span>
@@ -194,165 +244,274 @@ export default function SimTrading() {
                     <AccountCard icon={Wallet} label="总资产" value={fmt(activeAccount.total_assets)} subValue={activeAccount.currency} color="blue" />
                     <AccountCard icon={Package} label="可用资金" value={fmt(activeAccount.available_cash)} subValue={`冻结 ${fmt(activeAccount.frozen_cash)}`} color="green" />
                     <AccountCard icon={TrendingUp} label="持仓市值" value={fmt(activeAccount.market_val)} subValue={`${positions.length} 只标的`} color="purple" />
-                    <AccountCard
-                        icon={activeAccount.unrealized_pnl >= 0 ? TrendingUp : TrendingDown}
-                        label="浮动盈亏"
-                        value={fmt(activeAccount.unrealized_pnl)}
-                        subValue={`已实现 ${fmt(activeAccount.realized_pnl)}`}
-                        color={activeAccount.unrealized_pnl >= 0 ? 'green' : 'red'}
-                    />
+                    <AccountCard icon={activeAccount.unrealized_pnl >= 0 ? TrendingUp : TrendingDown} label="浮动盈亏" value={fmt(activeAccount.unrealized_pnl)} subValue={`已实现 ${fmt(activeAccount.realized_pnl)}`} color={activeAccount.unrealized_pnl >= 0 ? 'green' : 'red'} />
                 </div>
             )}
 
-            {/* Positions Table */}
-            <div className="card">
-                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
-                {positions.length === 0 ? (
-                    <EmptyState text="暂无持仓" />
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-slate-200 dark:border-slate-700">
-                                    <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {positions.map(p => {
-                                    const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
-                                    return (
-                                        <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                            {/* 股票名称/代码 */}
-                                            <td className="px-3 py-2">
-                                                <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
-                                                <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
-                                            </td>
-                                            {/* 持仓数量 */}
-                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
-                                            {/* 现价/成本价 */}
-                                            <td className="px-3 py-2 text-right">
-                                                <div className="text-slate-900 dark:text-slate-100">{fmtPrice(p.current_price)}</div>
-                                                <div className="text-xs text-slate-400">{fmtPrice(p.cost_price)}</div>
-                                            </td>
-                                            {/* 市值/成本市值 */}
-                                            <td className="px-3 py-2 text-right">
-                                                <div className="text-slate-900 dark:text-slate-100">{fmt(p.market_val)}</div>
-                                                <div className="text-xs text-slate-400">{fmt(p.cost_val)}</div>
-                                            </td>
-                                            {/* 持仓盈亏/盈亏% */}
-                                            <td className="px-3 py-2 text-right">
-                                                <div className={`font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                    {fmt(p.unrealized_pnl)}
-                                                </div>
-                                                <div className={`text-xs ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                                    {p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct?.toFixed(2)}%
-                                                </div>
-                                            </td>
-                                            {/* 今日盈亏 */}
-                                            <td className={`px-3 py-2 text-right font-medium ${p.today_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                {p.prev_close ? fmt(p.today_pnl) : '--'}
-                                            </td>
-                                            {/* 持仓% */}
-                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">
-                                                {posPct.toFixed(1)}%
-                                            </td>
-                                        </tr>
-                                    )
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
+            {/* Main: Trading Panel + Positions/Orders/Deals */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
 
-            {/* Orders + Deals side by side */}
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                {/* Orders */}
-                <div className="card">
-                    <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当日订单</h2>
-                    {orders.length === 0 ? (
-                        <EmptyState text="暂无订单" />
-                    ) : (
-                        <div className="space-y-2">
-                            {orders.map(o => (
-                                <div key={o.order_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
-                                    <div className="flex items-center gap-2">
-                                        {o.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{o.stock_name || o.code}</span>
-                                        <span className={`text-xs ${o.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{o.side}</span>
-                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{o.status}</span>
-                                    </div>
-                                    <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                        <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
-                                        <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
-                                    </div>
+                {/* ── Left: Trading Panel (2/5) ── */}
+                <div className="space-y-4 lg:col-span-2">
+
+                    {/* Search */}
+                    <div className="card space-y-3" ref={dropdownRef}>
+                        <div className="flex items-center gap-2">
+                            <Search className="h-5 w-5 text-blue-500" />
+                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">选择标的</h2>
+                        </div>
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                                onFocus={() => searchResults.length > 0 && setShowDropdown(true)}
+                                placeholder="输入代码或名称搜索"
+                                className="input w-full pl-9 pr-10" />
+                            {searchLoading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-slate-400" />}
+                        </div>
+                        {showDropdown && searchResults.length > 0 && (
+                            <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-800">
+                                {searchResults.map(r => (
+                                    <button key={r.symbol} onClick={() => selectStock(r)}
+                                        className="flex w-full items-center gap-3 px-3 py-2 text-left transition-colors hover:bg-slate-50 dark:hover:bg-slate-700/50">
+                                        <span className="text-sm font-medium text-slate-900 dark:text-slate-100">{r.name}</span>
+                                        <span className="ml-auto text-xs text-slate-400">{r.symbol}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Quote Bar */}
+                    {selectedStock && (
+                        <div className="card">
+                            <div className="flex items-baseline justify-between">
+                                <div>
+                                    <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{quote?.name || selectedStock.name}</span>
+                                    <span className="ml-2 text-sm text-slate-400">{displayCode(selectedStock.code)}</span>
                                 </div>
-                            ))}
+                                {quote && (
+                                    <div className="text-right">
+                                        <span className={`text-2xl font-bold ${quote.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {fmtPrice(quote.price)}
+                                        </span>
+                                        <span className={`ml-2 text-sm font-medium ${quote.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)} ({quote.change_pct >= 0 ? '+' : ''}{quote.change_pct.toFixed(2)}%)
+                                        </span>
+                                    </div>
+                                )}
+                                {!quote && <span className="text-sm text-slate-400">等待行情...</span>}
+                            </div>
+                            {quote && (
+                                <div className="mt-2 flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                                    <span>开 {fmtPrice(quote.open)}</span>
+                                    <span>高 {fmtPrice(quote.high)}</span>
+                                    <span>低 {fmtPrice(quote.low)}</span>
+                                    <span>量 {fmtVol(quote.volume)}</span>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Order Form */}
+                    {selectedStock && (
+                        <div className="card space-y-4">
+                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">下单</h2>
+
+                            {/* Side Toggle */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <button onClick={() => setOrderSide('BUY')}
+                                    className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                                    模拟买入
+                                </button>
+                                <button onClick={() => setOrderSide('SELL')}
+                                    className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
+                                    模拟卖出
+                                </button>
+                            </div>
+
+                            {/* Type */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">类型</label>
+                                <select value={orderType} onChange={e => setOrderType(e.target.value)}
+                                    className="input w-full">
+                                    <option value="NORMAL">限价单</option>
+                                    <option value="MARKET">市价单</option>
+                                    <option value="STOP">止损单</option>
+                                    <option value="STOP_LIMIT">止损限价单</option>
+                                </select>
+                            </div>
+
+                            {/* Trigger Price (stop orders only) */}
+                            {isStopOrder && (
+                                <div>
+                                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">触发价</label>
+                                    <input type="number" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)}
+                                        placeholder="0.00" step="0.01" className="input w-full" />
+                                </div>
+                            )}
+
+                            {/* Price */}
+                            {!isMarketOrder && (
+                                <div>
+                                    <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">价格</label>
+                                    <input type="number" value={orderPrice} onChange={e => setOrderPrice(e.target.value)}
+                                        placeholder="0.00" step="0.01" className="input w-full" />
+                                </div>
+                            )}
+
+                            {/* Quantity */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">数量</label>
+                                <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)}
+                                    placeholder="0" step="1" min="1" className="input w-full" />
+                            </div>
+
+                            {/* Amount */}
+                            <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800">
+                                <span className="text-slate-500 dark:text-slate-400">金额</span>
+                                <span className="font-medium text-slate-900 dark:text-slate-100">
+                                    {orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}
+                                </span>
+                            </div>
+
+                            {/* Submit */}
+                            {orderMsg && (
+                                <div className={`rounded-lg px-3 py-2 text-sm ${orderMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'}`}>
+                                    {orderMsg.text}
+                                </div>
+                            )}
+                            <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice)}
+                                className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                                {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `${orderSide === 'BUY' ? '买入' : '卖出'} ${selectedStock.name}`}
+                            </button>
+                        </div>
+                    )}
+
+                    {!selectedStock && (
+                        <div className="card flex items-center justify-center py-12 text-sm text-slate-400 dark:text-slate-500">
+                            搜索并选择标的开始交易
                         </div>
                     )}
                 </div>
 
-                {/* Deals */}
-                <div className="card">
-                    <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">成交记录</h2>
-                    {deals.length === 0 ? (
-                        <EmptyState text="暂无成交记录" />
-                    ) : (
-                        <div className="space-y-2">
-                            {deals.map(d => (
-                                <div key={d.deal_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
-                                    <div className="flex items-center gap-2">
-                                        {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || displayCode(d.code)}</span>
-                                        <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
-                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{ORDER_TYPE_LABEL[d.order_type] ?? d.order_type}</span>
+                {/* ── Right: Positions + Orders + Deals (3/5) ── */}
+                <div className="space-y-6 lg:col-span-3">
+
+                    {/* Positions Table */}
+                    <div className="card">
+                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
+                        {positions.length === 0 ? <EmptyState text="暂无持仓" /> : (
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-slate-200 dark:border-slate-700">
+                                            <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
+                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {positions.map(p => {
+                                            const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
+                                            return (
+                                                <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                                    <td className="px-3 py-2">
+                                                        <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
+                                                        <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        <div className="text-slate-900 dark:text-slate-100">{fmtPrice(p.current_price)}</div>
+                                                        <div className="text-xs text-slate-400">{fmtPrice(p.cost_price)}</div>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        <div className="text-slate-900 dark:text-slate-100">{fmt(p.market_val)}</div>
+                                                        <div className="text-xs text-slate-400">{fmt(p.cost_val)}</div>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right">
+                                                        <div className={`font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(p.unrealized_pnl)}</div>
+                                                        <div className={`text-xs ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct?.toFixed(2)}%</div>
+                                                    </td>
+                                                    <td className={`px-3 py-2 text-right font-medium ${p.today_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                        {p.prev_close ? fmt(p.today_pnl) : '--'}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{posPct.toFixed(1)}%</td>
+                                                </tr>
+                                            )
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Orders */}
+                    <div className="card">
+                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当日订单</h2>
+                        {orders.length === 0 ? <EmptyState text="暂无订单" /> : (
+                            <div className="space-y-2">
+                                {orders.map(o => (
+                                    <div key={o.order_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            {o.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
+                                            <span className="font-medium text-slate-900 dark:text-slate-100">{o.stock_name || o.code}</span>
+                                            <span className={`text-xs ${o.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{o.side}</span>
+                                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{o.status}</span>
+                                        </div>
+                                        <div className="text-right text-sm text-slate-600 dark:text-slate-400">
+                                            <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
+                                            <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
+                                        </div>
                                     </div>
-                                    <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                        <div>{d.qty} × {d.price?.toFixed(2)}</div>
-                                        <div className="text-xs text-slate-400">{formatTime(d.create_time)}</div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Deals */}
+                    <div className="card">
+                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">成交记录</h2>
+                        {deals.length === 0 ? <EmptyState text="暂无成交记录" /> : (
+                            <div className="space-y-2">
+                                {deals.map(d => (
+                                    <div key={d.deal_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
+                                        <div className="flex items-center gap-2">
+                                            {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
+                                            <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || displayCode(d.code)}</span>
+                                            <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
+                                            <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{ORDER_TYPE_LABEL[d.order_type] ?? d.order_type}</span>
+                                        </div>
+                                        <div className="text-right text-sm text-slate-600 dark:text-slate-400">
+                                            <div>{d.qty} × {d.price?.toFixed(2)}</div>
+                                            <div className="text-xs text-slate-400">{formatTime(d.create_time)}</div>
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>
     )
 }
 
-/* ─── Sub-components ──────────────────────────────────────────────────────── */
+/* ─── Sub-components ─── */
 
 function AccountCard({ icon: Icon, label, value, subValue, color }: {
-    icon: typeof Wallet
-    label: string
-    value: string
-    subValue?: string
+    icon: typeof Wallet; label: string; value: string; subValue?: string
     color: 'blue' | 'green' | 'purple' | 'red'
 }) {
-    const bgMap = {
-        blue: 'from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20',
-        green: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20',
-        purple: 'from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20',
-        red: 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20',
-    }
-    const iconMap = {
-        blue: 'text-blue-500',
-        green: 'text-emerald-500',
-        purple: 'text-purple-500',
-        red: 'text-rose-500',
-    }
+    const bgMap = { blue: 'from-blue-50 to-blue-100/50 dark:from-blue-950/30 dark:to-blue-900/20', green: 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20', purple: 'from-purple-50 to-purple-100/50 dark:from-purple-950/30 dark:to-purple-900/20', red: 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20' }
+    const iconMap = { blue: 'text-blue-500', green: 'text-emerald-500', purple: 'text-purple-500', red: 'text-rose-500' }
     return (
         <div className={`rounded-2xl bg-gradient-to-br ${bgMap[color]} p-4`}>
             <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                <Icon className={`h-4 w-4 ${iconMap[color]}`} />
-                {label}
+                <Icon className={`h-4 w-4 ${iconMap[color]}`} />{label}
             </div>
             <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
             {subValue && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</div>}
@@ -361,14 +520,10 @@ function AccountCard({ icon: Icon, label, value, subValue, color }: {
 }
 
 function EmptyState({ text }: { text: string }) {
-    return (
-        <div className="flex items-center justify-center py-8 text-sm text-slate-400 dark:text-slate-500">
-            {text}
-        </div>
-    )
+    return <div className="flex items-center justify-center py-8 text-sm text-slate-400 dark:text-slate-500">{text}</div>
 }
 
-/* ─── Helpers ──────────────────────────────────────────────────────────────── */
+/* ─── Helpers ─── */
 
 function fmt(v: number | undefined | null): string {
     if (v == null) return '--'
@@ -380,11 +535,17 @@ function fmtPrice(v: number | undefined | null): string {
     return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 }
 
-/** Convert Futu code HK.00700 → 00700.HK, US.AAPL → AAPL */
+function fmtVol(v: number | undefined | null): string {
+    if (v == null || v === 0) return '--'
+    if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'
+    if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'
+    return v.toLocaleString()
+}
+
 function displayCode(code: string): string {
     if (code.startsWith('HK.')) return code.slice(3) + '.HK'
     if (code.startsWith('US.')) return code.slice(3)
     return code
 }
 
-
+function round(v: number, d = 3): number { return Math.round(v * 10 ** d) / 10 ** d }
