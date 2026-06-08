@@ -18,6 +18,11 @@ import type { SimAccount, SimPosition, SimOrder, SimDeal } from '@/types'
 
 const MARKET_LABELS: Record<string, string> = { HK: '港股', US: '美股' }
 const MARKET_FLAGS: Record<string, string> = { HK: '🇭🇰', US: '🇺🇸' }
+const ORDER_TYPE_LABEL: Record<string, string> = {
+    NORMAL: 'LMT', MARKET: 'MKT',
+    AUCTION_LIMIT: 'AUCTION_LMT', AUCTION: 'AUCTION_MKT',
+    STOP: 'STOP', STOP_LIMIT: 'STOP_LMT',
+}
 
 export default function SimTrading() {
     const [accounts, setAccounts] = useState<SimAccount[]>([])
@@ -262,7 +267,7 @@ export default function SimTrading() {
                                         {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
                                         <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || displayCode(d.code)}</span>
                                         <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
-                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{d.order_type}</span>
+                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{ORDER_TYPE_LABEL[d.order_type] ?? d.order_type}</span>
                                     </div>
                                     <div className="text-right text-sm text-slate-600 dark:text-slate-400">
                                         <div>{d.qty} × {d.price?.toFixed(2)}</div>
