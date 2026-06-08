@@ -377,8 +377,14 @@ async def lifespan(app: FastAPI):
     else:
         _log("No bot platforms configured (set DINGTALK_APP_KEY / FEISHU_APP_ID / DISCORD_BOT_TOKEN / TELEGRAM_BOT_TOKEN to enable).")
 
+    # ── WebSocket Quote Manager (Futu real-time push) ──────────────
+    await quote_ws_manager.start()
+    _log("WebSocket Quote Manager started.")
+
     yield
     _log("Shutting down: Cleaning up resources...")
+    await quote_ws_manager.stop()
+    _log("WebSocket Quote Manager stopped.")
     if _bot_manager and _bot_manager.bots:
         _log("Stopping bot platforms...")
         await _bot_manager.stop_all()
