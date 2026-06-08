@@ -53,7 +53,11 @@ export default function SimTrading() {
             ])
             if (posRes.status === 'fulfilled') setPositions(posRes.value.data ?? [])
             if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? [])
-            if (dealRes.status === 'fulfilled') setDeals(dealRes.value.data ?? [])
+            if (dealRes.status === 'fulfilled') {
+                // Filter deals by active market
+                const allDeals = dealRes.value.data ?? []
+                setDeals(allDeals.filter(d => (d.deal_market ?? '') === activeMarket))
+            }
 
             const firstError = [posRes, ordRes, dealRes].find(r => r.status === 'rejected')
             if (firstError && firstError.status === 'rejected') {
