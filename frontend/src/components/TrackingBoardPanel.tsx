@@ -170,7 +170,7 @@ export default function TrackingBoardPanel() {
 
             {/* Asset Cards (gradient style) */}
             {realAccounts.length > 0 && (
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="grid grid-cols-4 gap-4">
                     <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100/50 p-4 dark:from-blue-950/30 dark:to-blue-900/20">
                         <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                             <Wallet className="h-4 w-4 text-blue-500" />资产净值
@@ -208,7 +208,8 @@ export default function TrackingBoardPanel() {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="bg-slate-50 dark:bg-slate-800/50">
-                                <th className="px-4 py-2 text-left font-medium text-slate-500">币种/现金</th>
+                                <th className="px-4 py-2 text-left font-medium text-slate-500">币种</th>
+                                <th className="px-4 py-2 text-right font-medium text-slate-500">现金</th>
                                 <th className="px-4 py-2 text-right font-medium text-slate-500">可提</th>
                             </tr>
                         </thead>
@@ -217,12 +218,14 @@ export default function TrackingBoardPanel() {
                                 <tr className="border-t border-slate-100 dark:border-slate-800">
                                     <td className="px-4 py-2 text-slate-700 dark:text-slate-300">HKD</td>
                                     <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.cash_balance)}</td>
+                                    <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(hkAccount.available_cash)}</td>
                                 </tr>
                             )}
                             {usAccount && (
                                 <tr className="border-t border-slate-100 dark:border-slate-800">
                                     <td className="px-4 py-2 text-slate-700 dark:text-slate-300">USD</td>
                                     <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.cash_balance)}</td>
+                                    <td className="px-4 py-2 text-right text-slate-700 dark:text-slate-300">{fmtNum(usAccount.available_cash)}</td>
                                 </tr>
                             )}
                         </tbody>
