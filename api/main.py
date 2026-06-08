@@ -4800,12 +4800,14 @@ async def websocket_quotes(ws: WebSocket, token: str = Query("")):
     try:
         while True:
             msg = await ws.receive_json()
+            logger.info("[quote-ws] received from %s: %s", user_id[:8], msg.get("type", "?"))
             if msg.get("type") == "subscribe":
                 symbols = msg.get("symbols", [])
                 quote_ws_manager.update_symbols(symbols)
     except WebSocketDisconnect:
         quote_ws_manager.disconnect(user_id)
-    except Exception:
+    except Exception as exc:
+        logger.warning("[quote-ws] error for %s: %s", user_id[:8], exc)
         quote_ws_manager.disconnect(user_id)
 
 
