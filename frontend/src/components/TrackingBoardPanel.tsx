@@ -23,9 +23,7 @@ const CLAMP_TWO_LINES_STYLE: CSSProperties = {
 }
 
 type BoardViewMode = 'simple' | 'detailed'
-type BoardTone = 'blue' | 'emerald' | 'rose' | 'amber'
-
-export default function TrackingBoardPanel() {
+// Removed unused REPORT_PREVIEW_MAX
     const { user } = useAuthStore()
     const [trackingBoard, setTrackingBoard] = useState<TrackingBoardResponse | null>(null)
     const [trackingLoading, setTrackingLoading] = useState(true)
