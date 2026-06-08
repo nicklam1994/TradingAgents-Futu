@@ -10,9 +10,29 @@ from tradingagents.agents.utils.debate_utils import (
     build_empty_risk_debate_state,
     summarize_risk_feedback,
 )
+from tradingagents.strategies.yaml_loader import get_strategy_instructions
 
 
-def create_trader(llm, memory):
+def create_trader(llm, memory, strategy_name: str = None):
+    """Create a trader agent node.
+
+    Args:
+        llm: Language model instance.
+        memory: Memory instance for past lessons.
+        strategy_name: Optional strategy name to inject as prompt instructions.
+                       If None, uses default strategy or no strategy.
+    """
+    # Load strategy instructions if provided
+    strategy_instructions = ""
+    if strategy_name:
+        strategy_instructions = get_strategy_instructions(strategy_name)
+    else:
+        # Try to load default strategy
+        from tradingagents.strategies.yaml_loader import get_default_strategy
+        default_name = get_default_strategy()
+        if default_name:
+            strategy_instructions = get_strategy_instructions(default_name)
+
     async def trader_node(state, name):
         company_name = state["company_of_interest"]
         investment_plan = state["investment_plan"]
@@ -37,10 +57,15 @@ def create_trader(llm, memory):
         context_view = build_agent_context_view(state, "trader")
         risk_feedback_summary = summarize_risk_feedback(risk_feedback_state)
 
+        # Build system prompt with strategy instructions
+        system_prompt = get_prompt("trader_system_prompt", config=config)
+        if strategy_instructions:
+            system_prompt = system_prompt + strategy_instructions
+
         messages = [
             {
                 "role": "system",
-                "content": get_prompt("trader_system_prompt", config=config),
+                "content": system_prompt,
             },
             {
                 "role": "user",

@@ -427,14 +427,20 @@ class ApiService {
 
     // ─── Strategies / Skills API (Phase 9) ────────────────────────────────
 
-    async getStrategies(): Promise<{ ok: boolean; data: Strategy[] }> {
-        return this.request('/v1/skills')
-    }
-
     // ─── Reflections API (Phase 9) ────────────────────────────────────────
 
     async getReflections(): Promise<{ ok: boolean; data: ReflectionEntry[] }> {
         return this.request('/v1/sim/reflections')
+    }
+
+    // ─── Strategies API ─────────────────────────────────────────────────
+
+    async getStrategies(): Promise<{ ok: boolean; data: { strategies: Strategy[]; default: string | null } }> {
+        return this.request('/v1/strategies')
+    }
+
+    async getStrategy(name: string): Promise<{ ok: boolean; data: Strategy }> {
+        return this.request(`/v1/strategies/${name}`)
     }
 
     async get<T>(url: string): Promise<T> {

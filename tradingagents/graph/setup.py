@@ -69,6 +69,7 @@ class GraphSetup:
         risk_manager_memory,
         conditional_logic: ConditionalLogic,
         data_collector=None,
+        strategy_name: str = None,
     ):
         """Initialize with required components."""
         self.quick_thinking_llm = quick_thinking_llm
@@ -81,6 +82,7 @@ class GraphSetup:
         self.risk_manager_memory = risk_manager_memory
         self.conditional_logic = conditional_logic
         self.data_collector = data_collector
+        self.strategy_name = strategy_name
 
     def setup_graph(
         self, selected_analysts=["market", "social", "news", "fundamentals", "macro", "smart_money"],
@@ -164,7 +166,7 @@ class GraphSetup:
         research_manager_node = factories["create_research_manager"](
             self.deep_thinking_llm, self.invest_judge_memory
         )
-        trader_node = factories["create_trader"](self.quick_thinking_llm, self.trader_memory)
+        trader_node = factories["create_trader"](self.quick_thinking_llm, self.trader_memory, self.strategy_name)
 
         # Create risk analysis nodes
         aggressive_analyst = factories["create_aggressive_debator"](self.quick_thinking_llm)

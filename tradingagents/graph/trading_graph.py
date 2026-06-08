@@ -62,6 +62,7 @@ class TradingAgentsGraph:
         config: Dict[str, Any] = None,
         callbacks: Optional[List] = None,
         data_collector: Optional["DataCollector"] = None,
+        strategy_name: str = None,
     ):
         """Initialize the trading agents graph and components."""
         self.debug = debug
@@ -135,6 +136,7 @@ class TradingAgentsGraph:
             self.risk_manager_memory,
             self.conditional_logic,
             data_collector=self.data_collector,
+            strategy_name=strategy_name,
         )
 
         self.propagator = Propagator(

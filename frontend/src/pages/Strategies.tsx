@@ -24,7 +24,7 @@ export default function Strategies() {
         setError(null)
         try {
             const res = await api.getStrategies()
-            setStrategies(res.data ?? [])
+            setStrategies(res.data?.strategies ?? [])
         } catch (e) {
             setError(e instanceof Error ? e.message : '加载策略列表失败')
         } finally {

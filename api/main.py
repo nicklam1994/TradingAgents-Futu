@@ -753,6 +753,8 @@ class AnalyzeRequest(UserContextInput):
     horizons: List[str] = Field(default_factory=lambda: ["short"], description="分析周期列表，如 ['short'] 或 ['short','medium']")
     # Pre-parsed intent from _ai_extract_symbol_and_date (avoids second LLM call in _run_job)
     user_intent: Optional[Dict[str, Any]] = Field(default=None, description="预解析的用户意图，由 chat_completions 传入")
+    # Strategy selection
+    strategy_name: Optional[str] = Field(default=None, description="交易策略名称，如 bull_trend、ma_golden_cross")
 
 
 class AnalyzeResponse(BaseModel):
@@ -1862,6 +1864,7 @@ async def _run_job_inner(
             debug=False,
             config=config,
             data_collector=_shared_data_collector,
+            strategy_name=request.strategy_name,
         )
         final_state: Optional[Dict[str, Any]] = None
 
@@ -1933,6 +1936,7 @@ async def _run_job_inner(
                     debug=False,
                     config=config,
                     data_collector=graph.data_collector,
+                    strategy_name=request.strategy_name,
                 )
 
                 horizon_label = "短线" if horizon == "short" else "中线"
@@ -4429,6 +4433,32 @@ def update_futu_opend_config(
         os.environ["FUTU_RSA_KEY_PATH"] = rsa_path
     
     return {"message": "Futu OpenD 配置已保存"}
+
+
+# ---------------------------------------------------------------------------
+# Trading Strategies
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/strategies")
+def list_strategies(current_user: UserDB = Depends(_require_web_user)):
+    """List all available trading strategies."""
+    from tradingagents.strategies.yaml_loader import list_strategies, get_default_strategy
+    strategies = list_strategies()
+    default = get_default_strategy()
+    return {
+        "strategies": strategies,
+        "default": default,
+    }
+
+
+@app.get("/v1/strategies/{name}")
+def get_strategy(name: str, current_user: UserDB = Depends(_require_web_user)):
+    """Get a specific strategy by name or alias."""
+    from tradingagents.strategies.yaml_loader import load_strategy
+    strategy = load_strategy(name)
+    if not strategy:
+        raise HTTPException(404, f"Strategy '{name}' not found")
+    return strategy
 
 
 @app.get("/v1/models")
