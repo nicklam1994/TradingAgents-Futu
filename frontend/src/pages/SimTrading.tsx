@@ -61,10 +61,7 @@ export default function SimTrading() {
     const [triggerPrice, setTriggerPrice] = useState('')
     const [submitting, setSubmitting] = useState(false)
     const [orderMsg, setOrderMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
-    const [modifyTarget, setModifyTarget] = useState<SimOrder | null>(null)
-    const [modifyPrice, setModifyPrice] = useState('')
-    const [modifyQty, setModifyQty] = useState('')
-    const [modifying, setModifying] = useState(false)
+    const [modifyOrderId, setModifyOrderId] = useState<string | null>(null)
 
     const isStopOrder = orderType === 'STOP_LIMIT' || orderType === 'STOP'
     const isMarketOrder = orderType === 'MARKET'
@@ -189,22 +186,30 @@ export default function SimTrading() {
         if (!selectedStock) return
         setSubmitting(true); setOrderMsg(null)
         try {
-            const res = await api.placeSimOrder({
-                symbol: selectedStock.code,
-                side: orderSide,
-                quantity: parseFloat(orderQty) || 0,
-                price: isMarketOrder ? 0 : effectivePrice,
-                order_type: orderType,
-            })
-            if (res.ok) {
-                setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
-                setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
-                loadMarketData()
+            if (modifyOrderId) {
+                // Modify existing order
+                await api.modifySimOrder(modifyOrderId, selectedStock.code, effectivePrice, parseFloat(orderQty) || 0)
+                setOrderMsg({ type: 'ok', text: `订单已修改 #${modifyOrderId}` })
+                setModifyOrderId(null)
             } else {
-                setOrderMsg({ type: 'err', text: '下单失败' })
+                // Place new order
+                const res = await api.placeSimOrder({
+                    symbol: selectedStock.code,
+                    side: orderSide,
+                    quantity: parseFloat(orderQty) || 0,
+                    price: isMarketOrder ? 0 : effectivePrice,
+                    order_type: orderType,
+                })
+                if (res.ok) {
+                    setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
+                    setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
+                } else {
+                    setOrderMsg({ type: 'err', text: '下单失败' })
+                }
             }
+            loadMarketData()
         } catch (e) {
-            setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '下单失败' })
+            setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '操作失败' })
         } finally { setSubmitting(false) }
     }
 
@@ -217,21 +222,26 @@ export default function SimTrading() {
         } catch (e) { alert(e instanceof Error ? e.message : '撤单失败') }
     }
 
-    const openModify = (o: SimOrder) => {
-        setModifyTarget(o)
-        setModifyPrice(o.price?.toFixed(2) ?? '')
-        setModifyQty(String(o.qty ?? ''))
+    const loadOrderToForm = (o: SimOrder) => {
+        setSelectedStock({ code: o.code, name: o.stock_name || o.code })
+        setOrderSide(o.side as 'BUY' | 'SELL')
+        setOrderType(o.order_type || 'NORMAL')
+        setOrderPrice(o.price?.toFixed(2) ?? '')
+        setOrderQty(String(o.qty ?? ''))
+        setModifyOrderId(o.order_id)
+        setOrderMsg(null)
+        // Subscribe to this stock
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [o.code] }))
+        }
+        setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
     }
 
-    const submitModify = async () => {
-        if (!modifyTarget) return
-        setModifying(true)
-        try {
-            await api.modifySimOrder(modifyTarget.order_id, modifyTarget.code, parseFloat(modifyPrice), parseFloat(modifyQty))
-            setModifyTarget(null)
-            loadMarketData()
-        } catch (e) { alert(e instanceof Error ? e.message : '改单失败') }
-        finally { setModifying(false) }
+    const cancelModify = () => {
+        setModifyOrderId(null)
+        setOrderPrice('')
+        setOrderQty('')
+        setOrderMsg(null)
     }
 
     // ── Derived ──
@@ -345,10 +355,14 @@ export default function SimTrading() {
                         </div>
                     )}
 
-                    {/* Order Form */}
-                    {selectedStock && (
-                        <div className="card space-y-4">
-                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">下单</h2>
+                    {/* Order Form (always visible) */}
+                    <div className="card space-y-4">
+                        <div className="flex items-center justify-between">
+                            <h2 className="font-semibold text-slate-900 dark:text-slate-100">{modifyOrderId ? '改单' : '下单'}</h2>
+                            {modifyOrderId && (
+                                <button onClick={cancelModify} className="text-xs text-slate-400 hover:text-slate-600">取消修改</button>
+                            )}
+                        </div>
 
                             {/* Side Toggle */}
                             <div className="grid grid-cols-2 gap-2">
@@ -420,17 +434,11 @@ export default function SimTrading() {
                                 </div>
                             )}
                             <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice && !quote?.price)}
-                                className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
-                                {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `${orderSide === 'BUY' ? '买入' : '卖出'} ${selectedStock.name}`}
+                                className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${modifyOrderId ? 'bg-blue-600 hover:bg-blue-700' : orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
+                                {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : modifyOrderId ? '确认修改' : (orderSide === 'BUY' ? '买入' : '卖出') + ' ' + (selectedStock?.name ?? '')}
                             </button>
                         </div>
-                    )}
-
-                    {!selectedStock && (
-                        <div className="card flex items-center justify-center py-12 text-sm text-slate-400 dark:text-slate-500">
-                            搜索并选择股票开始交易
-                        </div>
-                    )}
+                    </div>
                 </div>
 
                 {/* ── Right: Positions + Orders + Deals (3/5) ── */}
@@ -513,7 +521,7 @@ export default function SimTrading() {
                                             </div>
                                             {(o.status === 'SUBMITTED' || o.status === 'SUBMITTING' || o.status === 'WAITING') && (
                                                 <div className="flex flex-col gap-1">
-                                                    <button onClick={() => openModify(o)} className="rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10">改单</button>
+                                                    <button onClick={() => loadOrderToForm(o)} className="rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10">改单</button>
                                                     <button onClick={() => cancelOrder(o)} className="rounded px-2 py-0.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">撤单</button>
                                                 </div>
                                             )}
@@ -523,30 +531,6 @@ export default function SimTrading() {
                             </div>
                         )}
                     </div>
-
-                    {/* Modify Order Modal */}
-                    {modifyTarget && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModifyTarget(null)}>
-                            <div className="card w-80 space-y-4" onClick={e => e.stopPropagation()}>
-                                <h3 className="font-semibold text-slate-900 dark:text-slate-100">改单 #{modifyTarget.order_id}</h3>
-                                <div className="text-sm text-slate-500">{modifyTarget.code} {modifyTarget.side}</div>
-                                <div>
-                                    <label className="mb-1 block text-xs text-slate-500">价格</label>
-                                    <input type="number" value={modifyPrice} onChange={e => setModifyPrice(e.target.value)} step="0.01" className="input w-full" />
-                                </div>
-                                <div>
-                                    <label className="mb-1 block text-xs text-slate-500">数量</label>
-                                    <input type="number" value={modifyQty} onChange={e => setModifyQty(e.target.value)} step="1" min="1" className="input w-full" />
-                                </div>
-                                <div className="flex gap-2">
-                                    <button onClick={() => setModifyTarget(null)} className="flex-1 rounded-lg bg-slate-100 py-2 text-sm text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700">取消</button>
-                                    <button onClick={submitModify} disabled={modifying} className="flex-1 rounded-lg bg-blue-600 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50">
-                                        {modifying ? '提交中...' : '确认'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
 
                     {/* Deals */}
                     <div className="card">
@@ -572,7 +556,6 @@ export default function SimTrading() {
                     </div>
                 </div>
             </div>
-        </div>
     )
 }
 
