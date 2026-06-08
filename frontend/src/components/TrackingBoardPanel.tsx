@@ -395,7 +395,7 @@ function SimpleBoardView({
                 <div className="min-w-[1280px]">
                     <div className="grid grid-cols-[1.5fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>名称/代码</div>
-                        <div>当日区间</div>
+                        <div className="text-center">当日区间</div>
                         <div>持仓数量</div>
                         <div>市值/成本市值</div>
                         <div>现价/成本价</div>
