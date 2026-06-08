@@ -129,9 +129,6 @@ export default function TrackingBoardPanel() {
     const totalAssets = displayAccount?.total_assets ?? realAccounts.reduce((s, a) => s + a.total_assets, 0)
     const availableCash = displayAccount?.available_cash ?? realAccounts.reduce((s, a) => s + a.available_cash, 0)
     const frozenCash = displayAccount?.frozen_cash ?? realAccounts.reduce((s, a) => s + a.frozen_cash, 0)
-    const marketVal = displayAccount?.market_val ?? realAccounts.reduce((s, a) => s + a.market_val, 0)
-    const unrealizedPnl = displayAccount?.unrealized_pnl ?? realAccounts.reduce((s, a) => s + a.unrealized_pnl, 0)
-    const realizedPnl = displayAccount?.realized_pnl ?? realAccounts.reduce((s, a) => s + a.realized_pnl, 0)
 
     const fmtNum = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
