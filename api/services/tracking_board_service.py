@@ -64,6 +64,10 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
 
     # Fetch live quotes for all symbols
     quotes = _fetch_live_quotes(symbols)
+    
+    # Fetch market states
+    from tradingagents.dataflows.providers.futu_provider import get_market_state
+    market_states = get_market_state(symbols) if symbols else {}
 
     # Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
@@ -113,7 +117,7 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
                 "quote_source": quote.get("source"),
                 "currency": pos.get("currency", ""),
                 "position_side": pos.get("position_side", "LONG"),
-                "market_state": quote.get("sec_status") or "NORMAL",
+                "market_state": market_states.get(symbol, ""),
                 "lot_size": int(quote.get("lot_size") or 0) or (100 if symbol.endswith(".HK") else 1),
                 "analysis": _serialize_report_summary(reports.get(symbol), previous_trade_date),
             }

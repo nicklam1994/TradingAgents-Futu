@@ -131,18 +131,21 @@ export default function TrackingBoardPanel() {
                         if (!prev) return prev
                         const updatedItems = prev.items.map(item => {
                             const q = msg.type === 'quote_update' ? (msg.symbol === item.symbol ? msg.data : null) : msg.data[item.symbol]
-                            if (!q) return item
+                            const state = msg.states?.[item.symbol]
+                            if (!q && !state) return item
                             return {
                                 ...item,
-                                live_price: q.price ?? item.live_price,
-                                price_change: q.change ?? item.price_change,
-                                price_change_pct: q.change_pct ?? item.price_change_pct,
-                                day_open: q.open ?? item.day_open,
-                                day_high: q.high ?? item.day_high,
-                                day_low: q.low ?? item.day_low,
-                                volume: q.volume ?? item.volume,
-                                market_state: q.sec_status || item.market_state,
-                                lot_size: q.lot_size || item.lot_size,
+                                ...(q ? {
+                                    live_price: q.price ?? item.live_price,
+                                    price_change: q.change ?? item.price_change,
+                                    price_change_pct: q.change_pct ?? item.price_change_pct,
+                                    day_open: q.open ?? item.day_open,
+                                    day_high: q.high ?? item.day_high,
+                                    day_low: q.low ?? item.day_low,
+                                    volume: q.volume ?? item.volume,
+                                    lot_size: q.lot_size || item.lot_size,
+                                } : {}),
+                                ...(state ? { market_state: state } : {}),
                             }
                         })
                         return { ...prev, items: updatedItems }
