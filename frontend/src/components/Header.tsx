@@ -11,6 +11,8 @@ function getInitials(email?: string | null): string {
 }
 
 // formatAnnouncementTime removed
+
+export default function Header() {
     const navigate = useNavigate()
     const { user, logout } = useAuthStore()
     const [themeMode, setThemeMode] = useState<ThemeMode>('system')
