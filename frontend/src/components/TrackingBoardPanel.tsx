@@ -141,7 +141,8 @@ export default function TrackingBoardPanel() {
                                 day_high: q.high ?? item.day_high,
                                 day_low: q.low ?? item.day_low,
                                 volume: q.volume ?? item.volume,
-                                market_state: q.market_state || item.market_state,
+                                market_state: q.sec_status || item.market_state,
+                                lot_size: q.lot_size || item.lot_size,
                             }
                         })
                         return { ...prev, items: updatedItems }
@@ -389,14 +390,14 @@ function SimpleBoardView({
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1280px]">
-                    <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
+                    <div className="grid grid-cols-[0.5fr_1.2fr_0.9fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>状态</div>
                         <div>名称/代码</div>
+                        <div>涨跌幅</div>
+                        <div>当日区间</div>
                         <div>持仓数量</div>
                         <div>市值/成本市值</div>
                         <div>现价/成本价</div>
-                        <div>涨跌幅</div>
-                        <div>当日区间</div>
                         <div>持仓盈亏/盈亏比</div>
                         <div>持仓比</div>
                     </div>
@@ -456,7 +457,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const openP = rangeProgress(item.day_low, item.day_high, item.day_open)
 
     return (
-        <div className="grid grid-cols-[0.6fr_1.3fr_0.8fr_1fr_1fr_0.9fr_1.1fr_1fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
+        <div className="grid grid-cols-[0.5fr_1.2fr_0.9fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
             {/* 状态 */}
             <div className="flex items-center justify-center">
                 <TrackingMarketStateBadge state={item.market_state} />
@@ -466,24 +467,6 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             <div className="min-w-0 flex flex-col justify-center">
                 <div className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
                 <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{item.symbol}</div>
-            </div>
-
-            {/* 持仓数量 + 手数 */}
-            <div className="flex flex-col justify-center">
-                <div className="text-[17px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
-                <div className="mt-0.5 text-sm text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
-            </div>
-
-            {/* 市值/成本市值 */}
-            <div className="flex flex-col justify-center text-[15px]">
-                <div className="font-medium text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
-                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
-            </div>
-
-            {/* 现价/成本价 */}
-            <div className="flex flex-col justify-center text-[15px]">
-                <div className={`text-[17px] font-bold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
-                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
             </div>
 
             {/* 涨跌幅 */}
@@ -534,6 +517,24 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                         模型高 {formatPlainPrice(item.analysis?.high_price)}
                     </span>
                 </div>
+            </div>
+
+            {/* 持仓数量 + 手数 */}
+            <div className="flex flex-col justify-center">
+                <div className="text-[17px] font-medium text-slate-800 dark:text-slate-200">{formatShares(item.current_position)}</div>
+                <div className="mt-0.5 text-sm text-slate-400 dark:text-slate-500">{lots != null ? `${lots} 手` : '-'}</div>
+            </div>
+
+            {/* 市值/成本市值 */}
+            <div className="flex flex-col justify-center text-[15px]">
+                <div className="font-medium text-slate-800 dark:text-slate-200">{formatAmount(marketValue)}</div>
+                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{costValue != null ? formatAmount(costValue) : '-'}</div>
+            </div>
+
+            {/* 现价/成本价 */}
+            <div className="flex flex-col justify-center text-[15px]">
+                <div className={`text-[17px] font-bold ${priceColor}`}>{formatPlainPrice(item.live_price)}</div>
+                <div className="mt-0.5 text-slate-400 dark:text-slate-500">{formatPlainPrice(item.average_cost)}</div>
             </div>
 
             {/* 持仓盈亏/盈亏比 */}

@@ -61,7 +61,8 @@ class _QuoteHandler(StockQuoteHandlerBase):
                 "prev_close": prev_close,
                 "amplitude": float(row.get("amplitude", 0) or 0),
                 "turnover_rate": float(row.get("turnover_rate", 0) or 0),
-                "market_state": str(row.get("market_state", "") or ""),
+                "lot_size": int(row.get("lot_size", 0) or 0),
+                "sec_status": str(row.get("sec_status", "") or ""),
             }
 
             # Schedule async broadcast via event loop
