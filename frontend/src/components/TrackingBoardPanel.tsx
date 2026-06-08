@@ -49,14 +49,6 @@ export default function TrackingBoardPanel() {
 
     const trackingItems = trackingBoard?.items || []
     const trackingRefreshSeconds = trackingBoard?.refresh_interval_seconds || 20
-    const liveMarketValueTotal = trackingItems.reduce(
-        (sum, item) => sum + (item.live_market_value ?? item.market_value ?? 0),
-        0,
-    )
-    const floatingPnlTotal = trackingItems.reduce(
-        (sum, item) => sum + (item.floating_pnl ?? 0),
-        0,
-    )
     const lastQuoteTime = useMemo(() => {
         const values = trackingItems
             .map(item => item.quote_time)
@@ -574,10 +566,6 @@ function DetailedBoardView({
     onOpenReport,
 }: {
     items: TrackingBoardItem[]
-    trackingRefreshing: boolean
-    trackingError: string | null
-    liveMarketValueTotal: number
-    floatingPnlTotal: number
     onAnalyze: (symbol: string) => void
     onOpenReport: (reportId: string) => void
 }) {
