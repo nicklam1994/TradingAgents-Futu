@@ -587,7 +587,7 @@ def place_order(
             deal_market=deal_market,
             qty=deal_qty,
             price=deal_price,
-            order_type=_order_type_label(order_type_upper),
+            order_type=order_type_upper,
             currency="HKD" if deal_market == "HK" else "USD",
         )
 
