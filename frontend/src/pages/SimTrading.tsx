@@ -49,18 +49,21 @@ export default function SimTrading() {
     const dropdownRef = useRef<HTMLDivElement>(null)
     const searchTimerRef = useRef<ReturnType<typeof setTimeout>>()
     const [selectedStock, setSelectedStock] = useState<{ code: string; name: string } | null>(null)
+    const selectedStockRef = useRef(selectedStock)
+    selectedStockRef.current = selectedStock
     const [quote, setQuote] = useState<QuoteData | null>(null)
 
     // Order form
     const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY')
     const [orderType, setOrderType] = useState('NORMAL')
+    const [orderSession, setOrderSession] = useState('ALL')
     const [orderPrice, setOrderPrice] = useState('')
     const [orderQty, setOrderQty] = useState('')
     const [triggerPrice, setTriggerPrice] = useState('')
     const [submitting, setSubmitting] = useState(false)
     const [orderMsg, setOrderMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
-    const isStopOrder = orderType === 'STOP' || orderType === 'STOP_LIMIT'
+    const isStopOrder = orderType === 'STOP_LIMIT' || orderType === 'STOP'
     const isMarketOrder = orderType === 'MARKET'
     const orderAmount = (parseFloat(orderPrice) || 0) * (parseFloat(orderQty) || 0)
 
@@ -89,7 +92,7 @@ export default function SimTrading() {
     useEffect(() => { loadAccounts() }, [loadAccounts])
     useEffect(() => { loadMarketData() }, [loadMarketData])
 
-    // ── WebSocket ──
+    // ── WebSocket (stable, uses ref for selectedStock) ──
     useEffect(() => {
         const token = localStorage.getItem('ta-access-token') || ''
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -100,7 +103,8 @@ export default function SimTrading() {
             try {
                 const msg = JSON.parse(event.data)
                 const updateQuote = (code: string, q: Record<string, number | string>) => {
-                    if (!selectedStock || code !== selectedStock.code) return
+                    const sel = selectedStockRef.current
+                    if (!sel || code !== sel.code) return
                     setQuote(prev => prev ? {
                         ...prev,
                         price: (q.price as number) ?? prev.price,
@@ -134,7 +138,7 @@ export default function SimTrading() {
         ws.onclose = () => setWsConnected(false)
         ws.onerror = () => setWsConnected(false)
         return () => { ws.close() }
-    }, [selectedStock?.code])
+    }, [])  // stable — uses ref for selectedStock
 
     // Subscribe position codes
     useEffect(() => {
@@ -168,13 +172,12 @@ export default function SimTrading() {
 
     const selectStock = (r: StockSearchResult) => {
         setSelectedStock({ code: r.symbol, name: r.name })
-        setSearchQuery(''); setShowDropdown(false); setSearchResults([]); setQuote(null)
+        setSearchQuery(''); setShowDropdown(false); setSearchResults([])
+        setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: r.name })
         // Subscribe to this stock for real-time quotes
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
         }
-        // Fetch initial snapshot
-        api.getSimPositions(activeMarket).catch(() => {})
     }
 
     // ── Order submit ──
@@ -329,6 +332,16 @@ export default function SimTrading() {
                                 </button>
                             </div>
 
+                            {/* Session */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">时段</label>
+                                <select value={orderSession} onChange={e => setOrderSession(e.target.value)}
+                                    className="input w-full">
+                                    <option value="ALL">盘前+盘中+盘后</option>
+                                    <option value="REGULAR">盘中</option>
+                                </select>
+                            </div>
+
                             {/* Type */}
                             <div>
                                 <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">类型</label>
@@ -336,8 +349,8 @@ export default function SimTrading() {
                                     className="input w-full">
                                     <option value="NORMAL">限价单</option>
                                     <option value="MARKET">市价单</option>
-                                    <option value="STOP">止损单</option>
                                     <option value="STOP_LIMIT">止损限价单</option>
+                                    <option value="STOP">止损市价单</option>
                                 </select>
                             </div>
 
