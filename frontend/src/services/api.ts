@@ -385,6 +385,14 @@ class ApiService {
         return this.request('/v1/sim/order', { method: 'POST', body: JSON.stringify(req) })
     }
 
+    async cancelSimOrder(orderId: string, symbol: string): Promise<{ ok: boolean }> {
+        return this.request(`/v1/sim/order/${orderId}?symbol=${encodeURIComponent(symbol)}`, { method: 'DELETE' })
+    }
+
+    async modifySimOrder(orderId: string, symbol: string, price: number, qty: number): Promise<{ ok: boolean }> {
+        return this.request(`/v1/sim/order/${orderId}?symbol=${encodeURIComponent(symbol)}&price=${price}&qty=${qty}`, { method: 'PUT' })
+    }
+
     async getSimPerformance(): Promise<{ ok: boolean; data: SimPerformance }> {
         return this.request('/v1/sim/performance')
     }

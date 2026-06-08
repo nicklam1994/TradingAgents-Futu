@@ -61,6 +61,10 @@ export default function SimTrading() {
     const [triggerPrice, setTriggerPrice] = useState('')
     const [submitting, setSubmitting] = useState(false)
     const [orderMsg, setOrderMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+    const [modifyTarget, setModifyTarget] = useState<SimOrder | null>(null)
+    const [modifyPrice, setModifyPrice] = useState('')
+    const [modifyQty, setModifyQty] = useState('')
+    const [modifying, setModifying] = useState(false)
 
     const isStopOrder = orderType === 'STOP_LIMIT' || orderType === 'STOP'
     const isMarketOrder = orderType === 'MARKET'
@@ -202,6 +206,32 @@ export default function SimTrading() {
         } catch (e) {
             setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '下单失败' })
         } finally { setSubmitting(false) }
+    }
+
+    // ── Order actions ──
+    const cancelOrder = async (o: SimOrder) => {
+        if (!confirm(`确认撤单 #${o.order_id}?`)) return
+        try {
+            await api.cancelSimOrder(o.order_id, o.code)
+            loadMarketData()
+        } catch (e) { alert(e instanceof Error ? e.message : '撤单失败') }
+    }
+
+    const openModify = (o: SimOrder) => {
+        setModifyTarget(o)
+        setModifyPrice(o.price?.toFixed(2) ?? '')
+        setModifyQty(String(o.qty ?? ''))
+    }
+
+    const submitModify = async () => {
+        if (!modifyTarget) return
+        setModifying(true)
+        try {
+            await api.modifySimOrder(modifyTarget.order_id, modifyTarget.code, parseFloat(modifyPrice), parseFloat(modifyQty))
+            setModifyTarget(null)
+            loadMarketData()
+        } catch (e) { alert(e instanceof Error ? e.message : '改单失败') }
+        finally { setModifying(false) }
     }
 
     // ── Derived ──
@@ -476,15 +506,47 @@ export default function SimTrading() {
                                             <span className={`text-xs ${o.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{o.side}</span>
                                             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{o.status}</span>
                                         </div>
-                                        <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                            <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
-                                            <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-right text-sm text-slate-600 dark:text-slate-400">
+                                                <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
+                                                <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
+                                            </div>
+                                            {(o.status === 'SUBMITTED' || o.status === 'SUBMITTING' || o.status === 'WAITING') && (
+                                                <div className="flex flex-col gap-1">
+                                                    <button onClick={() => openModify(o)} className="rounded px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-500/10">改单</button>
+                                                    <button onClick={() => cancelOrder(o)} className="rounded px-2 py-0.5 text-xs text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10">撤单</button>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
                     </div>
+
+                    {/* Modify Order Modal */}
+                    {modifyTarget && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setModifyTarget(null)}>
+                            <div className="card w-80 space-y-4" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-semibold text-slate-900 dark:text-slate-100">改单 #{modifyTarget.order_id}</h3>
+                                <div className="text-sm text-slate-500">{modifyTarget.code} {modifyTarget.side}</div>
+                                <div>
+                                    <label className="mb-1 block text-xs text-slate-500">价格</label>
+                                    <input type="number" value={modifyPrice} onChange={e => setModifyPrice(e.target.value)} step="0.01" className="input w-full" />
+                                </div>
+                                <div>
+                                    <label className="mb-1 block text-xs text-slate-500">数量</label>
+                                    <input type="number" value={modifyQty} onChange={e => setModifyQty(e.target.value)} step="1" min="1" className="input w-full" />
+                                </div>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setModifyTarget(null)} className="flex-1 rounded-lg bg-slate-100 py-2 text-sm text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700">取消</button>
+                                    <button onClick={submitModify} disabled={modifying} className="flex-1 rounded-lg bg-blue-600 py-2 text-sm text-white hover:bg-blue-700 disabled:opacity-50">
+                                        {modifying ? '提交中...' : '确认'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Deals */}
                     <div className="card">

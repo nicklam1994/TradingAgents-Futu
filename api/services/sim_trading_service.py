@@ -651,6 +651,48 @@ def cancel_order(
         ctx.close()
 
 
+def modify_order(
+    order_id: str,
+    symbol: str,
+    price: float,
+    qty: float,
+    trd_env: str = "SIMULATE",
+) -> bool:
+    """Modify a pending simulated order (price and/or quantity).
+
+    Args:
+        order_id: The order ID to modify.
+        symbol: Stock symbol (needed to determine market context).
+        price: New price.
+        qty: New quantity.
+        trd_env: Trading environment. Only "SIMULATE" is supported.
+
+    Returns:
+        True if modification was successful.
+    """
+    from futu import RET_OK, TrdEnv, ModifyOrderOp, SecurityFirm
+    from futu import OpenSecTradeContext
+
+    if trd_env != "SIMULATE":
+        raise ValueError("SimTradingService only supports trd_env='SIMULATE'")
+
+    ctx = _get_trade_ctx(symbol)
+    try:
+        ret, data = ctx.modify_order(
+            modify_order_op=ModifyOrderOp.NORMAL,
+            order_id=order_id,
+            qty=qty,
+            price=price,
+            trd_env=TrdEnv.SIMULATE,
+        )
+        if ret != RET_OK:
+            raise RuntimeError(f"Futu modify_order failed for {order_id}: {data}")
+
+        return True
+    finally:
+        ctx.close()
+
+
 def get_orders(
     symbol: Optional[str] = None,
     trd_env: str = "SIMULATE",

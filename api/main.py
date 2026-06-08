@@ -5350,6 +5350,7 @@ from api.services.sim_trading_service import (
     get_positions as _sim_get_positions,
     place_order as _sim_place_order,
     cancel_order as _sim_cancel_order,
+    modify_order as _sim_modify_order,
     get_orders as _sim_get_orders,
     get_deals as _sim_get_deals,
     execute_signal as _sim_execute_signal,
@@ -5496,6 +5497,23 @@ def sim_cancel_order(
         return {"ok": True, "message": f"Order {order_id} cancelled"}
     except Exception as e:
         logger.error(f"sim_cancel_order error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.put("/v1/sim/order/{order_id}")
+def sim_modify_order(
+    order_id: str,
+    symbol: str = Query(..., description="Stock code"),
+    price: float = Query(..., description="New price"),
+    qty: float = Query(..., description="New quantity"),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """Modify a simulated order (price/quantity)."""
+    try:
+        _sim_modify_order(order_id, symbol, price, qty, "SIMULATE")
+        return {"ok": True, "message": f"Order {order_id} modified"}
+    except Exception as e:
+        logger.error(f"sim_modify_order error: {e}")
         raise HTTPException(status_code=502, detail=str(e))
 
 
