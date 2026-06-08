@@ -3,7 +3,7 @@ import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Githu
 import { useNavigate } from 'react-router-dom'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { Announcement } from '@/types'
+import type { ThemeMode } from '@/types'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -28,10 +28,7 @@ export default function Header() {
     const [themeMode, setThemeMode] = useState<ThemeMode>('system')
     const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default')
     const [menuOpen, setMenuOpen] = useState(false)
-    const [announcementOpen, setAnnouncementOpen] = useState(false)
-    const [announcement, setAnnouncement] = useState<Announcement | null>(null)
     const menuRef = useRef<HTMLDivElement | null>(null)
-    const announceRef = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
         const saved = (localStorage.getItem('ta-theme') || 'system') as ThemeMode
@@ -41,29 +38,14 @@ export default function Header() {
         if ('Notification' in window) setNotifPermission(Notification.permission)
     }, [])
 
-    useEffect(() => {
-        if (!user) return
-        let cancelled = false
-        api.getLatestAnnouncement()
-            .then((data) => {
-                if (!cancelled) setAnnouncement(data)
-            })
-            .catch(() => {
-                if (!cancelled) setAnnouncement(null)
-            })
-        return () => {
-            cancelled = true
-        }
-    }, [user])
+    // Announcement fetch removed
 
     useEffect(() => {
         const onClick = (event: MouseEvent) => {
             if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
                 setMenuOpen(false)
             }
-            if (announceRef.current && !announceRef.current.contains(event.target as Node)) {
-                setAnnouncementOpen(false)
-            }
+            // announceRef handler removed
         }
         document.addEventListener('mousedown', onClick)
         return () => document.removeEventListener('mousedown', onClick)
@@ -97,7 +79,7 @@ export default function Header() {
     const themeLabel = themeMode === 'system' ? '跟随系统' : themeMode === 'light' ? '浅色' : '深色'
     const ThemeIcon = themeMode === 'system' ? Monitor : themeMode === 'light' ? Sun : Moon
     const accountTone = useMemo(() => getInitials(user?.email), [user?.email])
-    const announcementStorageKey = announcement ? `ta-announcement-read:${announcement.id}` : null
+    // announcementStorageKey removed (unused)
     // hasUnreadAnnouncement removed (unused)
 
     // handleAnnouncementToggle removed (unused)
