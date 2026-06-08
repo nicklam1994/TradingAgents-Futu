@@ -758,14 +758,16 @@ export interface SimOrder {
 }
 
 export interface SimDeal {
-    order_id: string
     deal_id: string
     code: string
     stock_name?: string
     side: string
-    price: number
+    deal_market: string
+    order_type: string
     qty: number
-    deal_time: string
+    price: number
+    create_time: string
+    status: string
     currency?: string
 }
 

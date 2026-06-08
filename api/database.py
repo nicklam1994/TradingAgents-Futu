@@ -505,6 +505,7 @@ class SimDealDB(Base):
     stock_name = Column(String(80), nullable=True)
     trd_side = Column(String(8), nullable=False)  # BUY / SELL
     deal_market = Column(String(8), nullable=False)  # HK / US
+    order_type = Column(String(20), default="NORMAL", nullable=True)  # NORMAL / MARKET / ...
     qty = Column(Float, nullable=False)
     price = Column(Float, nullable=False)
     create_time = Column(String(32), nullable=False)

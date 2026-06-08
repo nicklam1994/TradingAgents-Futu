@@ -140,14 +140,16 @@ class OrderInfo:
 @dataclass
 class DealInfo:
     """Executed deal detail."""
-    order_id: str = ""
     deal_id: str = ""
     code: str = ""
     stock_name: str = ""
     side: str = ""
-    price: float = 0.0
+    deal_market: str = ""
+    order_type: str = ""
     qty: float = 0.0
-    deal_time: str = ""
+    price: float = 0.0
+    create_time: str = ""
+    status: str = ""
     currency: str = "HKD"
 
 
@@ -171,6 +173,7 @@ def _record_deal(
     deal_market: str,
     qty: float,
     price: float,
+    order_type: str = "NORMAL",
     currency: str = "HKD",
 ) -> None:
     """Record a simulated deal in the local DB."""
@@ -185,6 +188,7 @@ def _record_deal(
             stock_name=stock_name,
             trd_side=trd_side,
             deal_market=deal_market,
+            order_type=order_type,
             qty=qty,
             price=price,
             create_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
@@ -461,7 +465,7 @@ def get_positions(
                 market_val=market_val,
                 cost_val=round(cost_price * qty, 2),
                 unrealized_pnl=unrealized_pnl,
-                unrealized_pnl_pct=round(pl_ratio * 100, 2) if pl_ratio else 0.0,
+                unrealized_pnl_pct=round(pl_ratio, 2) if pl_ratio else 0.0,
                 today_pnl=round((current_price - prev_close) * qty, 2) if prev_close else 0.0,
                 currency=str(row.get("currency", "HKD")),
             ))
@@ -548,6 +552,7 @@ def place_order(
         import time
         deal_price = float(row.get("price", price))
         deal_qty = float(row.get("qty", quantity))
+        deal_stock_name = str(row.get("stock_name", ""))
 
         if order_status in ("FILLED_ALL", "FILLED_PART"):
             deal_price = float(row.get("dealt_avg_price", row.get("price", price)))
@@ -561,6 +566,8 @@ def place_order(
                         for _, orow in data2.iterrows():
                             if str(orow.get("order_id", "")) == order_id:
                                 st = str(orow.get("order_status", ""))
+                                if not deal_stock_name:
+                                    deal_stock_name = str(orow.get("stock_name", ""))
                                 if st in ("FILLED_ALL", "FILLED_PART"):
                                     deal_price = float(orow.get("dealt_avg_price", price))
                                     deal_qty = float(orow.get("dealt_qty", quantity))
@@ -575,11 +582,12 @@ def place_order(
         _record_deal(
             order_id=order_id,
             code=code,
-            stock_name="",
+            stock_name=deal_stock_name,
             trd_side=side_upper,
             deal_market=deal_market,
             qty=deal_qty,
             price=deal_price,
+            order_type=order_type_upper,
             currency="HKD" if deal_market == "HK" else "USD",
         )
 
@@ -757,14 +765,16 @@ def get_deals(
         deals = []
         for _, row in data.iterrows():
             deals.append(DealInfo(
-                order_id=str(row.get("order_id", "")),
                 deal_id=str(row.get("deal_id", "")),
                 code=str(row.get("code", "")),
                 stock_name=str(row.get("stock_name", "")),
                 side=str(row.get("trd_side", "")),
-                price=float(row.get("price", 0)),
+                deal_market=str(row.get("deal_market", "")),
+                order_type=str(row.get("order_type", "NORMAL")),
                 qty=float(row.get("qty", 0)),
-                deal_time=str(row.get("create_time", "")),
+                price=float(row.get("price", 0)),
+                create_time=str(row.get("create_time", "")),
+                status=str(row.get("status", "FILLED")),
                 currency=str(row.get("currency", "HKD")),
             ))
         return deals
@@ -792,14 +802,16 @@ def _get_local_deals(
 
         return [
             DealInfo(
-                order_id=r.order_id,
                 deal_id=r.deal_id,
                 code=r.code,
                 stock_name=r.stock_name or "",
                 side=r.trd_side,
-                price=r.price,
+                deal_market=r.deal_market or "",
+                order_type=r.order_type or "NORMAL",
                 qty=r.qty,
-                deal_time=r.create_time,
+                price=r.price,
+                create_time=r.create_time,
+                status=r.status or "FILLED",
                 currency=r.currency or "HKD",
             )
             for r in rows
@@ -1228,14 +1240,16 @@ def order_info_to_dict(o: OrderInfo) -> Dict[str, Any]:
 def deal_info_to_dict(d: DealInfo) -> Dict[str, Any]:
     """Serialize DealInfo to dict for API response."""
     return {
-        "order_id": d.order_id,
         "deal_id": d.deal_id,
         "code": d.code,
         "stock_name": d.stock_name,
         "side": d.side,
-        "price": d.price,
+        "deal_market": d.deal_market,
+        "order_type": d.order_type,
         "qty": d.qty,
-        "deal_time": d.deal_time,
+        "price": d.price,
+        "create_time": d.create_time,
+        "status": d.status,
         "currency": d.currency,
     }
 

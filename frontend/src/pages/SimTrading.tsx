@@ -260,12 +260,13 @@ export default function SimTrading() {
                                 <div key={d.deal_id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800">
                                     <div className="flex items-center gap-2">
                                         {d.side === 'BUY' ? <ArrowUpCircle className="h-4 w-4 text-emerald-500" /> : <ArrowDownCircle className="h-4 w-4 text-rose-500" />}
-                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || d.code}</span>
+                                        <span className="font-medium text-slate-900 dark:text-slate-100">{d.stock_name || displayCode(d.code)}</span>
                                         <span className={`text-xs ${d.side === 'BUY' ? 'text-emerald-600' : 'text-rose-600'}`}>{d.side}</span>
+                                        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{d.order_type}</span>
                                     </div>
                                     <div className="text-right text-sm text-slate-600 dark:text-slate-400">
                                         <div>{d.qty} × {d.price?.toFixed(2)}</div>
-                                        <div className="text-xs text-slate-400">{formatTime(d.deal_time)}</div>
+                                        <div className="text-xs text-slate-400">{formatTime(d.create_time)}</div>
                                     </div>
                                 </div>
                             ))}
@@ -340,7 +341,7 @@ function displayCode(code: string): string {
 function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number }> {
     if (!deals.length) return []
 
-    const sorted = [...deals].sort((a, b) => (a.deal_time ?? '').localeCompare(b.deal_time ?? ''))
+    const sorted = [...deals].sort((a, b) => (a.create_time ?? '').localeCompare(b.create_time ?? ''))
     const buys: Record<string, Array<{ price: number; qty: number }>> = {}
     let cumulative = 0
     const points: Array<{ time: string; value: number }> = []
@@ -363,7 +364,7 @@ function buildEquityCurve(deals: SimDeal[]): Array<{ time: string; value: number
             }
         }
 
-        points.push({ time: d.deal_time ?? '', value: Math.round(cumulative * 100) / 100 })
+        points.push({ time: d.create_time ?? '', value: Math.round(cumulative * 100) / 100 })
     }
 
     return points
