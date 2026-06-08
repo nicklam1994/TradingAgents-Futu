@@ -56,6 +56,15 @@ def _is_cache_fresh() -> bool:
 
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
+    # Get real account stats
+    try:
+        from api.services.real_account_service import get_all_real_accounts
+        accounts = get_all_real_accounts()
+        total_realized_pnl = sum(a.realized_pnl for a in accounts)
+        total_unrealized_pnl = sum(a.unrealized_pnl for a in accounts)
+    except Exception:
+        total_realized_pnl = 0.0
+        total_unrealized_pnl = 0.0
     previous_trade_date = previous_trading_day(today_str("HK"), "HK")
 
     # Fetch positions from Futu (with cache fallback)
@@ -144,6 +153,11 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
         "cache_fresh": _is_cache_fresh(),
         "last_sync_ts": _position_cache_ts,
         "items": items,
+        "stats": {
+            "cumulative_profit": total_realized_pnl if total_realized_pnl > 0 else 0,
+            "cumulative_loss": total_realized_pnl if total_realized_pnl < 0 else 0,
+            "win_rate": None,  # No trade history available from Futu
+        },
     }
 
 

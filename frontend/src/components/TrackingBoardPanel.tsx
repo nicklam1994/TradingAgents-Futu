@@ -1009,7 +1009,7 @@ function getModelRangeAlert(
 
 function formatPrice(value?: number | null): string {
     if (value == null || !Number.isFinite(value)) return '--'
-    return formatNumber(value, 2)
+    return formatNumber(value, 3, 2)
 }
 
 function formatPlainPrice(value?: number | null): string {
@@ -1084,10 +1084,10 @@ function formatQuoteSource(value?: string | null): string {
     return value.replace('_hq', '').replace('_', ' ')
 }
 
-function formatNumber(value: number, digits = 2): string {
+function formatNumber(value: number, maxDigits = 2, minDigits?: number): string {
     return new Intl.NumberFormat('zh-CN', {
-        minimumFractionDigits: digits,
-        maximumFractionDigits: digits,
+        minimumFractionDigits: minDigits ?? maxDigits,
+        maximumFractionDigits: maxDigits,
     }).format(value)
 }
 

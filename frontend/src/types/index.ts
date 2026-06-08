@@ -554,6 +554,11 @@ export interface TrackingBoardResponse {
     previous_trade_date: string
     refresh_interval_seconds: number
     items: TrackingBoardItem[]
+    stats?: {
+        cumulative_profit?: number | null
+        cumulative_loss?: number | null
+        win_rate?: number | null
+    }
 }
 
 // Watchlist Board
