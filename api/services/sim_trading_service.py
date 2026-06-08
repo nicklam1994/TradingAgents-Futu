@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +24,19 @@ logger = logging.getLogger(__name__)
 # ── Configuration helpers ────────────────────────────────────────────────────
 
 def _opend_host() -> str:
-    """Read FutuOpenD host from env, default to localhost."""
-    return os.getenv("FUTU_OPEND_HOST", "172.17.160.1")
+    """Read FutuOpenD host from env or .env file, default to localhost."""
+    host = os.getenv("FUTU_OPEND_HOST")
+    if host:
+        return host
+    try:
+        from dotenv import dotenv_values
+        env_vals = dotenv_values(".env")
+        host = env_vals.get("FUTU_OPEND_HOST")
+        if host:
+            return host
+    except Exception:
+        pass
+    return "127.0.0.1"
 
 
 def _opend_port() -> int:
@@ -434,7 +446,7 @@ def place_order(
         RuntimeError: If FutuOpenD is offline or order placement fails.
         ValueError: If parameters are invalid.
     """
-    from futu import RET_OK, TrdEnv, TrdSide, ModifyOrderOp, SecurityFirm
+    from futu import RET_OK, TrdEnv, TrdSide, TrdMarket, ModifyOrderOp, SecurityFirm
     from futu import OpenSecTradeContext
 
     if trd_env != "SIMULATE":
@@ -477,10 +489,36 @@ def place_order(
 
         row = data.iloc[0]
         order_id = str(row.get("order_id", ""))
-        fill_price = float(row.get("price", price))
-        fill_qty = float(row.get("qty", quantity))
+        order_status = str(row.get("order_status", "SUBMITTED"))
 
-        # Record deal locally (Futu sim doesn't support deal_list_query)
+        # ── Record deal locally (Futu sim doesn't support deal_list_query) ──
+        # Query actual fill price — poll up to 3 times (sim orders fill in 2-5s)
+        import time
+        deal_price = float(row.get("price", price))
+        deal_qty = float(row.get("qty", quantity))
+
+        if order_status in ("FILLED_ALL", "FILLED_PART"):
+            deal_price = float(row.get("dealt_avg_price", row.get("price", price)))
+            deal_qty = float(row.get("dealt_qty", row.get("qty", quantity)))
+        else:
+            for _attempt in range(3):
+                time.sleep(2)
+                try:
+                    ret2, data2 = ctx.order_list_query(trd_env=TrdEnv.SIMULATE)
+                    if ret2 == RET_OK and data2 is not None and not data2.empty:
+                        for _, orow in data2.iterrows():
+                            if str(orow.get("order_id", "")) == order_id:
+                                st = str(orow.get("order_status", ""))
+                                if st in ("FILLED_ALL", "FILLED_PART"):
+                                    deal_price = float(orow.get("dealt_avg_price", price))
+                                    deal_qty = float(orow.get("dealt_qty", quantity))
+                                    break
+                        else:
+                            continue
+                        break  # inner break → exit retry loop
+                except Exception:
+                    pass
+
         deal_market = "HK" if market == TrdMarket.HK else "US"
         _record_deal(
             order_id=order_id,
@@ -488,8 +526,8 @@ def place_order(
             stock_name="",
             trd_side=side_upper,
             deal_market=deal_market,
-            qty=fill_qty,
-            price=fill_price,
+            qty=deal_qty,
+            price=deal_price,
             currency="HKD" if deal_market == "HK" else "USD",
         )
 
@@ -497,8 +535,8 @@ def place_order(
             order_id=order_id,
             code=str(row.get("code", code)),
             side=side_upper,
-            price=fill_price,
-            qty=fill_qty,
+            price=deal_price,
+            qty=deal_qty,
             status=str(row.get("order_status", "SUBMITTED")),
             create_time=str(row.get("create_time", "")),
         )
