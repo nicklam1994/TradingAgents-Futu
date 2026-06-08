@@ -127,7 +127,8 @@ export default function Header() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    {announcement && (
+                    {/* Hide announcement, sponsor, thanks buttons */}
+                    {false && announcement && (
                         <div className="relative" ref={announceRef}>
                             <button
                                 onClick={handleAnnouncementToggle}
@@ -195,22 +196,22 @@ export default function Header() {
                             )}
                         </div>
                     )}
-                    <Link
+                    {false && <Link
                         to="/sponsor"
                         className="group flex items-center gap-2 rounded-2xl border border-pink-200 dark:border-pink-900 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-pink-300 dark:hover:border-pink-700 hover:bg-pink-50 dark:hover:bg-pink-950/30 transition-all mr-1"
                         title="赞助支持"
                     >
                         <Heart className="w-4 h-4 text-pink-500 dark:text-pink-400 group-hover:text-pink-600 dark:group-hover:text-pink-300" />
                         <span className="text-[13px] font-medium text-pink-600 dark:text-pink-400 group-hover:text-pink-700 dark:group-hover:text-pink-300 hidden sm:inline">赞助</span>
-                    </Link>
-                    <Link
+                    </Link>}
+                    {false && <Link
                         to="/thanks"
                         className="group flex items-center gap-2 rounded-2xl border border-amber-200 dark:border-amber-900 bg-white dark:bg-slate-900 px-3 py-1.5 hover:border-amber-300 dark:hover:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/30 transition-all mr-1"
                         title="致谢名单"
                     >
                         <Users className="w-4 h-4 text-amber-500 dark:text-amber-400 group-hover:text-amber-600 dark:group-hover:text-amber-300" />
                         <span className="text-[13px] font-medium text-amber-600 dark:text-amber-400 group-hover:text-amber-700 dark:group-hover:text-amber-300 hidden sm:inline">致谢</span>
-                    </Link>
+                    </Link>}
                     <a
                         href="https://github.com/nicklam1994/TradingAgents-Futu"
                         target="_blank"
