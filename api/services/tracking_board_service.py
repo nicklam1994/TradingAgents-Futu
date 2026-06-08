@@ -56,16 +56,17 @@ def _is_cache_fresh() -> bool:
 
 
 def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
+    previous_trade_date = previous_trading_day(today_str("HK"), "HK")
+
+    # Fetch positions from Futu (with cache fallback)
+    positions = _fetch_futu_positions()
+    
     # Calculate stats from positions
     total_realized_pnl = sum(_to_float(p.get("realized_pl")) or 0 for p in positions)
     total_unrealized_pnl = sum(_to_float(p.get("unrealized_pl")) or 0 for p in positions)
     profitable_count = sum(1 for p in positions if (_to_float(p.get("unrealized_pl")) or 0) > 0)
     total_positions = len(positions)
     win_rate = round(profitable_count / total_positions * 100, 1) if total_positions > 0 else None
-    previous_trade_date = previous_trading_day(today_str("HK"), "HK")
-
-    # Fetch positions from Futu (with cache fallback)
-    positions = _fetch_futu_positions()
     symbols = [p["symbol"] for p in positions]
 
     # Fetch live quotes for all symbols
