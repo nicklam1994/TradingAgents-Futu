@@ -202,7 +202,7 @@ function SimpleBoardView({
             <div className="overflow-x-auto">
                 <div className="min-w-[1180px]">
                     <div className="grid grid-cols-[1.36fr_0.88fr_0.74fr_0.78fr_1.28fr_0.86fr_0.96fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-[0.12em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
-                        <div>标的</div>
+                        <div>股票</div>
                         <div>当日 K 线</div>
                         <div>最新价</div>
                         <div>涨跌幅</div>
@@ -418,9 +418,9 @@ function DetailedBoardView({
         <div className="space-y-4 pt-4">
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <BoardStatChip
-                    label="持仓标的"
+                    label="持仓股票"
                     value={`${items.length} 只`}
-                    subValue={items.length > 0 ? `共 ${items.length} 只标的` : '等待首次导入'}
+                    subValue={items.length > 0 ? `共 ${items.length} 只股票` : '等待首次导入'}
                     tone="blue"
                 />
                 <BoardStatChip

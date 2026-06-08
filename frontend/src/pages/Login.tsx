@@ -150,7 +150,7 @@ export default function Login() {
                         <div className="mt-5 flex items-start gap-3 rounded-[24px] bg-slate-950 px-4 py-4 text-slate-100 dark:border dark:border-slate-800/80 dark:bg-slate-900">
                             <TrendingUp className="mt-0.5 h-4 w-4 shrink-0 text-cyan-400" />
                             <div className="text-sm leading-6 text-slate-300">
-                                登录后可持续保存研究历史、模型配置与分析上下文，用于跟踪同一标的在不同日期下的判断演进。
+                                登录后可持续保存研究历史、模型配置与分析上下文，用于跟踪同一股票在不同日期下的判断演进。
                             </div>
                         </div>
                     </div>

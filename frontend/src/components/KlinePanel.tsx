@@ -269,7 +269,7 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
     const isUp = (panelChange ?? 0) >= 0
     const compactChangePercent = panelChangePercent == null ? '--' : `${panelChangePercent >= 0 ? '+' : ''}${formatNumber(panelChangePercent)}%`
     const showCurrentSymbolButton = !!currentAnalysisSymbol && currentAnalysisSymbol !== symbol
-    const currentSymbolLabel = currentAnalysisSymbol ? getDisplayName(currentAnalysisSymbol).replace(/（.*?）/, '') : '当前标的'
+    const currentSymbolLabel = currentAnalysisSymbol ? getDisplayName(currentAnalysisSymbol).replace(/（.*?）/, '') : '当前股票'
 
     return (
         <section className="card h-full flex flex-col overflow-hidden">

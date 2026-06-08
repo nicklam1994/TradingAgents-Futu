@@ -259,7 +259,7 @@ export default function WatchlistBoard() {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">优质自选</h1>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">添加关注标的，实时跟踪行情与分析</p>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">添加关注股票，实时跟踪行情与分析</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                     <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-700/70">上一交易日：{board?.previous_trade_date || '--'}</span>
@@ -330,7 +330,7 @@ export default function WatchlistBoard() {
             ) : items.length === 0 ? (
                 <div className="py-10 text-center">
                     <Star className="mx-auto mb-3 h-12 w-12 text-slate-300 dark:text-slate-600" />
-                    <p className="text-slate-600 dark:text-slate-300">暂无自选标的</p>
+                    <p className="text-slate-600 dark:text-slate-300">暂无自选股票</p>
                     <p className="mt-1 text-sm text-slate-400 dark:text-slate-500">在上方搜索添加股票，即可实时跟踪行情。</p>
                 </div>
             ) : (

@@ -277,7 +277,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         switch (eventName) {
             case 'job.ready':
                 setIsConnected(true)
-                // 把 typing indicator 换成"解析中"提示，告知用户正在识别标的
+                // 把 typing indicator 换成"解析中"提示，告知用户正在识别股票
                 if (typingIndicatorIdRef.current) {
                     setMessageContent(typingIndicatorIdRef.current, '__parsing__')
                 }
@@ -823,7 +823,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                             label = ''
                             icon = 'dots'
                         } else if (c === '__parsing__') {
-                            label = '正在识别标的与意图...'
+                            label = '正在识别股票与意图...'
                             icon = 'spin'
                             colorCls = 'bg-blue-50 dark:bg-blue-500/10 border-blue-200 dark:border-blue-500/30 text-blue-500 dark:text-blue-400'
                         } else if (c.startsWith('__status:collecting:')) {

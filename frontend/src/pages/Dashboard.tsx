@@ -226,9 +226,9 @@ function TrackingBoardSummary({
 
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetaCard
-                    label="跟踪标的"
+                    label="跟踪股票"
                     value={`${itemCount} 只`}
-                    subValue={itemCount > 0 ? `共 ${itemCount} 只标的` : '尚未导入持仓'}
+                    subValue={itemCount > 0 ? `共 ${itemCount} 只股票` : '尚未导入持仓'}
                 />
                 <MetaCard
                     label="价格覆盖"
