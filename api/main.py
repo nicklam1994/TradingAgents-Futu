@@ -4440,7 +4440,7 @@ def update_futu_opend_config(
 # ---------------------------------------------------------------------------
 
 @app.get("/v1/strategies")
-def list_strategies(current_user: UserDB = Depends(_require_web_user)):
+def list_strategies():
     """List all available trading strategies."""
     from tradingagents.strategies.yaml_loader import list_strategies, get_default_strategy
     strategies = list_strategies()
@@ -4452,7 +4452,7 @@ def list_strategies(current_user: UserDB = Depends(_require_web_user)):
 
 
 @app.get("/v1/strategies/{name}")
-def get_strategy(name: str, current_user: UserDB = Depends(_require_web_user)):
+def get_strategy(name: str):
     """Get a specific strategy by name or alias."""
     from tradingagents.strategies.yaml_loader import load_strategy
     strategy = load_strategy(name)

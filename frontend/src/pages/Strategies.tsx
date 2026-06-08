@@ -102,7 +102,7 @@ const regimeLabels: Record<string, string> = {
 }
 
 function StrategyCard({ strategy }: { strategy: Strategy }) {
-    const regimes: string[] = Array.isArray(strategy.regime) ? strategy.regime : []
+    const regimes: string[] = Array.isArray(strategy.market_regimes) ? strategy.market_regimes : (Array.isArray(strategy.regime) ? strategy.regime : [])
 
     return (
         <div className="card card-hover">
@@ -119,17 +119,25 @@ function StrategyCard({ strategy }: { strategy: Strategy }) {
                     </div>
                 </div>
                 <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                    strategy.enabled
+                    (strategy.enabled ?? strategy.default_active)
                         ? 'bg-green-100 text-green-700 dark:bg-green-500/10 dark:text-green-400'
                         : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
                 }`}>
-                    {strategy.enabled ? '已启用' : '已禁用'}
+                    {(strategy.enabled ?? strategy.default_active) ? '已启用' : '已禁用'}
                 </span>
             </div>
 
             <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">
                 {strategy.description || '暂无描述'}
             </p>
+
+            {strategy.category && (
+                <div className="mt-2">
+                    <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-600 dark:bg-blue-500/10 dark:text-blue-400">
+                        {strategy.category}
+                    </span>
+                </div>
+            )}
 
             {regimes.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">

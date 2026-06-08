@@ -818,7 +818,13 @@ export interface Strategy {
     name: string
     display_name: string
     description: string
-    enabled: boolean
+    category?: string
+    market_regimes?: string[]
+    default_priority?: number
+    default_active?: boolean
+    default_router?: boolean
+    aliases?: string[]
+    enabled?: boolean
     regime?: string[]
     parameters?: Record<string, unknown>
 }
