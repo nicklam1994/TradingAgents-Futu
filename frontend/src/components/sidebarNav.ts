@@ -1,13 +1,16 @@
 import type { LucideIcon } from 'lucide-react'
 import {
+    Activity,
     BarChart3,
     BookOpen,
     Bot,
     Briefcase,
     Cpu,
     FileText,
+    LayoutDashboard,
     MessageSquare,
     Settings,
+    Star,
     Wallet,
 } from 'lucide-react'
 
