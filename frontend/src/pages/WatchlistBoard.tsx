@@ -107,6 +107,8 @@ export default function WatchlistBoard() {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data)
+
+                // Full snapshot (all symbols at once)
                 if (msg.type === 'quotes' && msg.data) {
                     setBoard(prev => {
                         if (!prev) return prev
@@ -130,6 +132,33 @@ export default function WatchlistBoard() {
                                     turnover_rate: q.turnover_rate ?? item.turnover_rate,
                                 } : {}),
                                 ...(state ? { market_state: state } : {}),
+                            }
+                        })
+                        return { ...prev, items: updatedItems }
+                    })
+                }
+
+                // Individual symbol update (real-time push from Futu)
+                if (msg.type === 'quote_update' && msg.symbol && msg.data) {
+                    const sym = msg.symbol
+                    const q = msg.data
+                    setBoard(prev => {
+                        if (!prev) return prev
+                        const updatedItems = prev.items.map(item => {
+                            if (item.symbol !== sym) return item
+                            return {
+                                ...item,
+                                live_price: q.price ?? item.live_price,
+                                price_change: q.change ?? item.price_change,
+                                price_change_pct: q.change_pct ?? item.price_change_pct,
+                                day_open: q.open ?? item.day_open,
+                                day_high: q.high ?? item.day_high,
+                                day_low: q.low ?? item.day_low,
+                                prev_close: q.prev_close ?? item.prev_close,
+                                volume: q.volume ?? item.volume,
+                                turnover: q.turnover ?? item.turnover,
+                                amplitude: q.amplitude ?? item.amplitude,
+                                turnover_rate: q.turnover_rate ?? item.turnover_rate,
                             }
                         })
                         return { ...prev, items: updatedItems }
