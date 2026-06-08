@@ -390,10 +390,8 @@ function SimpleBoardView({
         <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
             <div className="overflow-x-auto">
                 <div className="min-w-[1280px]">
-                    <div className="grid grid-cols-[0.5fr_1.2fr_0.9fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
-                        <div>状态</div>
+                    <div className="grid grid-cols-[1.5fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium tracking-[0.1em] text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
                         <div>名称/代码</div>
-                        <div>涨跌幅</div>
                         <div>当日区间</div>
                         <div>持仓数量</div>
                         <div>市值/成本市值</div>
@@ -457,35 +455,31 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const openP = rangeProgress(item.day_low, item.day_high, item.day_open)
 
     return (
-        <div className="grid grid-cols-[0.5fr_1.2fr_0.9fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
-            {/* 状态 */}
-            <div className="flex items-center justify-center">
-                <TrackingMarketStateBadge state={item.market_state} />
-            </div>
-
-            {/* 名称/代码 */}
-            <div className="min-w-0 flex flex-col justify-center">
-                <div className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</div>
-                <div className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">{item.symbol}</div>
-            </div>
-
-            {/* 涨跌幅 */}
-            <div className="flex flex-col items-center justify-center">
-                <span className={`inline-flex min-w-[88px] items-center justify-center rounded-full px-3 py-1.5 text-[15px] font-bold ${
-                    priceChangePct == null
-                        ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
-                        : isUp
-                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
-                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
-                }`}>
-                    {formatSignedPercent(priceChangePct)}
-                </span>
-                <div className={`mt-1 text-[13px] font-bold ${
-                    priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
-                    : isUp ? 'text-rose-500 dark:text-rose-400'
-                    : 'text-emerald-500 dark:text-emerald-400'
-                }`}>
-                    {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : '--'}
+        <div className="grid grid-cols-[1.5fr_1.1fr_0.8fr_1fr_1fr_0.9fr_0.7fr] gap-3 border-b border-slate-200 px-4 py-5 last:border-b-0 dark:border-slate-700">
+            {/* 名称/代码 + 状态 + 涨跌幅 */}
+            <div className="min-w-0 flex flex-col justify-center gap-1">
+                <div className="flex items-center gap-2">
+                    <TrackingMarketStateBadge state={item.market_state} />
+                    <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                    <span className="text-slate-500 dark:text-slate-400">{item.symbol}</span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${
+                        priceChangePct == null
+                            ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
+                            : isUp
+                                ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
+                                : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                    }`}>
+                        {formatSignedPercent(priceChangePct)}
+                    </span>
+                    <span className={`text-[13px] font-semibold ${
+                        priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
+                        : isUp ? 'text-rose-500 dark:text-rose-400'
+                        : 'text-emerald-500 dark:text-emerald-400'
+                    }`}>
+                        {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : ''}
+                    </span>
                 </div>
             </div>
 
