@@ -23,7 +23,8 @@ const CLAMP_TWO_LINES_STYLE: CSSProperties = {
 }
 
 type BoardViewMode = 'simple' | 'detailed'
-// Removed unused REPORT_PREVIEW_MAX
+
+export default function TrackingBoardPanel() {
     const { user } = useAuthStore()
     const [trackingBoard, setTrackingBoard] = useState<TrackingBoardResponse | null>(null)
     const [trackingLoading, setTrackingLoading] = useState(true)
