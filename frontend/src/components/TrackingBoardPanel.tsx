@@ -168,28 +168,36 @@ export default function TrackingBoardPanel() {
                 </button>
             </div>
 
-            {/* Asset Cards */}
+            {/* Asset Cards (gradient style) */}
             {realAccounts.length > 0 && (
                 <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">资产净值</div>
-                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(totalAssets)}</div>
-                        <div className="text-xs text-slate-400">{displayCurrency}</div>
+                    <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100/50 p-4 dark:from-blue-950/30 dark:to-blue-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <Wallet className="h-4 w-4 text-blue-500" />资产净值
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(totalAssets)}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{displayCurrency}</div>
                     </div>
-                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">可用资金</div>
-                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(availableCash)}</div>
-                        <div className="text-xs text-slate-400">冻结 {fmtNum(frozenCash)}</div>
+                    <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-100/50 p-4 dark:from-emerald-950/30 dark:to-emerald-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <TrendingUp className="h-4 w-4 text-emerald-500" />可用资金
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(availableCash)}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">冻结 {fmtNum(frozenCash)}</div>
                     </div>
-                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">持仓市值</div>
-                        <div className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(marketVal)}</div>
-                        <div className="text-xs text-slate-400">{trackingItems.length} 只股票</div>
+                    <div className="rounded-2xl bg-gradient-to-br from-purple-50 to-purple-100/50 p-4 dark:from-purple-950/30 dark:to-purple-900/20">
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            <Target className="h-4 w-4 text-purple-500" />持仓市值
+                        </div>
+                        <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{fmtNum(marketVal)}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{trackingItems.length} 只股票</div>
                     </div>
-                    <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-800/50">
-                        <div className="text-xs text-slate-500 dark:text-slate-400">持仓盈亏</div>
-                        <div className={`mt-1 text-xl font-bold ${unrealizedPnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtNum(unrealizedPnl)}</div>
-                        <div className="text-xs text-slate-400">已实现 {fmtNum(realizedPnl)}</div>
+                    <div className={`rounded-2xl bg-gradient-to-br p-4 ${unrealizedPnl >= 0 ? 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20' : 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20'}`}>
+                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                            {unrealizedPnl >= 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <ArrowDownRight className="h-4 w-4 text-rose-500" />}持仓盈亏
+                        </div>
+                        <div className={`mt-2 text-2xl font-bold ${unrealizedPnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtNum(unrealizedPnl)}</div>
+                        <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">已实现 {fmtNum(realizedPnl)}</div>
                     </div>
                 </div>
             )}
