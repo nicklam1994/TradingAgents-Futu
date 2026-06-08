@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, BellOff, ChevronDown, LogOut, Monitor, Moon, Settings, Sun, Github } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { ThemeMode } from '@/types'
 
 type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -12,17 +10,7 @@ function getInitials(email?: string | null): string {
     return email.slice(0, 2).toUpperCase()
 }
 
-function formatAnnouncementTime(value?: string): string {
-    if (!value) return ''
-    const parsed = new Date(value)
-    if (Number.isNaN(parsed.getTime())) return value
-    return parsed.toLocaleDateString('zh-CN', {
-        month: 'numeric',
-        day: 'numeric',
-    })
-}
-
-export default function Header() {
+// formatAnnouncementTime removed
     const navigate = useNavigate()
     const { user, logout } = useAuthStore()
     const [themeMode, setThemeMode] = useState<ThemeMode>('system')
