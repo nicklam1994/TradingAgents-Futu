@@ -66,12 +66,12 @@ export default function WatchlistBoard() {
         return sortAsc ? va - vb : vb - va
     })
 
-    // Send subscribe message when items change
+    // Send subscribe message when items change OR WebSocket reconnects
     useEffect(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN && items.length > 0) {
             wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: items.map(i => i.symbol) }))
         }
-    }, [items.map(i => i.symbol).join(',')])
+    }, [items.map(i => i.symbol).join(','), wsConnected])
 
     const loadBoard = async (silent: boolean) => {
         if (silent) setRefreshing(true)
