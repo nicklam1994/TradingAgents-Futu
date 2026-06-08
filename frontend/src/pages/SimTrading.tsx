@@ -1,8 +1,7 @@
 /**
  * SimTrading — 模拟交易页面
  *
- * 左侧：交易面板（搜索 → 行情条 → 下单表单）
- * 右侧：持仓 + 当日订单 + 成交记录
+ * 布局：资产卡片 → 当前持仓(全宽) → 左：选股下单 / 右：当日订单+成交记录
  */
 
 import { useEffect, useState, useCallback, useRef } from 'react'
@@ -53,7 +52,6 @@ export default function SimTrading() {
     selectedStockRef.current = selectedStock
     const [quote, setQuote] = useState<QuoteData | null>(null)
 
-    // Order form
     const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY')
     const [orderType, setOrderType] = useState('NORMAL')
     const [orderPrice, setOrderPrice] = useState('')
@@ -84,8 +82,8 @@ export default function SimTrading() {
             if (posRes.status === 'fulfilled') setPositions(posRes.value.data ?? [])
             if (ordRes.status === 'fulfilled') setOrders(ordRes.value.data ?? [])
             if (dealRes.status === 'fulfilled') setDeals((dealRes.value.data ?? []).filter(d => (d.deal_market ?? '') === activeMarket))
-            const firstError = [posRes, ordRes, dealRes].find(r => r.status === 'rejected')
-            if (firstError?.status === 'rejected') setError(firstError.reason?.message ?? '加载失败')
+            const err = [posRes, ordRes, dealRes].find(r => r.status === 'rejected')
+            if (err?.status === 'rejected') setError(err.reason?.message ?? '加载失败')
         } catch (e) { setError(e instanceof Error ? e.message : '加载失败') }
         finally { setLoading(false) }
     }, [activeMarket])
@@ -93,7 +91,7 @@ export default function SimTrading() {
     useEffect(() => { loadAccounts() }, [loadAccounts])
     useEffect(() => { loadMarketData() }, [loadMarketData])
 
-    // ── WebSocket (stable, uses ref for selectedStock) ──
+    // ── WebSocket ──
     useEffect(() => {
         const token = localStorage.getItem('ta-access-token') || ''
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -121,7 +119,7 @@ export default function SimTrading() {
                     setPositions(prev => prev.map(p => {
                         const q = msg.data[p.code]; if (!q) return p
                         const np = q.price ?? p.current_price
-                        return { ...p, current_price: np, market_val: round(np * p.qty), unrealized_pnl: round((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? round((np / p.cost_price - 1) * 100, 2) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? round((np - p.prev_close) * p.qty) : p.today_pnl }
+                        return { ...p, current_price: np, market_val: r3(np * p.qty), unrealized_pnl: r3((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? r2((np / p.cost_price - 1) * 100) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? r3((np - p.prev_close) * p.qty) : p.today_pnl }
                     }))
                     for (const [code, q] of Object.entries(msg.data)) updateQuote(code, q as Record<string, number | string>)
                 }
@@ -130,7 +128,7 @@ export default function SimTrading() {
                     setPositions(prev => prev.map(p => {
                         if (p.code !== msg.symbol) return p
                         const np = q.price ?? p.current_price
-                        return { ...p, current_price: np, market_val: round(np * p.qty), unrealized_pnl: round((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? round((np / p.cost_price - 1) * 100, 2) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? round((np - p.prev_close) * p.qty) : p.today_pnl }
+                        return { ...p, current_price: np, market_val: r3(np * p.qty), unrealized_pnl: r3((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? r2((np / p.cost_price - 1) * 100) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? r3((np - p.prev_close) * p.qty) : p.today_pnl }
                     }))
                     updateQuote(msg.symbol, q)
                 }
@@ -139,9 +137,8 @@ export default function SimTrading() {
         ws.onclose = () => setWsConnected(false)
         ws.onerror = () => setWsConnected(false)
         return () => { ws.close() }
-    }, [])  // stable — uses ref for selectedStock
+    }, [])
 
-    // Subscribe position codes
     useEffect(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN && positions.length > 0) {
             wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: positions.map(p => p.code) }))
@@ -155,71 +152,30 @@ export default function SimTrading() {
         if (!q) { setSearchResults([]); setShowDropdown(false); setSearchLoading(false); return }
         setSearchLoading(true)
         searchTimerRef.current = setTimeout(async () => {
-            try {
-                const res = await api.searchStocks(q)
-                setSearchResults((res.results ?? []).slice(0, 8))
-                setShowDropdown(true)
-            } catch { setSearchResults([]) }
+            try { const res = await api.searchStocks(q); setSearchResults((res.results ?? []).slice(0, 8)); setShowDropdown(true) }
+            catch { setSearchResults([]) }
             finally { setSearchLoading(false) }
         }, 300)
     }, [searchQuery])
 
-    // Close dropdown on outside click
     useEffect(() => {
-        const handler = (e: MouseEvent) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false) }
-        document.addEventListener('mousedown', handler)
-        return () => document.removeEventListener('mousedown', handler)
+        const h = (e: MouseEvent) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowDropdown(false) }
+        document.addEventListener('mousedown', h)
+        return () => document.removeEventListener('mousedown', h)
     }, [])
 
     const selectStock = (r: StockSearchResult) => {
         setSelectedStock({ code: r.symbol, name: r.name })
         setSearchQuery(''); setShowDropdown(false); setSearchResults([])
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: r.name })
-        // Subscribe to this stock for real-time quotes
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
-        }
-    }
-
-    // ── Order submit ──
-    const submitOrder = async () => {
-        if (!selectedStock) return
-        setSubmitting(true); setOrderMsg(null)
-        try {
-            if (modifyOrderId) {
-                // Modify existing order
-                await api.modifySimOrder(modifyOrderId, selectedStock.code, effectivePrice, parseFloat(orderQty) || 0)
-                setOrderMsg({ type: 'ok', text: `订单已修改 #${modifyOrderId}` })
-                setModifyOrderId(null)
-            } else {
-                // Place new order
-                const res = await api.placeSimOrder({
-                    symbol: selectedStock.code,
-                    side: orderSide,
-                    quantity: parseFloat(orderQty) || 0,
-                    price: isMarketOrder ? 0 : effectivePrice,
-                    order_type: orderType,
-                })
-                if (res.ok) {
-                    setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
-                    setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
-                } else {
-                    setOrderMsg({ type: 'err', text: '下单失败' })
-                }
-            }
-            loadMarketData()
-        } catch (e) {
-            setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '操作失败' })
-        } finally { setSubmitting(false) }
+        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
     }
 
     // ── Order actions ──
     const cancelOrder = async (o: SimOrder) => {
         if (!confirm(`确认撤单 #${o.order_id}?`)) return
-        try {
-            await api.cancelSimOrder(o.order_id, o.code)
-            loadMarketData()
-        } catch (e) { alert(e instanceof Error ? e.message : '撤单失败') }
+        try { await api.cancelSimOrder(o.order_id, o.code); loadMarketData() }
+        catch (e) { alert(e instanceof Error ? e.message : '撤单失败') }
     }
 
     const loadOrderToForm = (o: SimOrder) => {
@@ -230,18 +186,28 @@ export default function SimTrading() {
         setOrderQty(String(o.qty ?? ''))
         setModifyOrderId(o.order_id)
         setOrderMsg(null)
-        // Subscribe to this stock
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [o.code] }))
-        }
+        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [o.code] }))
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
     }
 
-    const cancelModify = () => {
-        setModifyOrderId(null)
-        setOrderPrice('')
-        setOrderQty('')
-        setOrderMsg(null)
+    const cancelModify = () => { setModifyOrderId(null); setOrderPrice(''); setOrderQty(''); setOrderMsg(null) }
+
+    const submitOrder = async () => {
+        if (!selectedStock) return
+        setSubmitting(true); setOrderMsg(null)
+        try {
+            if (modifyOrderId) {
+                await api.modifySimOrder(modifyOrderId, selectedStock.code, effectivePrice, parseFloat(orderQty) || 0)
+                setOrderMsg({ type: 'ok', text: `订单已修改 #${modifyOrderId}` })
+                setModifyOrderId(null)
+            } else {
+                const res = await api.placeSimOrder({ symbol: selectedStock.code, side: orderSide, quantity: parseFloat(orderQty) || 0, price: isMarketOrder ? 0 : effectivePrice, order_type: orderType })
+                if (res.ok) { setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` }); setOrderPrice(''); setOrderQty(''); setTriggerPrice('') }
+                else setOrderMsg({ type: 'err', text: '下单失败' })
+            }
+            loadMarketData()
+        } catch (e) { setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '操作失败' }) }
+        finally { setSubmitting(false) }
     }
 
     // ── Derived ──
@@ -291,7 +257,59 @@ export default function SimTrading() {
                 </div>
             )}
 
-            {/* Main: Trading Panel + Positions/Orders/Deals */}
+            {/* Positions Table (full width) */}
+            <div className="card">
+                <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
+                {positions.length === 0 ? <EmptyState text="暂无持仓" /> : (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-slate-200 dark:border-slate-700">
+                                    <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {positions.map(p => {
+                                    const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
+                                    return (
+                                        <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                            <td className="px-3 py-2">
+                                                <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
+                                                <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
+                                            <td className="px-3 py-2 text-right">
+                                                <div className="text-slate-900 dark:text-slate-100">{fmtPrice(p.current_price)}</div>
+                                                <div className="text-xs text-slate-400">{fmtPrice(p.cost_price)}</div>
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                <div className="text-slate-900 dark:text-slate-100">{fmt(p.market_val)}</div>
+                                                <div className="text-xs text-slate-400">{fmt(p.cost_val)}</div>
+                                            </td>
+                                            <td className="px-3 py-2 text-right">
+                                                <div className={`font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(p.unrealized_pnl)}</div>
+                                                <div className={`text-xs ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct?.toFixed(2)}%</div>
+                                            </td>
+                                            <td className={`px-3 py-2 text-right font-medium ${p.today_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                {p.prev_close ? fmt(p.today_pnl) : '--'}
+                                            </td>
+                                            <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{posPct.toFixed(1)}%</td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+            </div>
+
+            {/* Bottom: Trading Panel + Orders/Deals */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
 
                 {/* ── Left: Trading Panel (2/5) ── */}
@@ -332,19 +350,16 @@ export default function SimTrading() {
                                     <span className="text-lg font-bold text-slate-900 dark:text-slate-100">{quote?.name || selectedStock.name}</span>
                                     <span className="ml-2 text-sm text-slate-400">{displayCode(selectedStock.code)}</span>
                                 </div>
-                                {quote && (
+                                {quote && quote.price > 0 ? (
                                     <div className="text-right">
-                                        <span className={`text-2xl font-bold ${quote.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                            {fmtPrice(quote.price)}
-                                        </span>
+                                        <span className={`text-2xl font-bold ${quote.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtPrice(quote.price)}</span>
                                         <span className={`ml-2 text-sm font-medium ${quote.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                             {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)} ({quote.change_pct >= 0 ? '+' : ''}{quote.change_pct.toFixed(2)}%)
                                         </span>
                                     </div>
-                                )}
-                                {!quote && <span className="text-sm text-slate-400">等待行情...</span>}
+                                ) : <span className="text-sm text-slate-400">等待行情...</span>}
                             </div>
-                            {quote && (
+                            {quote && quote.price > 0 && (
                                 <div className="mt-2 flex justify-between text-xs text-slate-500 dark:text-slate-400">
                                     <span>开 {fmtPrice(quote.open)}</span>
                                     <span>高 {fmtPrice(quote.high)}</span>
@@ -355,32 +370,21 @@ export default function SimTrading() {
                         </div>
                     )}
 
-                    {/* Order Form (always visible) */}
+                    {/* Order Form */}
                     <div className="card space-y-4">
                         <div className="flex items-center justify-between">
                             <h2 className="font-semibold text-slate-900 dark:text-slate-100">{modifyOrderId ? '改单' : '下单'}</h2>
-                            {modifyOrderId && (
-                                <button onClick={cancelModify} className="text-xs text-slate-400 hover:text-slate-600">取消修改</button>
-                            )}
+                            {modifyOrderId && <button onClick={cancelModify} className="text-xs text-slate-400 hover:text-slate-600">取消修改</button>}
                         </div>
 
-                        {/* Side Toggle */}
                         <div className="grid grid-cols-2 gap-2">
-                            <button onClick={() => setOrderSide('BUY')}
-                                className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
-                                模拟买入
-                            </button>
-                            <button onClick={() => setOrderSide('SELL')}
-                                className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>
-                                模拟卖出
-                            </button>
+                            <button onClick={() => setOrderSide('BUY')} className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'BUY' ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>模拟买入</button>
+                            <button onClick={() => setOrderSide('SELL')} className={`rounded-lg py-2.5 text-sm font-semibold transition ${orderSide === 'SELL' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700'}`}>模拟卖出</button>
                         </div>
 
-                        {/* Type */}
                         <div>
                             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">类型</label>
-                            <select value={orderType} onChange={e => setOrderType(e.target.value)}
-                                className="input w-full">
+                            <select value={orderType} onChange={e => setOrderType(e.target.value)} className="input w-full">
                                 <option value="NORMAL">限价单</option>
                                 <option value="MARKET">市价单</option>
                                 <option value="STOP_LIMIT">止损限价单</option>
@@ -388,50 +392,37 @@ export default function SimTrading() {
                             </select>
                         </div>
 
-                        {/* Trigger Price (stop orders only) */}
                         {isStopOrder && (
                             <div>
                                 <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">触发价</label>
-                                <input type="number" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)}
-                                    placeholder="0.00" step="0.01" className="input w-full" />
+                                <input type="number" value={triggerPrice} onChange={e => setTriggerPrice(e.target.value)} placeholder="0.00" step="0.01" className="input w-full" />
                             </div>
                         )}
 
-                        {/* Price */}
                         {!isMarketOrder && (
                             <div>
                                 <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">价格</label>
-                                <input type="number" value={orderPrice} onChange={e => setOrderPrice(e.target.value)}
-                                    placeholder="0.00" step="0.01" className="input w-full" />
+                                <input type="number" value={orderPrice} onChange={e => setOrderPrice(e.target.value)} placeholder="0.00" step="0.01" className="input w-full" />
                             </div>
                         )}
 
-                        {/* Quantity */}
                         <div>
                             <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">数量</label>
-                            <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)}
-                                placeholder="0" step="1" min="1" className="input w-full" />
+                            <input type="number" value={orderQty} onChange={e => setOrderQty(e.target.value)} placeholder="0" step="1" min="1" className="input w-full" />
                         </div>
 
-                        {/* Amount */}
                         <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800">
                             <span className="text-slate-500 dark:text-slate-400">金额</span>
-                            <span className="font-medium text-slate-900 dark:text-slate-100">
-                                {orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}
-                            </span>
+                            <span className="font-medium text-slate-900 dark:text-slate-100">{orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}</span>
                         </div>
                         {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
-                            <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))}
-                                className="text-xs text-blue-500 hover:text-blue-600">
+                            <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))} className="text-xs text-blue-500 hover:text-blue-600">
                                 使用当前价 {fmtPrice(quote.price)}
                             </button>
                         )}
 
-                        {/* Submit */}
                         {orderMsg && (
-                            <div className={`rounded-lg px-3 py-2 text-sm ${orderMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'}`}>
-                                {orderMsg.text}
-                            </div>
+                            <div className={`rounded-lg px-3 py-2 text-sm ${orderMsg.type === 'ok' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400'}`}>{orderMsg.text}</div>
                         )}
                         <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice && !quote?.price)}
                             className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${modifyOrderId ? 'bg-blue-600 hover:bg-blue-700' : orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
@@ -440,68 +431,14 @@ export default function SimTrading() {
                     </div>
                 </div>
 
-                {/* ── Right: Positions + Orders + Deals (3/5) ── */}
+                {/* ── Right: Orders + Deals (3/5) ── */}
                 <div className="space-y-6 lg:col-span-3">
-
-                    {/* Positions Table */}
-                    <div className="card">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
-                        {positions.length === 0 ? <EmptyState text="暂无持仓" /> : (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead>
-                                        <tr className="border-b border-slate-200 dark:border-slate-700">
-                                            <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
-                                            <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {positions.map(p => {
-                                            const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
-                                            return (
-                                                <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
-                                                    <td className="px-3 py-2">
-                                                        <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
-                                                        <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{p.qty}</td>
-                                                    <td className="px-3 py-2 text-right">
-                                                        <div className="text-slate-900 dark:text-slate-100">{fmtPrice(p.current_price)}</div>
-                                                        <div className="text-xs text-slate-400">{fmtPrice(p.cost_price)}</div>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right">
-                                                        <div className="text-slate-900 dark:text-slate-100">{fmt(p.market_val)}</div>
-                                                        <div className="text-xs text-slate-400">{fmt(p.cost_val)}</div>
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right">
-                                                        <div className={`font-medium ${p.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmt(p.unrealized_pnl)}</div>
-                                                        <div className={`text-xs ${p.unrealized_pnl_pct >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct?.toFixed(2)}%</div>
-                                                    </td>
-                                                    <td className={`px-3 py-2 text-right font-medium ${p.today_pnl >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                                        {p.prev_close ? fmt(p.today_pnl) : '--'}
-                                                    </td>
-                                                    <td className="px-3 py-2 text-right text-slate-700 dark:text-slate-300">{posPct.toFixed(1)}%</td>
-                                                </tr>
-                                            )
-                                        })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
-                    </div>
 
                     {/* Orders */}
                     <div className="card">
                         <div className="mb-4 flex items-center justify-between">
                             <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">当日订单</h2>
-                            <button onClick={loadMarketData} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="刷新订单">
-                                <RefreshCw className="h-4 w-4" />
-                            </button>
+                            <button onClick={loadMarketData} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="刷新订单"><RefreshCw className="h-4 w-4" /></button>
                         </div>
                         {orders.length === 0 ? <EmptyState text="暂无订单" /> : (
                             <div className="space-y-2">
@@ -515,7 +452,7 @@ export default function SimTrading() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                                <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} × {o.price?.toFixed(2)}</div>
+                                                <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} x {o.price?.toFixed(2)}</div>
                                                 <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
                                             </div>
                                             {(o.status === 'SUBMITTED' || o.status === 'SUBMITTING' || o.status === 'WAITING') && (
@@ -545,7 +482,7 @@ export default function SimTrading() {
                                             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{ORDER_TYPE_LABEL[d.order_type] ?? d.order_type}</span>
                                         </div>
                                         <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                            <div>{d.qty} × {d.price?.toFixed(2)}</div>
+                                            <div>{d.qty} x {d.price?.toFixed(2)}</div>
                                             <div className="text-xs text-slate-400">{formatTime(d.create_time)}</div>
                                         </div>
                                     </div>
@@ -555,6 +492,7 @@ export default function SimTrading() {
                     </div>
                 </div>
             </div>
+        </div>
     )
 }
 
@@ -568,9 +506,7 @@ function AccountCard({ icon: Icon, label, value, subValue, color }: {
     const iconMap = { blue: 'text-blue-500', green: 'text-emerald-500', purple: 'text-purple-500', red: 'text-rose-500' }
     return (
         <div className={`rounded-2xl bg-gradient-to-br ${bgMap[color]} p-4`}>
-            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                <Icon className={`h-4 w-4 ${iconMap[color]}`} />{label}
-            </div>
+            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400"><Icon className={`h-4 w-4 ${iconMap[color]}`} />{label}</div>
             <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
             {subValue && <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{subValue}</div>}
         </div>
@@ -583,27 +519,9 @@ function EmptyState({ text }: { text: string }) {
 
 /* ─── Helpers ─── */
 
-function fmt(v: number | undefined | null): string {
-    if (v == null) return '--'
-    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtPrice(v: number | undefined | null): string {
-    if (v == null || v === 0) return '--'
-    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
-}
-
-function fmtVol(v: number | undefined | null): string {
-    if (v == null || v === 0) return '--'
-    if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'
-    if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'
-    return v.toLocaleString()
-}
-
-function displayCode(code: string): string {
-    if (code.startsWith('HK.')) return code.slice(3) + '.HK'
-    if (code.startsWith('US.')) return code.slice(3)
-    return code
-}
-
-function round(v: number, d = 3): number { return Math.round(v * 10 ** d) / 10 ** d }
+function fmt(v: number | undefined | null): string { if (v == null) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
+function fmtPrice(v: number | undefined | null): string { if (v == null || v === 0) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) }
+function fmtVol(v: number | undefined | null): string { if (v == null || v === 0) return '--'; if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'; if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'; return v.toLocaleString() }
+function displayCode(code: string): string { if (code.startsWith('HK.')) return code.slice(3) + '.HK'; if (code.startsWith('US.')) return code.slice(3); return code }
+function r3(v: number): number { return Math.round(v * 1000) / 1000 }
+function r2(v: number): number { return Math.round(v * 100) / 100 }
