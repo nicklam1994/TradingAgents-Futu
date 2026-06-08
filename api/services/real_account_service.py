@@ -140,44 +140,49 @@ def get_real_account(trd_market: str = "HK") -> RealAccountInfo:
 
 
 def get_all_real_accounts() -> list[RealAccountInfo]:
-    """Query both HK and US real accounts."""
-    accounts = []
-    # First get account info for each market
-    for market in ["HK", "US"]:
-        try:
-            acc = get_real_account(market)
-            accounts.append(acc)
-        except Exception as e:
-            logger.warning(f"Failed to get {market} real account: {e}")
+    """Query real accounts - single accinfo call + position P&L from cache."""
+    from futu import OpenSecTradeContext, TrdEnv, SecurityFirm
     
-    # Then query ALL positions once (no market filter) for P&L
+    accounts = []
+    ctx = None
     try:
-        from futu import OpenSecTradeContext, TrdEnv, SecurityFirm
         ctx = OpenSecTradeContext(
             host=_opend_host(),
             port=_opend_port(),
             security_firm=SecurityFirm.FUTUSECURITIES,
         )
-        ret, pos_data = ctx.position_list_query(trd_env=TrdEnv.REAL)
-        ctx.close()
-        if ret == 0 and pos_data is not None and not pos_data.empty:
-            total_unrealized = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows())
-            total_realized = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows())
-            # Split by currency
-            hk_unreal = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "HKD")
-            hk_real = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "HKD")
-            us_unreal = sum(float(r.get("unrealized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "USD")
-            us_real = sum(float(r.get("realized_pl", 0) or 0) for _, r in pos_data.iterrows() if r.get("currency") == "USD")
-            # Apply to accounts
+        
+        # Single accinfo call
+        ret, acc_data = ctx.accinfo_query(trd_env=TrdEnv.REAL)
+        if ret == 0 and acc_data is not None and not acc_data.empty:
+            row = acc_data.iloc[0]
+            currency = str(row.get("currency", "HKD"))
+            market = "US" if currency == "USD" else "HK"
+            acc = RealAccountInfo(
+                market=market,
+                total_assets=_safe_float(row.get("total_assets")),
+                cash_balance=_safe_float(row.get("cash")),
+                frozen_cash=_safe_float(row.get("frozen_cash")),
+                market_val=_safe_float(row.get("market_val")),
+                currency=currency,
+                available_cash=_safe_float(row.get("avl_withdrawal_cash")),
+                unrealized_pnl=0.0,
+                realized_pnl=0.0,
+            )
+            accounts.append(acc)
+        
+        # Get P&L from positions (single call)
+        ret2, pos_data = ctx.position_list_query(trd_env=TrdEnv.REAL)
+        if ret2 == 0 and pos_data is not None:
             for acc in accounts:
-                if acc.market == "HK":
-                    acc.unrealized_pnl = hk_unreal
-                    acc.realized_pnl = hk_real
-                elif acc.market == "US":
-                    acc.unrealized_pnl = us_unreal
-                    acc.realized_pnl = us_real
+                cur_positions = [r for _, r in pos_data.iterrows() if r.get("currency") == acc.currency]
+                acc.unrealized_pnl = sum(float(r.get("unrealized_pl", 0) or 0) for r in cur_positions)
+                acc.realized_pnl = sum(float(r.get("realized_pl", 0) or 0) for r in cur_positions)
     except Exception as e:
-        logger.warning(f"Failed to get positions for P&L: {e}")
+        logger.warning(f"Failed to query FutuOpenD: {e}")
+    finally:
+        if ctx:
+            ctx.close()
     
     return accounts
 
