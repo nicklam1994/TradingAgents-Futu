@@ -553,10 +553,12 @@ def place_order(
         deal_price = float(row.get("price", price))
         deal_qty = float(row.get("qty", quantity))
         deal_stock_name = str(row.get("stock_name", ""))
+        is_filled = False
 
         if order_status in ("FILLED_ALL", "FILLED_PART"):
             deal_price = float(row.get("dealt_avg_price", row.get("price", price)))
             deal_qty = float(row.get("dealt_qty", row.get("qty", quantity)))
+            is_filled = True
         else:
             for _attempt in range(3):
                 time.sleep(2)
@@ -571,6 +573,7 @@ def place_order(
                                 if st in ("FILLED_ALL", "FILLED_PART"):
                                     deal_price = float(orow.get("dealt_avg_price", price))
                                     deal_qty = float(orow.get("dealt_qty", quantity))
+                                    is_filled = True
                                     break
                         else:
                             continue
@@ -578,18 +581,20 @@ def place_order(
                 except Exception:
                     pass
 
+        # Only record deal when actually filled
         deal_market = "HK" if market == TrdMarket.HK else "US"
-        _record_deal(
-            order_id=order_id,
-            code=code,
-            stock_name=deal_stock_name,
-            trd_side=side_upper,
-            deal_market=deal_market,
-            qty=deal_qty,
-            price=deal_price,
-            order_type=order_type_upper,
-            currency="HKD" if deal_market == "HK" else "USD",
-        )
+        if is_filled:
+            _record_deal(
+                order_id=order_id,
+                code=code,
+                stock_name=deal_stock_name,
+                trd_side=side_upper,
+                deal_market=deal_market,
+                qty=deal_qty,
+                price=deal_price,
+                order_type=order_type_upper,
+                currency="HKD" if deal_market == "HK" else "USD",
+            )
 
         return OrderResult(
             order_id=order_id,

@@ -64,7 +64,8 @@ export default function SimTrading() {
 
     const isStopOrder = orderType === 'STOP_LIMIT' || orderType === 'STOP'
     const isMarketOrder = orderType === 'MARKET'
-    const orderAmount = (parseFloat(orderPrice) || 0) * (parseFloat(orderQty) || 0)
+    const effectivePrice = parseFloat(orderPrice) || quote?.price || 0
+    const orderAmount = effectivePrice * (parseFloat(orderQty) || 0)
 
     // ── Data loading ──
     const loadAccounts = useCallback(async () => {
@@ -188,7 +189,7 @@ export default function SimTrading() {
                 symbol: selectedStock.code,
                 side: orderSide,
                 quantity: parseFloat(orderQty) || 0,
-                price: isMarketOrder ? 0 : (parseFloat(orderPrice) || 0),
+                price: isMarketOrder ? 0 : effectivePrice,
                 order_type: orderType,
             })
             if (res.ok) {
@@ -375,6 +376,12 @@ export default function SimTrading() {
                                     {orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}
                                 </span>
                             </div>
+                            {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
+                                <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))}
+                                    className="text-xs text-blue-500 hover:text-blue-600">
+                                    使用当前价 {fmtPrice(quote.price)}
+                                </button>
+                            )}
 
                             {/* Submit */}
                             {orderMsg && (
@@ -382,7 +389,7 @@ export default function SimTrading() {
                                     {orderMsg.text}
                                 </div>
                             )}
-                            <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice)}
+                            <button onClick={submitOrder} disabled={submitting || !orderQty || (!isMarketOrder && !orderPrice && !quote?.price)}
                                 className={`w-full rounded-lg py-3 text-sm font-semibold text-white transition disabled:opacity-50 ${orderSide === 'BUY' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'}`}>
                                 {submitting ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `${orderSide === 'BUY' ? '买入' : '卖出'} ${selectedStock.name}`}
                             </button>
@@ -453,7 +460,12 @@ export default function SimTrading() {
 
                     {/* Orders */}
                     <div className="card">
-                        <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当日订单</h2>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">当日订单</h2>
+                            <button onClick={loadMarketData} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="刷新订单">
+                                <RefreshCw className="h-4 w-4" />
+                            </button>
+                        </div>
                         {orders.length === 0 ? <EmptyState text="暂无订单" /> : (
                             <div className="space-y-2">
                                 {orders.map(o => (
