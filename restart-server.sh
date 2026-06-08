@@ -14,7 +14,7 @@ sleep 1
 echo "🚀 启动服务器 (port 8088, background)..."
 nohup env FUTU_OPEND_HOST=127.0.0.1 .venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8088 > /tmp/taf-server.log 2>&1 &
 echo "PID: $!"
-sleep 5
+sleep 8
 if curl -s -o /dev/null -w "%{http_code}" http://localhost:8088/health | grep -q 200; then
     echo "✅ Server is up on :8088"
 else
