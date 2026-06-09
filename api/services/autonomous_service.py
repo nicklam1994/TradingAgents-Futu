@@ -29,6 +29,75 @@ _store: Optional[TaskStore] = None
 _loop: Optional[AutonomousLoop] = None
 
 
+def _extract_dag_keywords(dag: Optional[Dict[str, Any]], config: AutonomousTaskConfig) -> List[Dict[str, str]]:
+    """Extract human-readable keywords from parsed DAG for frontend preview.
+
+    Returns a list of {label, icon} dicts representing the parsed intent.
+    """
+    if not dag:
+        return [{"label": f"指令: {config.command[:40]}", "icon": "💬"}]
+
+    keywords: List[Dict[str, str]] = []
+
+    # Market
+    market = dag.get("market", "")
+    if not market:
+        # Infer from config or task params
+        for t in dag.get("tasks", []):
+            p = t.get("params", {})
+            if p.get("region") == "US" or "美股" in str(p):
+                market = "US"
+                break
+            elif p.get("region") == "HK" or "港股" in str(p):
+                market = "HK"
+                break
+    if market == "US":
+        keywords.append({"label": "🇺🇸 美股", "icon": ""})
+    elif market == "HK":
+        keywords.append({"label": "🇭🇰 港股", "icon": ""})
+
+    # Category / sector from select task
+    for t in dag.get("tasks", []):
+        if t.get("action") == "select":
+            p = t.get("params", {})
+            cat = p.get("category") or p.get("universe") or p.get("sector") or p.get("criteria") or ""
+            if cat:
+                keywords.append({"label": f"板块: {cat}", "icon": "🏢"})
+            count = p.get("count") or p.get("top_n")
+            if count:
+                keywords.append({"label": f"选股: {count}只", "icon": "🎯"})
+            break
+
+    # Horizon
+    for t in dag.get("tasks", []):
+        p = t.get("params", {})
+        h = p.get("horizon", "")
+        if h:
+            h_label = {"short": "短线", "medium": "中线", "long": "长线"}.get(h, h)
+            keywords.append({"label": h_label, "icon": "⏱"})
+            break
+
+    # Budget
+    budget = config.budget or dag.get("budget")
+    if budget:
+        cur = config.currency or dag.get("currency", "USD")
+        keywords.append({"label": f"预算: {budget:,.0f} {cur}", "icon": "💰"})
+
+    # DAG pipeline stages
+    stages = [t.get("action", "") for t in dag.get("tasks", [])]
+    if stages:
+        stage_icons = {"select": "🔍", "analyze": "📊", "allocate": "💼", "execute": "⚡", "observe": "👁"}
+        pipeline = " → ".join(f"{stage_icons.get(s, '▪')}{s}" for s in stages)
+        keywords.append({"label": f"OODA: {pipeline}", "icon": ""})
+
+    # Symbols
+    symbols = [t.get("symbol") or "" for t in dag.get("tasks", []) if t.get("symbol")]
+    if symbols:
+        keywords.append({"label": f"标的: {', '.join(symbols)}", "icon": "📈"})
+
+    return keywords if keywords else [{"label": "LLM 解析中...", "icon": "🤖"}]
+
+
 def _get_store() -> TaskStore:
     """Get or create the singleton TaskStore."""
     global _store
@@ -90,6 +159,9 @@ def create_task(
 
     task_id = loop.start(command, config)
 
+    # Extract parsed DAG keywords for frontend preview
+    dag_summary = _extract_dag_keywords(config.dag, config)
+
     return {
         "task_id": task_id,
         "status": "running",
@@ -98,6 +170,7 @@ def create_task(
         "currency": config.currency,
         "mode": config.mode,
         "max_iterations": config.max_iterations,
+        "dag_summary": dag_summary,
     }
 
 

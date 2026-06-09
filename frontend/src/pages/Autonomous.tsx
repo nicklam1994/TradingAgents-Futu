@@ -33,6 +33,7 @@ export default function Autonomous() {
     const [budget, setBudget] = useState('')
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState<string | null>(null)
+    const [dagKeywords, setDagKeywords] = useState<Array<{ label: string; icon: string }>>([])
 
     const loadTasks = useCallback(async () => {
         try {
@@ -107,10 +108,15 @@ export default function Autonomous() {
         if (!command.trim()) return
         setCreating(true)
         setCreateError(null)
+        setDagKeywords([])
         try {
             const budgetNum = budget ? parseFloat(budget) : undefined
             const res = await api.createAutonomousTask(command.trim(), budgetNum)
             if (res.ok && res.data?.task_id) {
+                // Store parsed keywords from backend LLM response
+                if (res.data.dag_summary) {
+                    setDagKeywords(res.data.dag_summary)
+                }
                 setCommand('')
                 setBudget('')
                 await loadTasks()
@@ -176,9 +182,18 @@ export default function Autonomous() {
                 {createError && (
                     <p className="mt-2 text-sm text-rose-500 dark:text-rose-400">{createError}</p>
                 )}
-                <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                    💡 LLM 会自动解析指令，生成选股→分析→分配→执行→观察的 OODA 任务链
-                </p>
+                {/* Parsed keywords from LLM — shown after task creation */}
+                {dagKeywords.length > 0 && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-slate-400 dark:text-slate-500">LLM 解析：</span>
+                        {dagKeywords.map((kw, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+                                {kw.icon && <span>{kw.icon}</span>}
+                                {kw.label}
+                            </span>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Status filter chips */}

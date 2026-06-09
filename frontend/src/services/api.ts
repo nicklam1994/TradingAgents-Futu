@@ -425,7 +425,7 @@ class ApiService {
         return this.request(`/v1/autonomous/${taskId}/stop`, { method: 'POST' })
     }
 
-    async createAutonomousTask(command: string, budget?: number, currency?: string): Promise<{ ok: boolean; data: { task_id: string; status: string } }> {
+    async createAutonomousTask(command: string, budget?: number, currency?: string): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
         return this.request('/v1/autonomous/create', {
             method: 'POST',
             body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'USD' }),
