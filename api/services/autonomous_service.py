@@ -38,14 +38,6 @@ def _get_store() -> TaskStore:
     return _store
 
 
-def _get_loop() -> AutonomousLoop:
-    """Get or create the singleton AutonomousLoop."""
-    global _loop
-    if _loop is None:
-        _loop = AutonomousLoop(task_store=_get_store())
-    return _loop
-
-
 def create_task(
     command: str,
     budget: Optional[float] = None,
@@ -53,6 +45,10 @@ def create_task(
     mode: str = "simulate",
     max_iterations: int = 30,
     fixed_symbols: Optional[List[str]] = None,
+    llm_api_key: Optional[str] = None,
+    llm_provider: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create and start a new autonomous trading task.
 
@@ -63,11 +59,25 @@ def create_task(
         mode: "simulate" or "live" (only simulate supported)
         max_iterations: Max OODA loop iterations
         fixed_symbols: Optional fixed stock pool
+        llm_api_key: User's LLM API key (from DB)
+        llm_provider: LLM provider name
+        llm_base_url: LLM base URL
+        llm_model: LLM model name
 
     Returns:
         Dict with task_id, status, and initial configuration
     """
-    loop = _get_loop()
+    # Reset singleton so it picks up new LLM config
+    global _loop
+    _loop = None
+
+    loop = AutonomousLoop(
+        task_store=_get_store(),
+        llm_api_key=llm_api_key,
+        llm_provider=llm_provider,
+        llm_base_url=llm_base_url,
+        llm_model=llm_model,
+    )
 
     config = AutonomousTaskConfig(
         command=command,
@@ -103,7 +113,10 @@ def get_task(task_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     # Enrich with loop status
-    loop = _get_loop()
+    global _loop
+    if _loop is None:
+        _loop = AutonomousLoop(task_store=_get_store())
+    loop = _loop
     loop_status = loop.get_status(task_id)
 
     return {
@@ -122,57 +135,36 @@ def get_task(task_id: str) -> Optional[Dict[str, Any]]:
 
 
 def pause_task(task_id: str) -> Dict[str, Any]:
-    """Pause a running autonomous task.
-
-    Returns:
-        Dict with task_id and new status
-    """
-    loop = _get_loop()
-    success = loop.pause(task_id)
+    """Pause a running autonomous task."""
+    global _loop
+    if _loop is None:
+        _loop = AutonomousLoop(task_store=_get_store())
+    success = _loop.pause(task_id)
     if not success:
         return {"error": "Task not found or not in running state"}
-
-    return {
-        "task_id": task_id,
-        "status": "paused",
-        "message": "Task paused successfully",
-    }
+    return {"task_id": task_id, "status": "paused", "message": "Task paused successfully"}
 
 
 def resume_task(task_id: str) -> Dict[str, Any]:
-    """Resume a paused autonomous task.
-
-    Returns:
-        Dict with task_id and new status
-    """
-    loop = _get_loop()
-    success = loop.resume(task_id)
+    """Resume a paused autonomous task."""
+    global _loop
+    if _loop is None:
+        _loop = AutonomousLoop(task_store=_get_store())
+    success = _loop.resume(task_id)
     if not success:
         return {"error": "Task not found or not in paused state"}
-
-    return {
-        "task_id": task_id,
-        "status": "running",
-        "message": "Task resumed successfully",
-    }
+    return {"task_id": task_id, "status": "running", "message": "Task resumed successfully"}
 
 
 def stop_task(task_id: str) -> Dict[str, Any]:
-    """Stop an autonomous task permanently.
-
-    Returns:
-        Dict with task_id and final status
-    """
-    loop = _get_loop()
-    success = loop.stop(task_id)
+    """Stop an autonomous task permanently."""
+    global _loop
+    if _loop is None:
+        _loop = AutonomousLoop(task_store=_get_store())
+    success = _loop.stop(task_id)
     if not success:
         return {"error": "Task not found"}
-
-    return {
-        "task_id": task_id,
-        "status": "completed",
-        "message": "Task stopped by user",
-    }
+    return {"task_id": task_id, "status": "completed", "message": "Task stopped by user"}
 
 
 def list_tasks(
@@ -180,20 +172,10 @@ def list_tasks(
     limit: int = 50,
     offset: int = 0,
 ) -> Dict[str, Any]:
-    """List autonomous tasks with optional status filter.
-
-    Args:
-        status: Filter by task status (pending/running/paused/completed/failed)
-        limit: Max results
-        offset: Pagination offset
-
-    Returns:
-        Dict with tasks list and summary counts
-    """
+    """List autonomous tasks with optional status filter."""
     store = _get_store()
     tasks = store.list_tasks(status=status, limit=limit, offset=offset)
     counts = store.count_by_status()
-
     return {
         "tasks": [
             {
@@ -212,19 +194,13 @@ def list_tasks(
 
 
 def get_task_alerts(task_id: str) -> List[Dict[str, Any]]:
-    """Get position alerts for a specific task.
-
-    Returns:
-        List of alert dicts from the Observer
-    """
+    """Get position alerts for a specific task."""
     store = _get_store()
     task = store.get(task_id)
     if not task:
         return []
-
     checkpoint = task.get("checkpoint") or {}
     if isinstance(checkpoint, str):
         checkpoint = json.loads(checkpoint)
-
     state = checkpoint.get("state", {})
     return state.get("position_alerts", [])

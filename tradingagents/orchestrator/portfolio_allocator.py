@@ -307,14 +307,14 @@ class PortfolioAllocator:
             allocations.append(AllocationResult(
                 symbol=symbol,
                 amount=actual_amount,
-                pct=frac,
-                kelly_f=frac / self._kelly_fraction if self._kelly_fraction > 0 else frac,
-                adjusted_f=frac,
+                pct=frac or 0.0,
+                kelly_f=(frac or 0.0) / self._kelly_fraction if self._kelly_fraction > 0 else (frac or 0.0),
+                adjusted_f=frac or 0.0,
                 shares=shares,
                 lot_count=lot_count,
                 reasoning=(
-                    f"Kelly f*={frac / self._kelly_fraction:.3f}, "
-                    f"half-Kelly={frac:.3f}, "
+                    f"Kelly f*={(frac or 0.0) / self._kelly_fraction:.3f}, "
+                    f"half-Kelly={(frac or 0.0):.3f}, "
                     f"{shares} shares @ {price:.2f}"
                 ),
             ))

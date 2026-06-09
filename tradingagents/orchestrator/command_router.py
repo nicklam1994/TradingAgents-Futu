@@ -169,6 +169,8 @@ class CommandRouter:
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None,
         language: str = "zh",
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         """Initialize the command router.
 
@@ -176,10 +178,14 @@ class CommandRouter:
             llm_provider: LLM provider name (default from env TA_LLM_PROVIDER or "openai")
             llm_model: Model name (default from env TA_LLM_MODEL or "gpt-4o")
             language: Prompt language — "zh" for Chinese, "en" for English
+            api_key: LLM API key (default from env OPENAI_API_KEY)
+            base_url: LLM base URL (default from env TA_LLM_BASE_URL)
         """
         self._provider = llm_provider or os.getenv("TA_LLM_PROVIDER", "openai")
         self._model = llm_model or os.getenv("TA_LLM_MODEL", "gpt-4o")
         self._language = language
+        self._api_key = api_key or os.getenv("TA_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self._base_url = base_url or os.getenv("TA_LLM_BASE_URL")
         self._llm = None  # Lazy init
 
     def _get_llm(self):
@@ -191,9 +197,13 @@ class CommandRouter:
         if self._llm is None:
             from tradingagents.llm_clients.factory import create_llm_client
 
-            base_url = os.getenv("TA_LLM_BASE_URL")
+            kwargs: dict = {}
+            if self._base_url:
+                kwargs["base_url"] = self._base_url
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
             client = create_llm_client(
-                self._provider, self._model, base_url=base_url
+                self._provider, self._model, **kwargs
             )
             self._llm = client.get_llm()  # Returns LangChain LLM instance
         return self._llm

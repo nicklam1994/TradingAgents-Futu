@@ -102,6 +102,8 @@ class StockSelector:
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None,
         max_workers: int = 4,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
     ):
         """Initialize the stock selector.
 
@@ -110,11 +112,15 @@ class StockSelector:
             llm_provider: LLM provider for analyst agents
             llm_model: Model name for analyst agents
             max_workers: Max parallel analyst threads
+            api_key: LLM API key
+            base_url: LLM base URL
         """
         self._weights = weights or DEFAULT_WEIGHTS
         self._provider = llm_provider or os.getenv("TA_LLM_PROVIDER", "openai")
         self._model = llm_model or os.getenv("TA_LLM_MODEL", "gpt-4o")
         self._max_workers = max_workers
+        self._api_key = api_key or os.getenv("TA_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self._base_url = base_url or os.getenv("TA_LLM_BASE_URL")
         self._llm = None  # Lazy init
 
     def _get_llm(self):
@@ -122,9 +128,13 @@ class StockSelector:
         if self._llm is None:
             from tradingagents.llm_clients.factory import create_llm_client
 
-            base_url = os.getenv("TA_LLM_BASE_URL")
+            kwargs: dict = {}
+            if self._base_url:
+                kwargs["base_url"] = self._base_url
+            if self._api_key:
+                kwargs["api_key"] = self._api_key
             client = create_llm_client(
-                self._provider, self._model, base_url=base_url
+                self._provider, self._model, **kwargs
             )
             self._llm = client.get_llm()
         return self._llm
@@ -482,8 +492,8 @@ class StockSelector:
         Returns:
             (score, reasoning_text) tuple
         """
-        volume = data.get("volume", 0)
-        turnover = data.get("turnover", 0)
+        volume = self._safe_float(data.get("volume"))
+        turnover = self._safe_float(data.get("turnover"))
 
         score = 0.5
         if volume is not None and volume > 0:
@@ -492,6 +502,16 @@ class StockSelector:
             score += 0.15
 
         return min(1.0, score), f"Volume={volume}, Turnover={turnover}"
+
+    @staticmethod
+    def _safe_float(val: Any) -> Optional[float]:
+        """Convert a value to float, returning None on failure."""
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return None
 
     def _build_candidates(
         self,
@@ -510,9 +530,9 @@ class StockSelector:
             candidate = StockCandidate(
                 symbol=symbol,
                 name=data.get("name"),
-                current_price=data.get("price"),
-                market_cap=data.get("market_cap"),
-                pe_ratio=data.get("pe_ratio"),
+                current_price=self._safe_float(data.get("price")),
+                market_cap=self._safe_float(data.get("market_cap")),
+                pe_ratio=self._safe_float(data.get("pe_ratio")),
                 momentum_score=dim_scores.get("momentum") if dim_scores.get("momentum") is not None else 0.5,
                 fundamental_score=dim_scores.get("fundamental") if dim_scores.get("fundamental") is not None else 0.5,
                 sentiment_score=dim_scores.get("sentiment") if dim_scores.get("sentiment") is not None else 0.5,

@@ -145,6 +145,10 @@ class AutonomousLoop:
         portfolio_allocator: Optional[PortfolioAllocator] = None,
         observer: Optional[Observer] = None,
         on_iteration: Optional[Callable[[str, OODAState], None]] = None,
+        llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
     ):
         """Initialize the autonomous loop.
 
@@ -155,10 +159,27 @@ class AutonomousLoop:
             portfolio_allocator: PortfolioAllocator instance (created if None)
             observer: Observer instance (created if None)
             on_iteration: Callback after each OODA iteration (task_id, state)
+            llm_api_key: LLM API key for CommandRouter/StockSelector
+            llm_base_url: LLM base URL
+            llm_provider: LLM provider name
+            llm_model: LLM model name
         """
         self._store = task_store or TaskStore()
-        self._router = command_router or CommandRouter()
-        self._selector = stock_selector or StockSelector()
+        if command_router:
+            self._router = command_router
+        else:
+            self._router = CommandRouter(
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+            )
+        self._selector = stock_selector or StockSelector(
+            llm_provider=llm_provider,
+            llm_model=llm_model,
+            api_key=llm_api_key,
+            base_url=llm_base_url,
+        )
         self._allocator = portfolio_allocator or PortfolioAllocator()
         # W1 fix: inject get_history_orders for real entry price
         if observer is None:
@@ -201,8 +222,12 @@ class AutonomousLoop:
             config.command = command
             config.dag = dag.to_dict()
 
-        # Extract symbols from DAG
-        symbols = [t.symbol for t in dag.tasks if t.symbol]
+        # Extract symbols from DAG (filter out placeholders like FROM_t1, SELECTED_SYMBOL)
+        _PLACEHOLDER_PREFIXES = ("FROM_", "SELECTED_", "PLACEHOLDER", "TBD")
+        symbols = [
+            t.symbol for t in dag.tasks
+            if t.symbol and not t.symbol.upper().startswith(_PLACEHOLDER_PREFIXES)
+        ]
         if symbols:
             config.fixed_symbols = symbols
 
@@ -485,10 +510,182 @@ class AutonomousLoop:
             )
             state.candidates = [c.to_dict() for c in candidates]
         else:
-            # No fixed pool — would need market scanner
-            # For now, use a default watchlist or skip
-            logger.info("Task %s: No fixed symbols — using default pool", task_id)
-            state.candidates = []
+            # No fixed pool — use DAG select task to screen stocks via Futu API
+            pool = self._screen_stocks_from_dag(config)
+            if pool:
+                top_n = self._get_select_count_from_dag(config)
+                candidates = self._selector.select(
+                    pool=pool,
+                    budget=config.budget,
+                    top_n=top_n,
+                )
+                state.candidates = [c.to_dict() for c in candidates]
+            else:
+                logger.info("Task %s: No stocks found from screening", task_id)
+                state.candidates = []
+
+    def _get_select_count_from_dag(self, config: AutonomousTaskConfig) -> int:
+        """Extract top_n count from DAG select task params."""
+        if not config.dag:
+            return 5
+        for task in config.dag.get("tasks", []):
+            if task.get("action") == "select":
+                params = task.get("params", {})
+                return params.get("count", params.get("top_n", 5))
+        return 5
+
+    def _screen_stocks_from_dag(self, config: AutonomousTaskConfig) -> List[str]:
+        """Screen stocks using Futu API based on DAG select task params.
+
+        Parses the DAG's select task for category/market/horizon, then uses
+        Futu get_plate_list + get_plate_stock + screen_stocks to build a
+        candidate pool.
+        """
+        import os
+
+        # Extract select task params from DAG
+        market = "US"
+        category = ""
+        horizon = "short"
+        if config.dag:
+            for task in config.dag.get("tasks", []):
+                if task.get("action") == "select":
+                    params = task.get("params", {})
+                    # Support both old (category) and new (universe/sector/criteria) param names
+                    category = params.get("category", "") or params.get("universe", "") or params.get("sector", "") or params.get("criteria", "")
+                    horizon = params.get("horizon", "short")
+                    top_n = params.get("count", params.get("top_n", 5))
+                    # Infer market from category
+                    cat_lower = category.lower()
+                    if "hk" in cat_lower or "港股" in cat_lower:
+                        market = "HK"
+                    elif "us" in cat_lower or "美股" in cat_lower:
+                        market = "US"
+                    break
+
+        logger.info(
+            "Task: Screening stocks — market=%s, category='%s', horizon=%s",
+            market, category, horizon,
+        )
+
+        try:
+            from futu import OpenQuoteContext, Plate, RET_OK
+
+            host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+            port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+            ctx = OpenQuoteContext(host=host, port=port)
+
+            try:
+                # Step 1: Get industry plate list
+                mkt = {"HK": "HK", "US": "US"}.get(market, "US")
+                from futu import Market
+                market_enum = Market.HK if mkt == "HK" else Market.US
+
+                ret, plates = ctx.get_plate_list(
+                    market=market_enum, plate_class=Plate.INDUSTRY
+                )
+                if ret != RET_OK:
+                    logger.warning("Failed to get plate list: %s", plates)
+                    return []
+
+                # Step 2: Find matching sector plates by keyword
+                # Map common category keywords to sector names
+                keyword_map = {
+                    "tech": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
+                    "科技": ["半导体", "互联网", "软件", "计算机", "电子"],
+                    "technology": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
+                    "semiconductor": ["半导体"],
+                    "半导体": ["半导体"],
+                    "ai": ["半导体", "互联网", "软件", "人工智能"],
+                    "finance": ["银行", "保险", "金融"],
+                    "金融": ["银行", "保险", "金融"],
+                    "health": ["医疗", "医药", "生物"],
+                    "医疗": ["医疗", "医药", "生物"],
+                    "consumer": ["消费", "零售", "食品"],
+                    "消费": ["消费", "零售", "食品"],
+                    "energy": ["能源", "石油", "新能源"],
+                    "能源": ["能源", "石油", "新能源"],
+                }
+
+                cat_lower = category.lower()
+                matched_keywords = []
+                for key, keywords in keyword_map.items():
+                    if key in cat_lower:
+                        matched_keywords.extend(keywords)
+                if not matched_keywords:
+                    # Default to tech sector
+                    matched_keywords = ["半导体", "互联网", "软件", "电子"]
+
+                # Find matching plates
+                matched_plates = []
+                for _, row in plates.iterrows():
+                    plate_name = row.get("plate_name", "")
+                    if any(kw in plate_name for kw in matched_keywords):
+                        matched_plates.append(row["code"])
+                        logger.info("Matched plate: %s (%s)", plate_name, row["code"])
+
+                if not matched_plates:
+                    # Fallback: use top plates by name similarity
+                    logger.info("No keyword match, using first 3 industry plates")
+                    matched_plates = plates["code"].tolist()[:3]
+
+                # Step 3: Get stocks from matched plates
+                all_symbols = set()
+                for plate_code in matched_plates[:5]:  # Max 5 plates
+                    ret, stocks = ctx.get_plate_stock(plate_code)
+                    if ret == RET_OK and stocks is not None:
+                        # Futu returns 'code' column (not 'stock_code')
+                        code_col = "code" if "code" in stocks.columns else "stock_code"
+                        for _, row in stocks.iterrows():
+                            code = row.get(code_col, "")
+                            if code:
+                                # Convert Futu format to canonical
+                                if code.startswith("HK."):
+                                    all_symbols.add(f"{code[3:]}.HK")
+                                elif code.startswith("US."):
+                                    all_symbols.add(code[3:])
+
+                logger.info(
+                    "Screened %d stocks from %d plates",
+                    len(all_symbols), len(matched_plates[:5]),
+                )
+
+                # Step 4: Filter by market cap (top stocks only)
+                if len(all_symbols) > 30:
+                    # Use screen_stocks to narrow down
+                    from tradingagents.agents.utils.game_theory_tools import screen_stocks
+                    screened = screen_stocks.invoke({
+                        "market": mkt,
+                        "metric": "market_cap",
+                        "min_val": 1e9,  # > 1B
+                        "limit": 50,
+                    })
+                    # Parse screened results
+                    screened_codes = set()
+                    for line in screened.split("\n"):
+                        if "|" in line and not line.startswith("|"):
+                            parts = [p.strip() for p in line.split("|") if p.strip()]
+                            if len(parts) >= 2:
+                                code = parts[0]
+                                if code.endswith(".HK"):
+                                    screened_codes.add(code)
+                                else:
+                                    screened_codes.add(code)
+                    # Intersect with plate stocks
+                    filtered = all_symbols & screened_codes
+                    if filtered:
+                        all_symbols = filtered
+
+                result = list(all_symbols)[:30]  # Cap at 30
+                logger.info("Final candidate pool: %d stocks", len(result))
+                return result
+
+            finally:
+                ctx.close()
+
+        except Exception as e:
+            logger.error("Stock screening failed: %s", e, exc_info=True)
+            return []
 
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState

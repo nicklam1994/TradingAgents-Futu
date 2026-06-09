@@ -5912,6 +5912,46 @@ async def autonomous_create(
     the OODA (Observe-Orient-Decide-Act) autonomous loop.
     """
     try:
+        # Read user's LLM config from DB for CommandRouter/StockSelector
+        llm_kwargs: Dict[str, Any] = {}
+        with get_db_ctx() as db:
+            cfg = _build_runtime_config({}, user_id=current_user.id, db=db)
+            user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+            api_key = None
+            if user_cfg and user_cfg.api_key_encrypted:
+                api_key = auth_service.decrypt_secret(user_cfg.api_key_encrypted)
+            # Fallback: env vars TA_API_KEY / OPENAI_API_KEY
+            if not api_key:
+                api_key = os.getenv("TA_API_KEY") or os.getenv("OPENAI_API_KEY")
+            # Fallback: first available API key from any user (single-user dev setup)
+            if not api_key:
+                for row in db.query(UserLLMConfigDB).filter(
+                    UserLLMConfigDB.api_key_encrypted.isnot(None)
+                ).all():
+                    try:
+                        candidate = auth_service.decrypt_secret(row.api_key_encrypted)
+                        if candidate:
+                            api_key = candidate
+                            # Override config with this user's actual settings
+                            # (default config may point to OpenAI which is geo-blocked)
+                            if row.llm_provider:
+                                cfg["llm_provider"] = row.llm_provider
+                            if row.backend_url:
+                                cfg["backend_url"] = row.backend_url
+                            if row.quick_think_llm:
+                                cfg["quick_think_llm"] = row.quick_think_llm
+                            break
+                    except Exception:
+                        continue
+            if api_key:
+                llm_kwargs["llm_api_key"] = api_key
+            if cfg.get("llm_provider"):
+                llm_kwargs["llm_provider"] = cfg["llm_provider"]
+            if cfg.get("backend_url"):
+                llm_kwargs["llm_base_url"] = cfg["backend_url"]
+            if cfg.get("quick_think_llm"):
+                llm_kwargs["llm_model"] = cfg["quick_think_llm"]
+
         result = autonomous_service.create_task(
             command=req.command,
             budget=req.budget,
@@ -5919,6 +5959,7 @@ async def autonomous_create(
             mode=req.mode,
             max_iterations=req.max_iterations,
             fixed_symbols=req.fixed_symbols,
+            **llm_kwargs,
         )
         return {"ok": True, "data": result}
     except Exception as e:
