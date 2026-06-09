@@ -14,6 +14,22 @@ default_router: true
 default_priority: 10
 market_regimes: [trending_up]
 
+# ── 量化参数（供 OODA 自主閉環使用）──────────────────────────
+dimension_weights:
+  momentum: 0.40        # 趋势策略偏重动量
+  fundamental: 0.25
+  sentiment: 0.20
+  volume: 0.15
+
+exit_rules:
+  stop_loss_pct: -5.0   # 固定止损
+  take_profit_pct: 15.0 # 止盈
+  trailing_stop_pct: 3.0 # 追踪止损回撤
+
+position_sizing:
+  max_position_pct: 20.0  # 单只最大仓位占比
+  kelly_fraction: 0.5     # Kelly 乘数（保守）
+
 instructions: |
   **默认多头趋势（Default Bull Trend Strategy）**
 

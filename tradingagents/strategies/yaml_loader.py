@@ -161,3 +161,54 @@ def get_default_strategy() -> Optional[str]:
             continue
 
     return None
+
+
+def get_strategy_params(name: str) -> Dict[str, Any]:
+    """Get quantitative parameters from a YAML strategy.
+
+    Returns a dict with:
+        - dimension_weights: {momentum, fundamental, sentiment, volume}
+        - exit_rules: {stop_loss_pct, take_profit_pct, trailing_stop_pct}
+        - position_sizing: {max_position_pct, kelly_fraction}
+        - instructions: str (LLM prompt)
+        - display_name: str
+        - market_regimes: list
+
+    Falls back to sensible defaults if strategy not found or params missing.
+    """
+    strategy = load_strategy(name)
+    if not strategy:
+        return _default_params()
+
+    return {
+        "dimension_weights": strategy.get("dimension_weights") or {
+            "momentum": 0.35, "fundamental": 0.30, "sentiment": 0.20, "volume": 0.15,
+        },
+        "exit_rules": strategy.get("exit_rules") or {
+            "stop_loss_pct": -5.0, "take_profit_pct": 15.0, "trailing_stop_pct": 3.0,
+        },
+        "position_sizing": strategy.get("position_sizing") or {
+            "max_position_pct": 20.0, "kelly_fraction": 0.5,
+        },
+        "instructions": strategy.get("instructions", ""),
+        "display_name": strategy.get("display_name", name),
+        "market_regimes": strategy.get("market_regimes", []),
+    }
+
+
+def _default_params() -> Dict[str, Any]:
+    """Default strategy params when no strategy is specified."""
+    return {
+        "dimension_weights": {
+            "momentum": 0.35, "fundamental": 0.30, "sentiment": 0.20, "volume": 0.15,
+        },
+        "exit_rules": {
+            "stop_loss_pct": -5.0, "take_profit_pct": 15.0, "trailing_stop_pct": 3.0,
+        },
+        "position_sizing": {
+            "max_position_pct": 20.0, "kelly_fraction": 0.5,
+        },
+        "instructions": "",
+        "display_name": "默认",
+        "market_regimes": [],
+    }

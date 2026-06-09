@@ -5899,6 +5899,7 @@ class AutonomousCreateRequest(BaseModel):
     mode: str = Field("simulate", description="Trading mode (simulate only)")
     max_iterations: int = Field(30, description="Max OODA loop iterations")
     fixed_symbols: Optional[List[str]] = Field(None, description="Fixed stock pool")
+    strategy_name: Optional[str] = Field(None, description="YAML strategy name (e.g. bull_trend)")
 
 
 @app.post("/v1/autonomous/create")
@@ -5959,6 +5960,7 @@ async def autonomous_create(
             mode=req.mode,
             max_iterations=req.max_iterations,
             fixed_symbols=req.fixed_symbols,
+            strategy_name=req.strategy_name,
             **llm_kwargs,
         )
         return {"ok": True, "data": result}

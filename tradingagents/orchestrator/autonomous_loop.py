@@ -87,6 +87,8 @@ class AutonomousTaskConfig:
     budget: float = 10000.0
     currency: str = "USD"
     mode: str = "simulate"
+    # Strategy
+    strategy_name: Optional[str] = None  # YAML strategy name (e.g. "bull_trend")
     # Loop parameters
     max_iterations: int = 30  # Max OODA iterations
     iteration_interval_sec: int = 3600  # Seconds between iterations (1 hour)
@@ -108,6 +110,7 @@ class AutonomousTaskConfig:
             "budget": self.budget,
             "currency": self.currency,
             "mode": self.mode,
+            "strategy_name": self.strategy_name,
             "max_iterations": self.max_iterations,
             "iteration_interval_sec": self.iteration_interval_sec,
             "stage_timeout": self.stage_timeout,
@@ -149,6 +152,7 @@ class AutonomousLoop:
         llm_base_url: Optional[str] = None,
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None,
+        strategy_params: Optional[Dict[str, Any]] = None,
     ):
         """Initialize the autonomous loop.
 
@@ -163,8 +167,16 @@ class AutonomousLoop:
             llm_base_url: LLM base URL
             llm_provider: LLM provider name
             llm_model: LLM model name
+            strategy_params: YAML strategy params from get_strategy_params()
         """
         self._store = task_store or TaskStore()
+        self._strategy_params = strategy_params
+
+        # ── L3→L5: Inject strategy instructions into CommandRouter prompt ──
+        strategy_instructions = ""
+        if strategy_params:
+            strategy_instructions = strategy_params.get("instructions", "")
+
         if command_router:
             self._router = command_router
         else:
@@ -173,21 +185,49 @@ class AutonomousLoop:
                 llm_model=llm_model,
                 api_key=llm_api_key,
                 base_url=llm_base_url,
+                strategy_instructions=strategy_instructions,
             )
+
+        # ── L3→L4a: Inject YAML dimension_weights into StockSelector ──
+        weights = None
+        if strategy_params:
+            weights = strategy_params.get("dimension_weights")
+
         self._selector = stock_selector or StockSelector(
+            weights=weights,
             llm_provider=llm_provider,
             llm_model=llm_model,
             api_key=llm_api_key,
             base_url=llm_base_url,
         )
-        self._allocator = portfolio_allocator or PortfolioAllocator()
-        # W1 fix: inject get_history_orders for real entry price
+
+        # ── L3→L4b: Inject YAML position_sizing into PortfolioAllocator ──
+        if strategy_params and strategy_params.get("position_sizing"):
+            ps = strategy_params["position_sizing"]
+            self._allocator = portfolio_allocator or PortfolioAllocator(
+                kelly_fraction=ps.get("kelly_fraction", 0.5),
+                max_position_pct=ps.get("max_position_pct", 20.0) / 100.0,
+            )
+        else:
+            self._allocator = portfolio_allocator or PortfolioAllocator()
+
+        # ── L3→L4c: Inject YAML exit_rules into Observer ──
         if observer is None:
+            exit_rules = (strategy_params or {}).get("exit_rules", {})
             try:
                 from api.services.sim_trading_service import get_history_orders
-                self._observer = Observer(get_history_orders=get_history_orders)
+                self._observer = Observer(
+                    stop_loss_pct=exit_rules.get("stop_loss_pct", -8.0) / 100.0,
+                    take_profit_pct=exit_rules.get("take_profit_pct", 15.0) / 100.0,
+                    trailing_stop_pct=exit_rules.get("trailing_stop_pct", 5.0) / 100.0,
+                    get_history_orders=get_history_orders,
+                )
             except ImportError:
-                self._observer = Observer()
+                self._observer = Observer(
+                    stop_loss_pct=exit_rules.get("stop_loss_pct", -8.0) / 100.0,
+                    take_profit_pct=exit_rules.get("take_profit_pct", 15.0) / 100.0,
+                    trailing_stop_pct=exit_rules.get("trailing_stop_pct", 5.0) / 100.0,
+                )
         else:
             self._observer = observer
         self._on_iteration = on_iteration
@@ -752,6 +792,11 @@ class AutonomousLoop:
                         "price": result.price,
                         "reason": result.reason,
                     })
+
+                    # ── L7: Auto-reflect on each executed trade ──
+                    if result.action_taken in ("buy", "sell"):
+                        self._reflect_on_trade(task_id, decision, result)
+
             except ImportError:
                 logger.warning("SimExecutor not available — skipping execution")
                 state.executions.append({
@@ -1001,6 +1046,42 @@ class AutonomousLoop:
         except Exception as e:
             logger.warning("Reflection trigger failed: %s", e)
 
+    def _reflect_on_trade(self, task_id: str, decision: Dict[str, Any], result: Any) -> None:
+        """L7: Auto-reflect on a completed trade and store lesson in BM25 memory.
+
+        Args:
+            task_id: Autonomous task ID
+            decision: Trade decision dict {symbol, action, shares, amount, reasoning}
+            result: SimExecutor result {action_taken, order_id, quantity, price, reason}
+        """
+        reflector = self._get_reflector()
+        if not reflector:
+            return
+
+        try:
+            trade_info = {
+                "symbol": decision.get("symbol", ""),
+                "signal": decision.get("action", "buy"),
+                "confidence": 0.7,
+                "price": result.price if hasattr(result, "price") else 0.0,
+                "quantity": result.quantity if hasattr(result, "quantity") else 0,
+                "reasoning": decision.get("reasoning", ""),
+                "strategy": self._strategy_params.get("display_name", "") if self._strategy_params else "",
+            }
+            trade_result = {
+                "action_taken": result.action_taken if hasattr(result, "action_taken") else "unknown",
+                "order_id": result.order_id if hasattr(result, "order_id") else "",
+                "pnl": 0.0,
+                "outcome": "pending",
+            }
+            lesson = reflector.reflect_on_sim_trade(trade_info, trade_result)
+            logger.info(
+                "Task %s: Reflection stored for %s — %s",
+                task_id, decision.get("symbol", ""), lesson[:100],
+            )
+        except Exception as e:
+            logger.debug("Auto-reflection failed (non-critical): %s", e)
+
     def _get_reflector(self):
         """Get or create a SimTradeReflector instance.
 
@@ -1008,9 +1089,19 @@ class AutonomousLoop:
             SimTradeReflector instance, or None if not available.
         """
         try:
-            from tradingagents.orchestrator.sim_trade_reflector import SimTradeReflector
-            return SimTradeReflector()
-        except ImportError:
+            from tradingagents.graph.reflection import SimTradeReflector
+            from tradingagents.llm_clients.factory import create_llm_client
+
+            # Use same LLM config as the loop
+            client = create_llm_client(
+                provider=self._router._provider,
+                model=self._router._model,
+                base_url=self._router._base_url,
+                api_key=self._router._api_key,
+            )
+            llm = client.get_llm()
+            return SimTradeReflector(llm)
+        except Exception:
             return None
 
     def _config_from_dict(self, d: Dict[str, Any]) -> AutonomousTaskConfig:
@@ -1021,6 +1112,7 @@ class AutonomousLoop:
             budget=d.get("budget", 10000.0),
             currency=d.get("currency", "USD"),
             mode=d.get("mode", "simulate"),
+            strategy_name=d.get("strategy_name"),
             max_iterations=d.get("max_iterations", 30),
             iteration_interval_sec=d.get("iteration_interval_sec", 3600),
             stage_timeout=d.get("stage_timeout", 300),

@@ -14,6 +14,23 @@ aliases: [龙头, 龙头战法]
 default_priority: 90
 market_regimes: [sector_hot]
 
+
+# ── 量化参数（供 OODA 自主閉環使用）──────────────────────────
+dimension_weights:
+  momentum: 0.4
+  fundamental: 0.25
+  sentiment: 0.2
+  volume: 0.15
+
+exit_rules:
+  stop_loss_pct: -5.0
+  take_profit_pct: 15.0
+  trailing_stop_pct: 3.0
+
+position_sizing:
+  max_position_pct: 20.0
+  kelly_fraction: 0.5
+
 instructions: |
   **龙头策略（Dragon Head Strategy）**
 

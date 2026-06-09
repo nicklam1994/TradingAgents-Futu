@@ -425,14 +425,18 @@ class ApiService {
         return this.request(`/v1/autonomous/${taskId}/stop`, { method: 'POST' })
     }
 
-    async createAutonomousTask(command: string, budget?: number, currency?: string): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
+    async createAutonomousTask(command: string, budget?: number, currency?: string, strategyName?: string): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
         return this.request('/v1/autonomous/create', {
             method: 'POST',
-            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'USD' }),
+            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'USD', strategy_name: strategyName ?? undefined }),
         })
     }
 
-    // ─── Strategies / Skills API (Phase 9) ────────────────────────────────
+    async getStrategies(): Promise<{ ok: boolean; data: { strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>; default: string } }> {
+        return this.request('/v1/strategies')
+    }
+
+    // ─── Strategies API ─────────────────────────────────────────────────
 
     // ─── Reflections API (Phase 9) ────────────────────────────────────────
 
@@ -441,10 +445,6 @@ class ApiService {
     }
 
     // ─── Strategies API ─────────────────────────────────────────────────
-
-    async getStrategies(): Promise<{ ok: boolean; data: { strategies: Strategy[]; default: string | null } }> {
-        return this.request('/v1/strategies')
-    }
 
     async getStrategy(name: string): Promise<{ ok: boolean; data: Strategy }> {
         return this.request(`/v1/strategies/${name}`)

@@ -14,6 +14,23 @@ aliases: [热点, 题材, 热点题材]
 default_priority: 35
 market_regimes: [sector_hot]
 
+
+# ── 量化参数（供 OODA 自主閉環使用）──────────────────────────
+dimension_weights:
+  momentum: 0.5
+  fundamental: 0.15
+  sentiment: 0.2
+  volume: 0.15
+
+exit_rules:
+  stop_loss_pct: -4.0
+  take_profit_pct: 12.0
+  trailing_stop_pct: 3.0
+
+position_sizing:
+  max_position_pct: 18.0
+  kelly_fraction: 0.45
+
 instructions: |
   **热点题材策略（Hot Theme Strategy）**
 

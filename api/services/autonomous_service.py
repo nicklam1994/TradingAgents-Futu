@@ -114,6 +114,7 @@ def create_task(
     mode: str = "simulate",
     max_iterations: int = 30,
     fixed_symbols: Optional[List[str]] = None,
+    strategy_name: Optional[str] = None,
     llm_api_key: Optional[str] = None,
     llm_provider: Optional[str] = None,
     llm_base_url: Optional[str] = None,
@@ -128,6 +129,7 @@ def create_task(
         mode: "simulate" or "live" (only simulate supported)
         max_iterations: Max OODA loop iterations
         fixed_symbols: Optional fixed stock pool
+        strategy_name: YAML strategy name (e.g. "bull_trend")
         llm_api_key: User's LLM API key (from DB)
         llm_provider: LLM provider name
         llm_base_url: LLM base URL
@@ -140,12 +142,20 @@ def create_task(
     global _loop
     _loop = None
 
+    # Load strategy params if strategy_name specified
+    strategy_params = None
+    if strategy_name:
+        from tradingagents.strategies.yaml_loader import get_strategy_params
+        strategy_params = get_strategy_params(strategy_name)
+        logger.info("Loaded strategy '%s': %s", strategy_name, strategy_params.get("display_name"))
+
     loop = AutonomousLoop(
         task_store=_get_store(),
         llm_api_key=llm_api_key,
         llm_provider=llm_provider,
         llm_base_url=llm_base_url,
         llm_model=llm_model,
+        strategy_params=strategy_params,
     )
 
     config = AutonomousTaskConfig(
@@ -155,6 +165,7 @@ def create_task(
         mode=mode,
         max_iterations=max_iterations,
         fixed_symbols=fixed_symbols or [],
+        strategy_name=strategy_name or "bull_trend",
     )
 
     task_id = loop.start(command, config)

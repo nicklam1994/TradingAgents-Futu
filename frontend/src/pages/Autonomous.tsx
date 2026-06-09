@@ -34,6 +34,18 @@ export default function Autonomous() {
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState<string | null>(null)
     const [dagKeywords, setDagKeywords] = useState<Array<{ label: string; icon: string }>>([])
+    const [strategyName, setStrategyName] = useState('')
+    const [strategies, setStrategies] = useState<Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>>([])
+
+    // Load strategies on mount
+    useEffect(() => {
+        api.getStrategies().then(res => {
+            const list = res.data?.strategies ?? []
+            setStrategies(list)
+            const defaultName = res.data?.default || ''
+            if (defaultName) setStrategyName(defaultName)
+        }).catch(() => {})
+    }, [])
 
     const loadTasks = useCallback(async () => {
         try {
@@ -111,7 +123,7 @@ export default function Autonomous() {
         setDagKeywords([])
         try {
             const budgetNum = budget ? parseFloat(budget) : undefined
-            const res = await api.createAutonomousTask(command.trim(), budgetNum)
+            const res = await api.createAutonomousTask(command.trim(), budgetNum, undefined, strategyName || undefined)
             if (res.ok && res.data?.task_id) {
                 // Store parsed keywords from backend LLM response
                 if (res.data.dag_summary) {
@@ -170,6 +182,16 @@ export default function Autonomous() {
                         disabled={creating}
                         className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
                     />
+                    <select
+                        value={strategyName}
+                        onChange={e => setStrategyName(e.target.value)}
+                        disabled={creating}
+                        className="w-36 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                        {strategies.map(s => (
+                            <option key={s.name} value={s.name}>{s.display_name}</option>
+                        ))}
+                    </select>
                     <button
                         onClick={handleCreate}
                         disabled={creating || !command.trim()}

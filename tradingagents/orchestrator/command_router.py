@@ -171,6 +171,7 @@ class CommandRouter:
         language: str = "zh",
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
+        strategy_instructions: Optional[str] = None,
     ):
         """Initialize the command router.
 
@@ -180,12 +181,14 @@ class CommandRouter:
             language: Prompt language — "zh" for Chinese, "en" for English
             api_key: LLM API key (default from env OPENAI_API_KEY)
             base_url: LLM base URL (default from env TA_LLM_BASE_URL)
+            strategy_instructions: YAML strategy instructions to inject into prompt
         """
         self._provider = llm_provider or os.getenv("TA_LLM_PROVIDER", "openai")
         self._model = llm_model or os.getenv("TA_LLM_MODEL", "gpt-4o")
         self._language = language
         self._api_key = api_key or os.getenv("TA_API_KEY") or os.getenv("OPENAI_API_KEY")
         self._base_url = base_url or os.getenv("TA_LLM_BASE_URL")
+        self._strategy_instructions = strategy_instructions or ""
         self._llm = None  # Lazy init
 
     def _get_llm(self):
@@ -240,10 +243,11 @@ class CommandRouter:
             return self._fallback_dag(command)
 
     def _build_prompt(self, command: str) -> str:
-        """Build the appropriate language prompt."""
-        if self._language == "zh":
-            return INTENT_PROMPT_ZH.format(command=command)
-        return INTENT_PROMPT_EN.format(command=command)
+        """Build the appropriate language prompt with strategy context."""
+        base = INTENT_PROMPT_ZH.format(command=command) if self._language == "zh" else INTENT_PROMPT_EN.format(command=command)
+        if self._strategy_instructions:
+            base += f"\n\n## 当前交易策略指引\n\n{self._strategy_instructions}\n\n请根据上述策略指引来理解和分解用户的交易指令。"
+        return base
 
     def _parse_response(self, response: str, original_command: str) -> CommandDAG:
         """Parse LLM JSON response into CommandDAG.

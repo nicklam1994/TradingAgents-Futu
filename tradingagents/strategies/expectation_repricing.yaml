@@ -14,6 +14,23 @@ aliases: [预期, 预期差, 预期重估]
 default_priority: 65
 market_regimes: [volatile, sector_hot]
 
+
+# ── 量化参数（供 OODA 自主閉環使用）──────────────────────────
+dimension_weights:
+  momentum: 0.2
+  fundamental: 0.45
+  sentiment: 0.15
+  volume: 0.2
+
+exit_rules:
+  stop_loss_pct: -7.0
+  take_profit_pct: 20.0
+  trailing_stop_pct: 4.0
+
+position_sizing:
+  max_position_pct: 25.0
+  kelly_fraction: 0.5
+
 instructions: |
   **预期重估策略（Expectation Repricing Strategy）**
 
