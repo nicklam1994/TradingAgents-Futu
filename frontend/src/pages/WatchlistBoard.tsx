@@ -567,14 +567,22 @@ function SortHeader({ label, sortKey, activeKey, asc, onToggle, center }: {
 /* ─── Market State Badge ─────────────────────────────────────────────────── */
 
 const STATE_MAP: Record<string, { label: string; color: string }> = {
-    TRADING:        { label: '交易中', color: 'bg-emerald-500 text-white' },
+    NONE:           { label: '无交易', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AUCTION:        { label: '竞价',   color: 'bg-amber-400 text-white' },
+    WAITING_OPEN:   { label: '等待开盘', color: 'bg-amber-400 text-white' },
     MORNING:        { label: '早盘',   color: 'bg-emerald-500 text-white' },
+    REST:           { label: '午休',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
     AFTERNOON:      { label: '午盘',   color: 'bg-emerald-500 text-white' },
+    HK_CAS:         { label: '盘后竞价', color: 'bg-amber-400 text-white' },
     CLOSED:         { label: '休市',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
     PRE_MARKET:     { label: '盘前',   color: 'bg-amber-400 text-white' },
+    PRE_MARKET_BEGIN:{ label: '盘前',  color: 'bg-amber-400 text-white' },
+    TRADING:        { label: '交易中', color: 'bg-emerald-500 text-white' },
     AFTER_HOURS:    { label: '盘后',   color: 'bg-amber-400 text-white' },
-    AFTER_HOURS_END:{ label: '盘后结束', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AFTER_HOURS_BEGIN:{ label: '盘后', color: 'bg-amber-400 text-white' },
+    AFTER_HOURS_END:{ label: '盘后收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
     NIGHT:          { label: '夜盘',   color: 'bg-indigo-400 text-white' },
+    OVERNIGHT:      { label: '夜盘',   color: 'bg-indigo-400 text-white' },
 }
 
 function MarketStateBadge({ state }: { state?: string | null }) {
