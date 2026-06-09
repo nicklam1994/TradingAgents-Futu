@@ -719,7 +719,7 @@ function DetailedTrackingRow({
                             <MetricPill label="日低" value={formatPrice(item.day_low)} />
                         </div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-500 dark:text-slate-400">
-                            <MetricPill label="成交额" value={item.amount ? `${(item.amount / 10000).toFixed(1)}万` : '--'} />
+                            <MetricPill label="成交额" value={formatAmount(item.amount)} />
                             <MetricPill label="成交量" value={formatVolume(item.volume)} />
                         </div>
                         <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-700 dark:bg-slate-900/40">
