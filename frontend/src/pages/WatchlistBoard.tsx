@@ -27,7 +27,7 @@ export default function WatchlistBoard() {
     const [board, setBoard] = useState<WatchlistBoardResponse | null>(null)
     const [loading, setLoading] = useState(true)
     const [refreshing, setRefreshing] = useState(false)
-    const [sortKey, setSortKey] = useState<'name' | 'pct' | null>(null)
+    const [sortKey, setSortKey] = useState<'name' | 'pct' | 'state' | null>(null)
     const [sortAsc, setSortAsc] = useState(true)
     const [wsConnected, setWsConnected] = useState(false)
     const wsRef = useRef<WebSocket | null>(null)
@@ -50,7 +50,7 @@ export default function WatchlistBoard() {
     const isBatchInput = trimmedQuery.length > 0 && WATCHLIST_BATCH_SPLIT_RE.test(trimmedQuery)
     const items = board?.items || []
 
-    const toggleSort = (key: 'name' | 'pct') => {
+    const toggleSort = (key: 'name' | 'pct' | 'state') => {
         if (sortKey === key) setSortAsc(!sortAsc)
         else { setSortKey(key); setSortAsc(key === 'name') }
     }
@@ -60,6 +60,22 @@ export default function WatchlistBoard() {
         if (sortKey === 'name') {
             const cmp = extractName(a.name).localeCompare(extractName(b.name), 'zh')
             return sortAsc ? cmp : -cmp
+        }
+        if (sortKey === 'state') {
+            // Trading states first, then by state priority
+            const statePriority: Record<string, number> = {
+                TRADING: 0, MORNING: 0, AFTERNOON: 0, NIGHT_OPEN: 0,
+                PRE_MARKET_BEGIN: 1, AFTER_HOURS_BEGIN: 1,
+                AUCTION: 2, WAITING_OPEN: 2,
+                CLOSED: 3, AFTER_HOURS_END: 3, NIGHT_END: 3, OVERNIGHT: 3, PRE_MARKET_END: 3,
+                REST: 4, HK_CAS: 4,
+                NONE: 5,
+            }
+            const pa = statePriority[a.market_state ?? 'NONE'] ?? 5
+            const pb = statePriority[b.market_state ?? 'NONE'] ?? 5
+            if (pa !== pb) return sortAsc ? pa - pb : pb - pa
+            // Same priority, sort by symbol
+            return a.symbol.localeCompare(b.symbol)
         }
         const va = a.price_change_pct ?? -Infinity
         const vb = b.price_change_pct ?? -Infinity
@@ -362,9 +378,9 @@ function WatchlistTable({ items, refreshing, error, wsConnected, sortKey, sortAs
     refreshing: boolean
     error: string | null
     wsConnected: boolean
-    sortKey: 'name' | 'pct' | null
+    sortKey: 'name' | 'pct' | 'state' | null
     sortAsc: boolean
-    onToggleSort: (key: 'name' | 'pct') => void
+    onToggleSort: (key: 'name' | 'pct' | 'state') => void
     onAnalyze: (s: string) => void
     onRemove: (s: string) => void
 }) {
@@ -373,7 +389,7 @@ function WatchlistTable({ items, refreshing, error, wsConnected, sortKey, sortAs
             <div className="overflow-x-auto">
                 <div className="min-w-[1200px]">
                     <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-medium tracking-wider text-slate-500 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-400">
-                        <div className="text-center">状态</div>
+                        <SortHeader label="市場 / 狀態" sortKey="state" activeKey={sortKey} asc={sortAsc} onToggle={onToggleSort} center />
                         <SortHeader label="名称 / 代码" sortKey="name" activeKey={sortKey} asc={sortAsc} onToggle={onToggleSort} />
                         <div>当日 K 线</div>
                         <div>实时现价</div>
@@ -539,10 +555,10 @@ function DayRange({ item }: { item: WatchlistBoardItem }) {
 
 function SortHeader({ label, sortKey, activeKey, asc, onToggle, center }: {
     label: string
-    sortKey: 'name' | 'pct'
+    sortKey: 'name' | 'pct' | 'state'
     activeKey: string | null
     asc: boolean
-    onToggle: (key: 'name' | 'pct') => void
+    onToggle: (key: 'name' | 'pct' | 'state') => void
     center?: boolean
 }) {
     const active = activeKey === sortKey
