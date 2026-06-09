@@ -374,22 +374,27 @@ function ViewModeSwitch({
 }
 
 const TRACKING_STATE_MAP: Record<string, { label: string; color: string }> = {
-    NONE:           { label: '无交易', color: 'bg-slate-400 text-white dark:bg-slate-600' },
-    AUCTION:        { label: '竞价',   color: 'bg-amber-400 text-white' },
-    WAITING_OPEN:   { label: '等待开盘', color: 'bg-amber-400 text-white' },
-    MORNING:        { label: '早盘',   color: 'bg-emerald-500 text-white' },
-    REST:           { label: '午休',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
-    AFTERNOON:      { label: '午盘',   color: 'bg-emerald-500 text-white' },
-    HK_CAS:         { label: '盘后竞价', color: 'bg-amber-400 text-white' },
-    CLOSED:         { label: '休市',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
-    PRE_MARKET:     { label: '盘前',   color: 'bg-amber-400 text-white' },
-    PRE_MARKET_BEGIN:{ label: '盘前',  color: 'bg-amber-400 text-white' },
-    TRADING:        { label: '交易中', color: 'bg-emerald-500 text-white' },
-    AFTER_HOURS:    { label: '盘后',   color: 'bg-amber-400 text-white' },
-    AFTER_HOURS_BEGIN:{ label: '盘后', color: 'bg-amber-400 text-white' },
-    AFTER_HOURS_END:{ label: '盘后收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
-    NIGHT:          { label: '夜盘',   color: 'bg-indigo-400 text-white' },
-    OVERNIGHT:      { label: '夜盘',   color: 'bg-indigo-400 text-white' },
+    // ── HK 港股 ──
+    NONE:              { label: '无交易',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AUCTION:           { label: '竞价',     color: 'bg-amber-400 text-white' },
+    WAITING_OPEN:      { label: '等待开盘', color: 'bg-amber-400 text-white' },
+    MORNING:           { label: '早盘',     color: 'bg-emerald-500 text-white' },
+    REST:              { label: '午休',     color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AFTERNOON:         { label: '午盘',     color: 'bg-emerald-500 text-white' },
+    HK_CAS:            { label: '盘后竞价', color: 'bg-amber-400 text-white' },
+    CLOSED:            { label: '休市',     color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    // ── US 美股 ──
+    PRE_MARKET_BEGIN:  { label: '盘前',     color: 'bg-amber-400 text-white' },
+    PRE_MARKET_END:    { label: '盘前结束', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AFTER_HOURS_BEGIN: { label: '盘后',     color: 'bg-amber-400 text-white' },
+    AFTER_HOURS_END:   { label: '盘后收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    NIGHT_OPEN:        { label: '夜盘',     color: 'bg-indigo-400 text-white' },
+    NIGHT_END:         { label: '夜盘收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    // ── 期货 ──
+    FUTURE_DAY_OPEN:      { label: '期指开盘', color: 'bg-emerald-500 text-white' },
+    FUTURE_DAY_BREAK:     { label: '期指休市', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    FUTURE_DAY_CLOSE:     { label: '期指收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    FUTURE_DAY_WAIT_OPEN: { label: '期指待开', color: 'bg-amber-400 text-white' },
 }
 
 function TrackingMarketStateBadge({ state }: { state?: string | null }) {
