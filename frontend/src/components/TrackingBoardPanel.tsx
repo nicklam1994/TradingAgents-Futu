@@ -400,15 +400,26 @@ const TRACKING_STATE_MAP: Record<string, { label: string; color: string }> = {
     FUTURE_DAY_WAIT_OPEN: { label: '期指待开', color: 'bg-amber-400 text-white' },
 }
 
-function TrackingMarketStateBadge({ state }: { state?: string | null }) {
-    if (!state) return <div className="text-center text-xs text-slate-400">--</div>
+function TrackingMarketStateBadge({ state, symbol }: { state?: string | null; symbol?: string }) {
+    const market = symbol?.endsWith('.HK') ? 'HK' : symbol ? 'US' : null
+    const marketLabel = market === 'HK' ? '🇭🇰' : market === 'US' ? '🇺🇸' : null
+
+    if (!state) return (
+        <div className="text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
+            <div className="text-xs text-slate-400">--</div>
+        </div>
+    )
     const info = TRACKING_STATE_MAP[state]
     const label = info?.label ?? state
     const color = info?.color ?? 'bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
     return (
-        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
-            {label}
-        </span>
+        <div className="text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
+            <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
+                {label}
+            </span>
+        </div>
     )
 }
 
@@ -498,7 +509,7 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
             {/* 状态 + 名称/代码 + 涨跌幅 */}
     <div className="min-w-0 flex items-center gap-2">
         <div className="flex-shrink-0 self-stretch flex items-center">
-            <TrackingMarketStateBadge state={item.market_state} />
+            <TrackingMarketStateBadge state={item.market_state} symbol={item.symbol} />
         </div>
         <div className="flex flex-col justify-center gap-0.5">
             <span className="truncate text-[17px] font-bold text-slate-900 dark:text-slate-100">{item.name}</span>
