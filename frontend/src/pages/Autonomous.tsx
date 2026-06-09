@@ -9,7 +9,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
     Bot, Play, Pause, Square, RefreshCw,
     ChevronRight, ChevronDown, Clock, CheckCircle,
-    XCircle, Loader2,
+    XCircle, Loader2, Send,
 } from 'lucide-react'
 
 import { api } from '@/services/api'
@@ -27,6 +27,12 @@ export default function Autonomous() {
     const [error, setError] = useState<string | null>(null)
     const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+    // ── Create task state ──
+    const [command, setCommand] = useState('')
+    const [budget, setBudget] = useState('')
+    const [creating, setCreating] = useState(false)
+    const [createError, setCreateError] = useState<string | null>(null)
 
     const loadTasks = useCallback(async () => {
         try {
@@ -97,6 +103,26 @@ export default function Autonomous() {
         }
     }
 
+    const handleCreate = async () => {
+        if (!command.trim()) return
+        setCreating(true)
+        setCreateError(null)
+        try {
+            const budgetNum = budget ? parseFloat(budget) : undefined
+            const res = await api.createAutonomousTask(command.trim(), budgetNum)
+            if (res.ok && res.data?.task_id) {
+                setCommand('')
+                setBudget('')
+                await loadTasks()
+                setSelectedId(res.data.task_id)
+            }
+        } catch (e) {
+            setCreateError(e instanceof Error ? e.message : '创建任务失败')
+        } finally {
+            setCreating(false)
+        }
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -117,6 +143,43 @@ export default function Autonomous() {
                     <button onClick={() => setError(null)} className="ml-2 underline">关闭</button>
                 </div>
             )}
+
+            {/* Create task */}
+            <div className="card">
+                <div className="flex gap-3">
+                    <div className="flex-1">
+                        <input
+                            value={command}
+                            onChange={e => setCommand(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleCreate()}
+                            placeholder="输入交易指令，如：用1000美金模拟账户，选一只美股科技股做短线交易"
+                            disabled={creating}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-green-500"
+                        />
+                    </div>
+                    <input
+                        value={budget}
+                        onChange={e => setBudget(e.target.value.replace(/[^0-9.]/g, ''))}
+                        placeholder="预算(可选)"
+                        disabled={creating}
+                        className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
+                    />
+                    <button
+                        onClick={handleCreate}
+                        disabled={creating || !command.trim()}
+                        className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-green-600 dark:hover:bg-green-500"
+                    >
+                        {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        {creating ? '创建中...' : '开始交易'}
+                    </button>
+                </div>
+                {createError && (
+                    <p className="mt-2 text-sm text-rose-500 dark:text-rose-400">{createError}</p>
+                )}
+                <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+                    💡 LLM 会自动解析指令，生成选股→分析→分配→执行→观察的 OODA 任务链
+                </p>
+            </div>
 
             {/* Status filter chips */}
             <div className="flex flex-wrap gap-2">
