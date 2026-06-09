@@ -841,6 +841,19 @@ export interface Strategy {
     parameters?: Record<string, unknown>
 }
 
+// ─── Strategy Performance Types (Disconnection #5) ─────────────────────
+
+export interface StrategyPerformance {
+    strategy_name: string
+    total_trades: number
+    win_rate: number
+    avg_return_pct: number
+    sharpe_ratio: number
+    max_drawdown: number
+    total_pnl: number
+    composite_score: number
+}
+
 // ─── Reflection Types (Phase 9) ──────────────────────────────────────────
 
 export interface ReflectionEntry {

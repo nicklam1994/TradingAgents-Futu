@@ -1,6 +1,6 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse,
     WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse,
-    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData } from '@/types'
+    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -448,6 +448,14 @@ class ApiService {
 
     async getStrategy(name: string): Promise<{ ok: boolean; data: Strategy }> {
         return this.request(`/v1/strategies/${name}`)
+    }
+
+    async getStrategyPerformance(): Promise<{ ok: boolean; data: StrategyPerformance[] }> {
+        return this.request('/v1/strategies/performance')
+    }
+
+    async getBestStrategy(): Promise<{ ok: boolean; data: { strategy_name: string | null } }> {
+        return this.request('/v1/strategies/best')
     }
 
     async getRelativeStrength(symbol: string): Promise<{ ok: boolean; data?: RelativeStrengthData; error?: string }> {

@@ -175,6 +175,7 @@ def _record_deal(
     price: float,
     order_type: str = "NORMAL",
     currency: str = "HKD",
+    strategy_name: Optional[str] = None,
 ) -> None:
     """Record a simulated deal in the local DB."""
     from api.database import SessionLocal, SimDealDB
@@ -194,6 +195,7 @@ def _record_deal(
             create_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
             status="FILLED",
             currency=currency,
+            strategy_name=strategy_name,
         )
         db.add(deal)
         db.commit()

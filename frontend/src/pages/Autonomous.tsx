@@ -9,12 +9,12 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import {
     Bot, Play, Pause, Square, RefreshCw,
     ChevronRight, ChevronDown, Clock, CheckCircle,
-    XCircle, Loader2, Send,
+    XCircle, Loader2, Send, BarChart3, Trophy,
 } from 'lucide-react'
 
 import { api } from '@/services/api'
 import { formatTime } from '@/utils/formatTime'
-import type { AutonomousTask, AutonomousTaskDetail } from '@/types'
+import type { AutonomousTask, AutonomousTaskDetail, StrategyPerformance } from '@/types'
 
 export default function Autonomous() {
     const [tasks, setTasks] = useState<AutonomousTask[]>([])
@@ -36,6 +36,9 @@ export default function Autonomous() {
     const [dagKeywords, setDagKeywords] = useState<Array<{ label: string; icon: string }>>([])
     const [strategyName, setStrategyName] = useState('')
     const [strategies, setStrategies] = useState<Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>>([])
+    const [strategyPerf, setStrategyPerf] = useState<StrategyPerformance[]>([])
+    const [perfLoading, setPerfLoading] = useState(false)
+    const [showPerf, setShowPerf] = useState(false)
 
     // Load strategies on mount
     useEffect(() => {
@@ -46,6 +49,23 @@ export default function Autonomous() {
             if (defaultName) setStrategyName(defaultName)
         }).catch(() => {})
     }, [])
+
+    // Load strategy performance data
+    const loadPerf = useCallback(async () => {
+        setPerfLoading(true)
+        try {
+            const res = await api.getStrategyPerformance()
+            setStrategyPerf(res.data ?? [])
+        } catch {
+            // Silently ignore — no data yet is expected
+        } finally {
+            setPerfLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        loadPerf()
+    }, [loadPerf])
 
     const loadTasks = useCallback(async () => {
         try {
@@ -217,6 +237,93 @@ export default function Autonomous() {
                     </div>
                 )}
             </div>
+
+            {/* Strategy Performance Section */}
+            {strategyPerf.length > 0 && (
+                <div className="card">
+                    <button
+                        onClick={() => setShowPerf(!showPerf)}
+                        className="flex w-full items-center justify-between"
+                    >
+                        <div className="flex items-center gap-2">
+                            <BarChart3 className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                            <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">策略績效</h2>
+                            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                {strategyPerf.length} 策略
+                            </span>
+                        </div>
+                        {showPerf ? <ChevronDown className="h-5 w-5 text-slate-400" /> : <ChevronRight className="h-5 w-5 text-slate-400" />}
+                    </button>
+                    {showPerf && (
+                        <div className="mt-4 overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="border-b border-slate-200 dark:border-slate-700">
+                                        <th className="pb-2 pr-4 text-left font-medium text-slate-500 dark:text-slate-400">策略名稱</th>
+                                        <th className="pb-2 pr-4 text-right font-medium text-slate-500 dark:text-slate-400">交易次數</th>
+                                        <th className="pb-2 pr-4 text-right font-medium text-slate-500 dark:text-slate-400">勝率</th>
+                                        <th className="pb-2 pr-4 text-right font-medium text-slate-500 dark:text-slate-400">平均收益</th>
+                                        <th className="pb-2 pr-4 text-right font-medium text-slate-500 dark:text-slate-400">夏普比率</th>
+                                        <th className="pb-2 pr-4 text-right font-medium text-slate-500 dark:text-slate-400">最大回撤</th>
+                                        <th className="pb-2 text-right font-medium text-slate-500 dark:text-slate-400">總盈虧</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {strategyPerf.map((p, i) => {
+                                        const isBest = i === 0
+                                        const displayName = strategies.find(s => s.name === p.strategy_name)?.display_name || p.strategy_name
+                                        return (
+                                            <tr key={p.strategy_name}
+                                                className={`border-b border-slate-100 dark:border-slate-800 ${isBest ? 'bg-green-50/50 dark:bg-green-950/20' : ''}`}>
+                                                <td className="py-2.5 pr-4">
+                                                    <div className="flex items-center gap-1.5">
+                                                        {isBest && <Trophy className="h-3.5 w-3.5 text-amber-500" />}
+                                                        <span className={`font-medium ${isBest ? 'text-green-700 dark:text-green-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                                                            {displayName}
+                                                        </span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-2.5 pr-4 text-right text-slate-700 dark:text-slate-300">{p.total_trades}</td>
+                                                <td className="py-2.5 pr-4 text-right">
+                                                    <span className={p.win_rate >= 0.5 ? 'text-green-600 dark:text-green-400' : 'text-rose-600 dark:text-rose-400'}>
+                                                        {(p.win_rate * 100).toFixed(1)}%
+                                                    </span>
+                                                </td>
+                                                <td className="py-2.5 pr-4 text-right">
+                                                    <span className={p.avg_return_pct >= 0 ? 'text-green-600 dark:text-green-400' : 'text-rose-600 dark:text-rose-400'}>
+                                                        {(p.avg_return_pct * 100).toFixed(2)}%
+                                                    </span>
+                                                </td>
+                                                <td className="py-2.5 pr-4 text-right text-slate-700 dark:text-slate-300">{p.sharpe_ratio.toFixed(2)}</td>
+                                                <td className="py-2.5 pr-4 text-right">
+                                                    <span className="text-rose-600 dark:text-rose-400">
+                                                        {(p.max_drawdown * 100).toFixed(1)}%
+                                                    </span>
+                                                </td>
+                                                <td className="py-2.5 text-right">
+                                                    <span className={p.total_pnl >= 0 ? 'text-green-600 dark:text-green-400 font-medium' : 'text-rose-600 dark:text-rose-400 font-medium'}>
+                                                        {p.total_pnl >= 0 ? '+' : ''}{p.total_pnl.toFixed(2)}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        )
+                                    })}
+                                </tbody>
+                            </table>
+                            <div className="mt-2 flex items-center justify-between">
+                                <p className="text-xs text-slate-400 dark:text-slate-500">
+                                    需 ≥3 策略才能排名 · 自動選擇最佳策略用於新任務
+                                </p>
+                                <button onClick={loadPerf} disabled={perfLoading}
+                                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                                    <RefreshCw className={`h-3 w-3 ${perfLoading ? 'animate-spin' : ''}`} />
+                                    刷新
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {/* Status filter chips */}
             <div className="flex flex-wrap gap-2">

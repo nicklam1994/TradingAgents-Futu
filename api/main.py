@@ -4464,6 +4464,32 @@ def get_strategy(name: str):
     return {"ok": True, "data": strategy}
 
 
+@app.get("/v1/strategies/performance")
+def strategies_performance():
+    """Return all strategies ranked by performance metrics."""
+    try:
+        from api.services.strategy_performance_service import StrategyPerformanceService
+        svc = StrategyPerformanceService()
+        data = svc.get_all_strategies_performance()
+        return {"ok": True, "data": data}
+    except Exception as e:
+        logger.error(f"strategies/performance error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/v1/strategies/best")
+def best_strategy():
+    """Return the best-performing strategy name."""
+    try:
+        from api.services.strategy_performance_service import StrategyPerformanceService
+        svc = StrategyPerformanceService()
+        best = svc.get_best_strategy()
+        return {"ok": True, "data": {"strategy_name": best}}
+    except Exception as e:
+        logger.error(f"strategies/best error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
 @app.get("/v1/models")
 def list_models(
     base_url: str = "",

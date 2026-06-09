@@ -93,6 +93,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_report_schema()
     _ensure_user_schema()
+    _ensure_sim_deals_strategy_column()
 
 
 def _ensure_report_schema() -> None:
@@ -146,6 +147,22 @@ def _ensure_user_schema() -> None:
 
     _migrate_tokens_to_hashed()
     _migrate_api_keys_reencrypt()
+
+
+def _ensure_sim_deals_strategy_column() -> None:
+    """Add strategy_name column to sim_deals for existing SQLite deployments."""
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(sim_deals)"))}
+            if "strategy_name" not in columns:
+                conn.execute(text("ALTER TABLE sim_deals ADD COLUMN strategy_name VARCHAR(64)"))
+                # Create index for faster per-strategy queries
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_sim_deals_strategy_name ON sim_deals(strategy_name)"))
+                except Exception:
+                    pass  # Index may already exist from create_all
+    except Exception as e:
+        logger.error("Failed to ensure sim_deals strategy column: %s", e)
 
 
 def _migrate_tokens_to_hashed() -> None:
@@ -511,6 +528,7 @@ class SimDealDB(Base):
     create_time = Column(String(32), nullable=False)
     status = Column(String(16), default="FILLED", nullable=False)  # FILLED / CANCELLED
     currency = Column(String(8), default="HKD", nullable=False)
+    strategy_name = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 

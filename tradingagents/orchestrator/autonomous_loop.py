@@ -39,6 +39,7 @@ class OODAPhase(str, Enum):
     """OODA loop phases."""
     OBSERVE = "observe"
     ORIENT = "orient"
+    ANALYZE = "analyze"
     DECIDE = "decide"
     ACT = "act"
 
@@ -55,6 +56,8 @@ class OODAState:
     # Orient phase results
     candidates: List[Dict[str, Any]] = field(default_factory=list)
     analysis_summary: str = ""
+    # Analyze phase results (Disconnection #4: TradingGraph multi-agent analysis)
+    analysis_reports: List[Dict[str, Any]] = field(default_factory=list)
     # Decide phase results
     allocation: Optional[Dict[str, Any]] = None
     trade_decisions: List[Dict[str, Any]] = field(default_factory=list)
@@ -72,6 +75,7 @@ class OODAState:
             "position_alerts": self.position_alerts,
             "candidates": [c for c in self.candidates],
             "analysis_summary": self.analysis_summary,
+            "analysis_reports": self.analysis_reports,
             "allocation": self.allocation,
             "trade_decisions": self.trade_decisions,
             "executions": self.executions,
@@ -127,8 +131,9 @@ class AutonomousLoop:
     Coordinates the full autonomous trading pipeline:
     1. Observe: Fetch market data, check positions, monitor alerts
     2. Orient: Analyze candidates, screen stocks, assess conditions
-    3. Decide: Allocate capital, size positions, plan trades
-    4. Act: Execute trades (sim or real), record results
+    3. Analyze: TradingGraph multi-agent deep analysis (7 analysts → debate → risk)
+    4. Decide: Allocate capital, size positions, plan trades
+    5. Act: Execute trades (sim or real), record results
 
     Each iteration is checkpointed for crash recovery via TaskStore.
 
@@ -361,8 +366,9 @@ class AutonomousLoop:
         Each iteration:
         1. Observe: Check positions, fetch market data
         2. Orient: Analyze candidates, screen stocks
-        3. Decide: Allocate capital, plan trades
-        4. Act: Execute trades, record results
+        3. Analyze: TradingGraph multi-agent deep analysis
+        4. Decide: Allocate capital, plan trades
+        5. Act: Execute trades, record results
         """
         # Load checkpoint to resume from
         checkpoint = self._store.get_checkpoint(task_id)
@@ -409,6 +415,23 @@ class AutonomousLoop:
                         task_id, iteration, timeout,
                     )
                     state.errors.append(f"Orient timed out ({timeout}s)")
+
+            # ── Analyze (Disconnection #4: TradingGraph multi-agent) ──
+            if self._should_continue(task_id):
+                state.phase = OODAPhase.ANALYZE
+                try:
+                    # propagate_async is truly async — call directly with await
+                    analyze_timeout = max(timeout * 3, 600)
+                    await asyncio.wait_for(
+                        self._phase_analyze(task_id, config, state),
+                        timeout=analyze_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Task %s iteration %d: Analyze stage timed out after %ds — skipping",
+                        task_id, iteration, analyze_timeout,
+                    )
+                    state.errors.append(f"Analyze timed out ({analyze_timeout}s)")
 
             # ── Decide (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
@@ -727,6 +750,114 @@ class AutonomousLoop:
             logger.error("Stock screening failed: %s", e, exc_info=True)
             return []
 
+    async def _phase_analyze(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """Analyze phase: Run TradingGraph multi-agent analysis on top candidates.
+
+        Invokes TradingGraph's propagate_async() for each top candidate, running
+        the full 7-analyst pipeline → bull/bear debate → risk assessment → verdict.
+        Results are stored in state.analysis_reports for the Decide phase.
+        """
+        logger.debug("Task %s O%d: Analyze phase", task_id, state.iteration)
+
+        if not state.candidates:
+            logger.info("Task %s: No candidates to analyze", task_id)
+            return
+
+        # Take top N candidates (default 3)
+        analyze_top_n = 3
+        if config.dag:
+            for dag_task in config.dag.get("tasks", []):
+                if dag_task.get("action") == "select":
+                    params = dag_task.get("params", {})
+                    analyze_top_n = params.get("analyze_top_n", 3)
+                    break
+
+        top_candidates = state.candidates[:analyze_top_n]
+        total = len(top_candidates)
+        logger.info(
+            "Task %s: Analyzing %d candidates with TradingGraph", task_id, total
+        )
+
+        # Lazy import to avoid circular deps
+        try:
+            from tradingagents.graph.trading_graph import TradingAgentsGraph
+        except ImportError:
+            logger.warning("TradingAgentsGraph not available — skipping analyze phase")
+            return
+
+        today_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        for i, candidate in enumerate(top_candidates, 1):
+            symbol = candidate.get("symbol", "")
+            if not symbol:
+                continue
+
+            logger.info(
+                "Analyzing %s with TradingGraph (%d/%d)", symbol, i, total
+            )
+
+            try:
+                # Build config reusing the loop's LLM settings
+                graph_config = {
+                    "llm_provider": self._router._provider,
+                    "backend_url": self._router._base_url,
+                    "quick_think_llm": self._router._model,
+                    "deep_think_llm": self._router._model,
+                    "project_dir": os.path.join(os.path.dirname(__file__), "../../"),
+                    "max_debate_rounds": 1,
+                    "max_risk_discuss_rounds": 1,
+                }
+                graph = TradingAgentsGraph(config=graph_config)
+
+                # propagate_async runs: data collection → 7 analysts →
+                # bull/bear debate → risk assessment → final decision
+                result = await graph.propagate_async(symbol, today_date)
+
+                # Extract signal from final trade decision
+                short_term = result.get("short_term", {})
+                final_decision = short_term.get("final_trade_decision", "")
+                signal = graph.process_signal(final_decision)
+
+                # Extract structured verdict data (direction, confidence, risk_flags)
+                from tradingagents.graph.signal_processing import extract_verdict_data
+                verdict_data = extract_verdict_data(final_decision)
+                confidence = verdict_data.get("confidence", 0.5)
+
+                report = {
+                    "symbol": symbol,
+                    "verdict": signal,  # BUY / SELL / HOLD
+                    "confidence": confidence,
+                    "final_trade_decision": final_decision[:500],
+                    "market_report": short_term.get("market_report", "")[:300],
+                    "sentiment_report": short_term.get("sentiment_report", "")[:300],
+                    "news_report": short_term.get("news_report", "")[:300],
+                    "fundamentals_report": short_term.get("fundamentals_report", "")[:300],
+                    "macro_report": short_term.get("macro_report", "")[:300],
+                    "smart_money_report": short_term.get("smart_money_report", "")[:300],
+                    "volume_price_report": short_term.get("volume_price_report", "")[:300],
+                    "verdict_data": verdict_data,
+                }
+                state.analysis_reports.append(report)
+
+                logger.info(
+                    "Task %s: %s → %s (confidence=%.2f)",
+                    task_id, symbol, signal, confidence,
+                )
+
+            except Exception as e:
+                logger.error(
+                    "Task %s: TradingGraph failed for %s: %s",
+                    task_id, symbol, e, exc_info=True,
+                )
+                state.analysis_reports.append({
+                    "symbol": symbol,
+                    "verdict": "HOLD",
+                    "confidence": 0.0,
+                    "error": str(e),
+                })
+
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
     ) -> None:
@@ -736,6 +867,47 @@ class AutonomousLoop:
         if not state.candidates:
             logger.info("Task %s: No candidates to allocate", task_id)
             return
+
+        # ── Disconnection #4: Merge TradingGraph verdicts into candidates ──
+        if state.analysis_reports:
+            verdict_map = {
+                r["symbol"]: r for r in state.analysis_reports if r.get("symbol")
+            }
+            adjusted = []
+            for c in state.candidates:
+                sym = c.get("symbol", "")
+                report = verdict_map.get(sym)
+                if report:
+                    c = dict(c)  # Shallow copy to avoid mutating originals
+                    verdict = report.get("verdict", "HOLD")
+                    confidence = report.get("confidence", 0.0)
+                    c["tg_verdict"] = verdict
+                    c["tg_confidence"] = confidence
+
+                    if verdict == "BUY" and confidence > 0.7:
+                        # High-confidence BUY — boost score by 20%
+                        c["composite_score"] = c.get("composite_score", 0.5) * 1.2
+                        logger.info(
+                            "Task %s: %s BUY@%.2f — boosting score to %.3f",
+                            task_id, sym, confidence, c["composite_score"],
+                        )
+                    elif verdict == "SELL":
+                        # SELL — zero out to remove from allocation
+                        c["composite_score"] = 0.0
+                        logger.info(
+                            "Task %s: %s SELL — removing from allocation",
+                            task_id, sym,
+                        )
+                    elif verdict == "HOLD":
+                        # HOLD — reduce score by 50%
+                        c["composite_score"] = c.get("composite_score", 0.5) * 0.5
+                        logger.info(
+                            "Task %s: %s HOLD — halving score to %.3f",
+                            task_id, sym, c["composite_score"],
+                        )
+                    # BUY with low confidence: keep original score unchanged
+                adjusted.append(c)
+            state.candidates = adjusted
 
         # L-5~6: adjust strategy weights when Sharpe ratio is low
         adjusted_candidates = self._adjust_strategy_weights(state.candidates)

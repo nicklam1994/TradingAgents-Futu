@@ -148,6 +148,19 @@ def create_task(
         from tradingagents.strategies.yaml_loader import get_strategy_params
         strategy_params = get_strategy_params(strategy_name)
         logger.info("Loaded strategy '%s': %s", strategy_name, strategy_params.get("display_name"))
+    else:
+        # Auto-select best performing strategy if none specified
+        try:
+            from api.services.strategy_performance_service import StrategyPerformanceService
+            svc = StrategyPerformanceService()
+            best = svc.get_best_strategy()
+            if best:
+                strategy_name = best
+                from tradingagents.strategies.yaml_loader import get_strategy_params
+                strategy_params = get_strategy_params(strategy_name)
+                logger.info("Auto-selected best strategy '%s': %s", strategy_name, strategy_params.get("display_name"))
+        except Exception as e:
+            logger.debug("Could not auto-select strategy: %s", e)
 
     loop = AutonomousLoop(
         task_store=_get_store(),
