@@ -324,7 +324,7 @@ def get_stock_concept_tags(
 
             name = data.iloc[0].get("name", symbol)
             plates = data["plate_name"].tolist()
-            f"## {name} ({symbol}) - {len(plates)} concept tags\n" 
+            lines = [f"## {name} ({symbol}) - {len(plates)} concept tags\n"]
             for p in plates:
                 lines.append(f"- {p}")
             return "\n".join(lines)

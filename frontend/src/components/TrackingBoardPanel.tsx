@@ -15,7 +15,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
-import type { TrackingBoardItem, TrackingBoardResponse } from '@/types'
+import type { TrackingBoardItem, TrackingBoardResponse, RelativeStrengthData } from '@/types'
 
 const CLAMP_TWO_LINES_STYLE: CSSProperties = {
     display: '-webkit-box',
@@ -634,6 +634,24 @@ function DetailedTrackingRow({
     const rangeLabel = analysis?.is_previous_trade_day ? '昨日报告高低位' : `最近报告高低位 · ${analysis?.trade_date || '--'}`
     const decisionText = analysis?.decision?.toUpperCase() ?? ''
     const directionText = analysis?.direction ?? ''
+    
+    // Fetch relative strength data
+    const [relativeStrength, setRelativeStrength] = useState<RelativeStrengthData | null>(null)
+    useEffect(() => {
+        let cancelled = false
+        const fetchRelativeStrength = async () => {
+            try {
+                const result = await api.getRelativeStrength(item.symbol)
+                if (!cancelled && result.ok && result.data) {
+                    setRelativeStrength(result.data)
+                }
+            } catch (err) {
+                // Silently fail - relative strength is optional
+            }
+        }
+        fetchRelativeStrength()
+        return () => { cancelled = true }
+    }, [item.symbol])
 
     let decisionToneClass = 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
     if (decisionText.includes('BUY') || directionText.includes('增持')) {
@@ -804,11 +822,33 @@ function DetailedTrackingRow({
                         <div className="mt-2 flex flex-wrap gap-2">
                             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                 <BarChart3 className="h-3 w-3" />
-                                跑赢大盘 <span className="font-medium text-emerald-600 dark:text-emerald-400">--</span>
+                                {relativeStrength?.market_index || '大盘'}{' '}
+                                <span className={`font-medium ${
+                                    relativeStrength?.vs_market != null
+                                        ? relativeStrength.vs_market >= 0
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : 'text-rose-600 dark:text-rose-400'
+                                        : 'text-slate-400'
+                                }`}>
+                                    {relativeStrength?.vs_market != null
+                                        ? `${relativeStrength.vs_market >= 0 ? '+' : ''}${relativeStrength.vs_market.toFixed(2)}%`
+                                        : '--'}
+                                </span>
                             </span>
                             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
                                 <Layers className="h-3 w-3" />
-                                跑输板块 <span className="font-medium text-rose-600 dark:text-rose-400">--</span>
+                                {relativeStrength?.sector_name || '板块'}{' '}
+                                <span className={`font-medium ${
+                                    relativeStrength?.vs_sector != null
+                                        ? relativeStrength.vs_sector >= 0
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : 'text-rose-600 dark:text-rose-400'
+                                        : 'text-slate-400'
+                                }`}>
+                                    {relativeStrength?.vs_sector != null
+                                        ? `${relativeStrength.vs_sector >= 0 ? '+' : ''}${relativeStrength.vs_sector.toFixed(2)}%`
+                                        : '--'}
+                                </span>
                             </span>
                         </div>
 

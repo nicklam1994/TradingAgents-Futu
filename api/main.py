@@ -41,7 +41,7 @@ import pandas as pd
 
 from api.database import UserDB, UserLLMConfigDB, VersionStatsDB, ReportDB, ImportedPortfolioPositionDB, FeedbackDB, SponsorDB, init_db, get_db, get_db_ctx
 from api.job_store import get_job_store as _new_job_store
-from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, watchlist_board_service, feedback_service, sponsor_service
+from api.services import auth_service, portfolio_import_service, report_service, token_service, watchlist_service, scheduled_service, tracking_board_service, watchlist_board_service, feedback_service, sponsor_service, relative_strength_service
 from api.services.quote_ws_manager import quote_ws_manager
 from api.services.bot import BotManager, DingTalkBot, FeishuBot, DiscordBot, TelegramBot, BotCommandHandler
 
@@ -4800,6 +4800,25 @@ def get_dashboard_tracking_board(
     db: Session = Depends(get_db),
 ):
     return tracking_board_service.get_tracking_board(db, current_user.id)
+
+
+@app.get("/v1/relative-strength/{symbol}")
+def get_relative_strength(symbol: str):
+    """Get relative strength comparison for a stock vs market index and sector.
+    
+    Returns:
+        - stock_change_pct: stock's daily change
+        - market_index: market index name (HSI/SPX)
+        - market_change_pct: market index daily change
+        - vs_market: stock vs market (positive = outperform)
+        - sector_name: stock's sector name
+        - sector_change_pct: sector daily change
+        - vs_sector: stock vs sector (positive = outperform)
+    """
+    result = relative_strength_service.get_relative_strength(symbol)
+    if result is None:
+        return {"ok": False, "error": f"Failed to calculate relative strength for {symbol}"}
+    return {"ok": True, "data": result.to_dict()}
 
 
 # ── Watchlist ─────────────────────────────────────────────────────────────────

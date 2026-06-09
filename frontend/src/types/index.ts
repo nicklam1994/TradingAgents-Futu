@@ -522,6 +522,18 @@ export interface TrackingBoardAnalysis {
     final_trade_decision?: string | null
 }
 
+export interface RelativeStrengthData {
+    stock_symbol: string
+    stock_name: string
+    stock_change_pct?: number | null
+    market_index?: string | null
+    market_change_pct?: number | null
+    vs_market?: number | null
+    sector_name?: string | null
+    sector_change_pct?: number | null
+    vs_sector?: number | null
+}
+
 export interface TrackingBoardItem {
     symbol: string
     name: string
