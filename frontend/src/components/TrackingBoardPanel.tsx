@@ -706,9 +706,9 @@ function DetailedTrackingRow({
                             <div className="flex items-center justify-between gap-3">
                                 <div className="flex items-center gap-1">
                                     <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
-                                        涨跌停 / 日内 / 模型区间
+                                        {hasPriceLimit(item) ? '涨跌停 / 日内 / 模型区间' : '日内 / 模型区间'}
                                     </p>
-                                    <RangeInfoTooltip variant="detailed" />
+                                    <RangeInfoTooltip variant="detailed" hasLimit={hasPriceLimit(item)} />
                                 </div>
                                 {rangeAlert && (
                                     <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${
@@ -722,13 +722,17 @@ function DetailedTrackingRow({
                             </div>
                             <div className="mt-3 flex items-center gap-3">
                                 <span className="w-16 text-right text-[11px] text-slate-400">
-                                    <span className="block">{formatSignedPercent(-getDailyLimitPercent(item))}</span>
-                                    <span className="mt-1 block">{formatPlainPrice(item.day_low)}</span>
+                                    {hasPriceLimit(item) && (
+                                        <span className="block">{formatSignedPercent(-getDailyLimitPercent(item))}</span>
+                                    )}
+                                    <span className={`block ${hasPriceLimit(item) ? 'mt-1' : ''}`}>{formatPlainPrice(item.day_low)}</span>
                                 </span>
                                 <CombinedRangeTrack item={item} />
                                 <span className="w-16 text-[11px] text-slate-400">
-                                    <span className="block">{formatSignedPercent(getDailyLimitPercent(item))}</span>
-                                    <span className="mt-1 block">{formatPlainPrice(item.day_high)}</span>
+                                    {hasPriceLimit(item) && (
+                                        <span className="block">{formatSignedPercent(getDailyLimitPercent(item))}</span>
+                                    )}
+                                    <span className={`block ${hasPriceLimit(item) ? 'mt-1' : ''}`}>{formatPlainPrice(item.day_high)}</span>
                                 </span>
                             </div>
                             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
@@ -848,10 +852,12 @@ function DetailedTrackingRow({
     )
 }
 
-function RangeInfoTooltip({ variant }: { variant: 'simple' | 'detailed' }) {
+function RangeInfoTooltip({ variant, hasLimit = true }: { variant: 'simple' | 'detailed'; hasLimit?: boolean }) {
     const text = variant === 'simple'
         ? '短条表示当日最低价到最高价，蓝线是现价，黄线是成本价；下方补充模型低位、高位和破位预警。'
-        : '外层细条表示跌停到涨停，内层短条表示当日最低价到最高价；图中同时标出当前涨跌、现价、成本价和模型区间。'
+        : hasLimit
+            ? '外层细条表示跌停到涨停，内层短条表示当日最低价到最高价；图中同时标出当前涨跌、现价、成本价和模型区间。'
+            : '短条表示当日最低价到最高价；图中同时标出当前涨跌、现价、成本价和模型区间。'
 
     return (
         <div className="group relative">
@@ -886,10 +892,19 @@ function CombinedRangeTrack({ item }: { item: TrackingBoardItem }) {
     const costProgress = getRangeMarkerProgress(low, high, cost)
     const analysisLowProgress = getRangeMarkerProgress(low, high, analysisLow)
     const analysisHighProgress = getRangeMarkerProgress(low, high, analysisHigh)
+    
+    // HK/US 没有涨跌停，日内范围占满整个条
+    const hasLimit = hasPriceLimit(item)
+    const barLeft = hasLimit ? '16%' : '0%'
+    const barRight = hasLimit ? '16%' : '0%'
+    const barWidth = hasLimit ? 0.68 : 1
 
     return (
         <div className="relative h-7 flex-1">
-            <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-gradient-to-r from-emerald-100 via-slate-200 to-rose-100" />
+            {/* 涨跌停外层条 - 仅 A 股显示 */}
+            {hasLimit && (
+                <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-gradient-to-r from-emerald-100 via-slate-200 to-rose-100" />
+            )}
             <div className="absolute inset-y-0 left-0 w-px bg-slate-300" />
             <div className="absolute inset-y-0 right-0 w-px bg-slate-300" />
             {currentProgress != null && (
@@ -898,29 +913,30 @@ function CombinedRangeTrack({ item }: { item: TrackingBoardItem }) {
                     style={{ left: `calc(${currentProgress}% - 3px)` }}
                 />
             )}
-            <div className="absolute left-[16%] right-[16%] top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-300" />
+            {/* 日内范围条 */}
+            <div className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-300" style={{ left: barLeft, right: barRight }} />
             {analysisLowProgress != null && (
                 <div
                     className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-emerald-600 bg-white shadow-sm"
-                    style={{ left: `calc(16% + ${analysisLowProgress * 0.68}% - 5px)` }}
+                    style={{ left: `calc(${barLeft} + ${analysisLowProgress * barWidth}% - 5px)` }}
                 />
             )}
             {analysisHighProgress != null && (
                 <div
                     className="absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border border-rose-600 bg-white shadow-sm"
-                    style={{ left: `calc(16% + ${analysisHighProgress * 0.68}% - 5px)` }}
+                    style={{ left: `calc(${barLeft} + ${analysisHighProgress * barWidth}% - 5px)` }}
                 />
             )}
             {costProgress != null && (
                 <div
                     className="absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-amber-400 shadow-sm"
-                    style={{ left: `calc(16% + ${costProgress * 0.68}% - 2px)` }}
+                    style={{ left: `calc(${barLeft} + ${costProgress * barWidth}% - 2px)` }}
                 />
             )}
             {liveProgress != null && (
                 <div
                     className="absolute top-1/2 h-4 w-1.5 -translate-y-1/2 rounded-full bg-sky-500 shadow-sm"
-                    style={{ left: `calc(16% + ${liveProgress * 0.68}% - 3px)` }}
+                    style={{ left: `calc(${barLeft} + ${liveProgress * barWidth}% - 3px)` }}
                 />
             )}
         </div>
@@ -955,11 +971,20 @@ function getRangeMarkerProgress(
 function getDailyLimitPercent(item: TrackingBoardItem): number {
     const symbol = String(item.symbol || '').toUpperCase()
     const name = String(item.name || '').toUpperCase()
-
+    
+    // 只有 A 股有涨跌停
+    if (symbol.endsWith('.HK') || symbol.endsWith('.US')) return 0
     if (name.includes('ST')) return 5
     if (symbol.endsWith('.BJ')) return 30
     if (symbol.startsWith('300') || symbol.startsWith('688')) return 20
     return 10
+}
+
+function hasPriceLimit(item: TrackingBoardItem): boolean {
+    const symbol = String(item.symbol || '').toUpperCase()
+    // HK/US 没有涨跌停
+    if (symbol.endsWith('.HK') || symbol.endsWith('.US')) return false
+    return true
 }
 
 function getModelRangeAlert(
