@@ -1,6 +1,8 @@
 import {
     ArrowDownRight,
     ArrowUpRight,
+    BarChart3,
+    Layers,
     Loader2,
     RefreshCw,
     ShieldAlert,
@@ -778,6 +780,38 @@ function DetailedTrackingRow({
                                 {formatSignedPercent(item.floating_pnl_pct)}
                             </div>
                         </div>
+
+                        {/* 模型区间可视化条 */}
+                        {analysis?.low_price != null && analysis?.high_price != null && item.live_price != null && (
+                            <ModelRangeBar
+                                lowPrice={analysis.low_price}
+                                highPrice={analysis.high_price}
+                                currentPrice={item.live_price}
+                                costPrice={item.average_cost}
+                            />
+                        )}
+
+                        {/* 回本所需涨幅 */}
+                        {item.average_cost != null && item.live_price != null && item.average_cost > 0 && item.live_price < item.average_cost && (
+                            <div className="mt-2 rounded-lg bg-amber-50 px-2.5 py-1.5 dark:bg-amber-500/10">
+                                <p className="text-xs text-amber-700 dark:text-amber-300">
+                                    需上涨 <span className="font-semibold">{formatSignedPercent(((item.average_cost - item.live_price) / item.live_price) * 100)}</span> 方可回本
+                                </p>
+                            </div>
+                        )}
+
+                        {/* 相对强弱指标 */}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                <BarChart3 className="h-3 w-3" />
+                                跑赢大盘 <span className="font-medium text-emerald-600 dark:text-emerald-400">--</span>
+                            </span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                <Layers className="h-3 w-3" />
+                                跑输板块 <span className="font-medium text-rose-600 dark:text-rose-400">--</span>
+                            </span>
+                        </div>
+
                         <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-500 dark:text-slate-400">
                             <MetricPill label="动态市值" value={formatMoney(item.live_market_value ?? item.market_value)} />
                             <MetricPill label="静态市值" value={formatMoney(item.market_value)} />
@@ -939,6 +973,78 @@ function CombinedRangeTrack({ item }: { item: TrackingBoardItem }) {
                     style={{ left: `calc(${barLeft} + ${liveProgress * barWidth}% - 3px)` }}
                 />
             )}
+        </div>
+    )
+}
+
+function ModelRangeBar({ lowPrice, highPrice, currentPrice, costPrice }: {
+    lowPrice: number
+    highPrice: number
+    currentPrice: number
+    costPrice?: number | null
+}) {
+    // 计算当前位置百分比
+    const range = highPrice - lowPrice
+    if (range <= 0) return null
+    
+    const currentPct = Math.max(0, Math.min(100, ((currentPrice - lowPrice) / range) * 100))
+    const costPct = costPrice != null ? Math.max(0, Math.min(100, ((costPrice - lowPrice) / range) * 100)) : null
+    
+    // 判断区间位置
+    let positionLabel = ''
+    let positionColor = ''
+    if (currentPct <= 25) {
+        positionLabel = '低估区'
+        positionColor = 'text-emerald-600 dark:text-emerald-400'
+    } else if (currentPct <= 50) {
+        positionLabel = '偏低区'
+        positionColor = 'text-emerald-500 dark:text-emerald-400'
+    } else if (currentPct <= 75) {
+        positionLabel = '偏高区'
+        positionColor = 'text-amber-500 dark:text-amber-400'
+    } else {
+        positionLabel = '高估区'
+        positionColor = 'text-rose-600 dark:text-rose-400'
+    }
+    
+    const distanceFromBottom = currentPct
+    
+    return (
+        <div className="mt-3">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>{formatPlainPrice(lowPrice)}</span>
+                <span className={`font-medium ${positionColor}`}>
+                    {positionLabel} (距底部 {distanceFromBottom.toFixed(0)}%)
+                </span>
+                <span>{formatPlainPrice(highPrice)}</span>
+            </div>
+            <div className="relative mt-1.5 h-3 overflow-hidden rounded-full">
+                {/* 背景渐变：绿 -> 黄 -> 红 */}
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-400 via-amber-300 to-rose-400" />
+                {/* 内部白色轨道 */}
+                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/80 dark:bg-slate-800/80" />
+                {/* 成本价标记 */}
+                {costPct != null && (
+                    <div
+                        className="absolute top-1/2 h-4 w-0.5 -translate-y-1/2 bg-amber-500 shadow-sm"
+                        style={{ left: `${costPct}%` }}
+                        title={`成本: ${formatPlainPrice(costPrice)}`}
+                    />
+                )}
+                {/* 当前价格标记 */}
+                <div
+                    className="absolute top-1/2 h-4 w-2.5 -translate-y-1/2 -translate-x-1/2 rounded-full bg-sky-500 shadow-md ring-2 ring-white dark:ring-slate-800"
+                    style={{ left: `${currentPct}%` }}
+                    title={`现价: ${formatPlainPrice(currentPrice)}`}
+                />
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+                <span>模型低位</span>
+                {costPrice != null && (
+                    <span className="text-amber-500">成本 {formatPlainPrice(costPrice)}</span>
+                )}
+                <span>模型高位</span>
+            </div>
         </div>
     )
 }
