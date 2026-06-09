@@ -390,6 +390,7 @@ const TRACKING_STATE_MAP: Record<string, { label: string; color: string }> = {
     AFTER_HOURS_END:   { label: '盘后收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
     NIGHT_OPEN:        { label: '夜盘',     color: 'bg-indigo-400 text-white' },
     NIGHT_END:         { label: '夜盘收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    OVERNIGHT:         { label: '夜盘',     color: 'bg-indigo-400 text-white' },
     // ── 期货 ──
     FUTURE_DAY_OPEN:      { label: '期指开盘', color: 'bg-emerald-500 text-white' },
     FUTURE_DAY_BREAK:     { label: '期指休市', color: 'bg-slate-400 text-white dark:bg-slate-600' },
