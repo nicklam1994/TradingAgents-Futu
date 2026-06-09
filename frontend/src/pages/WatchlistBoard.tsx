@@ -427,7 +427,7 @@ function WatchlistRow({ item }: {
     return (
         <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 px-5 py-4 last:border-b-0 dark:border-slate-700">
             {/* Col 0: 状态 */}
-            <MarketStateBadge state={item.market_state} />
+            <MarketStateBadge state={item.market_state} symbol={item.symbol} />
 
             {/* Col 1: 名称/代码 */}
             <div className="min-w-0">
@@ -607,13 +607,23 @@ const STATE_MAP: Record<string, { label: string; color: string }> = {
     FUTURE_DAY_WAIT_OPEN: { label: '期指待开', color: 'bg-amber-400 text-white' },
 }
 
-function MarketStateBadge({ state }: { state?: string | null }) {
-    if (!state) return <div className="self-center text-center text-xs text-slate-400">--</div>
+function MarketStateBadge({ state, symbol }: { state?: string | null; symbol?: string }) {
+    // Extract market from symbol
+    const market = symbol?.endsWith('.HK') ? 'HK' : symbol ? 'US' : null
+    const marketLabel = market === 'HK' ? '🇭🇰' : market === 'US' ? '🇺🇸' : null
+
+    if (!state) return (
+        <div className="self-center text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
+            <div className="text-xs text-slate-400">--</div>
+        </div>
+    )
     const info = STATE_MAP[state]
     const label = info?.label ?? state
     const color = info?.color ?? 'bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
     return (
         <div className="self-center text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
             <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
                 {label}
             </span>
