@@ -164,6 +164,19 @@ export default function WatchlistBoard() {
                         return { ...prev, items: updatedItems }
                     })
                 }
+
+                // Market states update (periodic refresh)
+                if (msg.type === 'states' && msg.states) {
+                    setBoard(prev => {
+                        if (!prev) return prev
+                        const updatedItems = prev.items.map(item => {
+                            const state = msg.states[item.symbol]
+                            if (!state || state === item.market_state) return item
+                            return { ...item, market_state: state }
+                        })
+                        return { ...prev, items: updatedItems }
+                    })
+                }
             } catch {}
         }
 

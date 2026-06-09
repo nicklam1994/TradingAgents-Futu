@@ -88,6 +88,7 @@ class QuoteWSManager:
         self._ctx: OpenQuoteContext | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
+        self._state_refresh_task: asyncio.Task | None = None
 
     @property
     def subscription_count(self) -> int:
@@ -164,11 +165,19 @@ class QuoteWSManager:
             return
         self._loop = asyncio.get_event_loop()
         self._running = True
+        # Start periodic market state refresh
+        self._state_refresh_task = asyncio.create_task(self._periodic_state_refresh())
         logger.info("[quote-ws] Futu callback handler started")
 
     async def stop(self):
         """Clean up Futu connection."""
         self._running = False
+        if self._state_refresh_task:
+            self._state_refresh_task.cancel()
+            try:
+                await self._state_refresh_task
+            except asyncio.CancelledError:
+                pass
         if self._ctx:
             try:
                 self._ctx.close()
@@ -176,6 +185,42 @@ class QuoteWSManager:
                 pass
             self._ctx = None
         logger.info("[quote-ws] stopped")
+
+    async def _periodic_state_refresh(self):
+        """Periodically refresh market states and broadcast to clients."""
+        while self._running:
+            try:
+                await asyncio.sleep(30)  # Refresh every 30 seconds
+                if not self._subscribed_symbols or not self._ctx:
+                    continue
+                # Fetch latest market states
+                futu_codes = list(self._futu_to_canonical.keys())
+                if not futu_codes:
+                    continue
+                loop = asyncio.get_event_loop()
+                ret, state_data = await loop.run_in_executor(
+                    None, self._ctx.get_market_state, futu_codes
+                )
+                if ret == 0 and state_data is not None:
+                    updated = False
+                    for _, row in state_data.iterrows():
+                        fc = row.get("code", "")
+                        canonical = self._futu_to_canonical.get(fc, fc)
+                        new_state = row.get("market_state", "")
+                        if self._latest_states.get(canonical) != new_state:
+                            self._latest_states[canonical] = new_state
+                            updated = True
+                    # Broadcast if any state changed
+                    if updated and self._connections:
+                        await self.broadcast({
+                            "type": "states",
+                            "states": self._latest_states,
+                            "ts": time.time(),
+                        })
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("[quote-ws] state refresh error: %s", exc)
 
     async def _do_subscribe(self):
         """Subscribe to symbols via Futu context."""
