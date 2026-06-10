@@ -240,8 +240,18 @@ export default function TrackingBoardPanel() {
                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">{trackingItems.length} 只股票</div>
                     </div>
                     <div className={`rounded-2xl bg-gradient-to-br p-4 ${((displayAccount?.unrealized_pnl ?? 0) + (displayAccount?.realized_pnl ?? 0)) >= 0 ? 'from-emerald-50 to-emerald-100/50 dark:from-emerald-950/30 dark:to-emerald-900/20' : 'from-rose-50 to-rose-100/50 dark:from-rose-950/30 dark:to-rose-900/20'}`}>
-                        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                            {((displayAccount?.unrealized_pnl ?? 0) + (displayAccount?.realized_pnl ?? 0)) >= 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <ArrowDownRight className="h-4 w-4 text-rose-500" />}持仓盈亏
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                                {((displayAccount?.unrealized_pnl ?? 0) + (displayAccount?.realized_pnl ?? 0)) >= 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <ArrowDownRight className="h-4 w-4 text-rose-500" />}持仓盈亏
+                            </div>
+                            {(() => {
+                                const todayPnl = trackingItems.reduce((s, i) => s + (i.today_pl_val ?? 0), 0)
+                                return todayPnl !== 0 ? (
+                                    <span className={`text-xs font-semibold ${todayPnl >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                        今日 {todayPnl >= 0 ? '+' : ''}{fmtNum(todayPnl)}
+                                    </span>
+                                ) : null
+                            })()}
                         </div>
                         <div className={`mt-2 text-2xl font-bold ${((displayAccount?.unrealized_pnl ?? 0) + (displayAccount?.realized_pnl ?? 0)) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtNum((displayAccount?.unrealized_pnl ?? 0) + (displayAccount?.realized_pnl ?? 0))}</div>
                         <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">未实现 {fmtNum(displayAccount?.unrealized_pnl ?? 0)} · 已实现 {fmtNum(displayAccount?.realized_pnl ?? 0)}</div>
@@ -817,14 +827,21 @@ function DetailedTrackingRow({
                                     {formatSignedMoney(floatingPnl)}
                                 </p>
                             </div>
-                            <div className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                                floatingPnl == null
-                                    ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
-                                    : floatingPnl >= 0
-                                        ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
-                                        : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
-                            }`}>
-                                {formatSignedPercent(item.floating_pnl_pct)}
+                            <div className="flex flex-col items-end gap-1">
+                                <div className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                                    floatingPnl == null
+                                        ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
+                                        : floatingPnl >= 0
+                                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
+                                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                }`}>
+                                    {formatSignedPercent(item.floating_pnl_pct)}
+                                </div>
+                                {item.today_pl_val != null && item.today_pl_val !== 0 && (
+                                    <span className={`text-xs font-semibold ${item.today_pl_val >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                        今日 {item.today_pl_val >= 0 ? '+' : ''}{formatAmount(item.today_pl_val)}
+                                    </span>
+                                )}
                             </div>
                         </div>
 

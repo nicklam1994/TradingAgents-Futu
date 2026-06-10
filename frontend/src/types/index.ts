@@ -547,6 +547,7 @@ export interface TrackingBoardItem {
     live_market_value?: number | null
     floating_pnl?: number | null
     floating_pnl_pct?: number | null
+    today_pl_val?: number | null
     live_price?: number | null
     day_open?: number | null
     price_change?: number | null

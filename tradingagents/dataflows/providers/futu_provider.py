@@ -570,6 +570,7 @@ class FutuProvider(BaseMarketDataProvider):
                     "nominal_price": float(row.get("nominal_price", 0)),
                     "pl_ratio": float(row.get("pl_ratio", 0)),
                     "pl_val": float(row.get("pl_val", 0)),
+                    "today_pl_val": float(row.get("today_pl_val", 0)),
                     "unrealized_pl": float(row.get("unrealized_pl", 0)),
                     "realized_pl": float(row.get("realized_pl", 0)),
                     "currency": row.get("currency", ""),

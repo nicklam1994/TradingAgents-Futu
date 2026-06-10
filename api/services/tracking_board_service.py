@@ -149,6 +149,7 @@ def get_tracking_board(db: Session, user_id: str) -> dict[str, Any]:
                 "live_market_value": live_market_value,
                 "floating_pnl": floating_pnl,
                 "floating_pnl_pct": floating_pnl_pct,
+                "today_pl_val": _to_float(pos.get("today_pl_val")),
                 "live_price": live_price,
                 "day_open": _to_float(quote.get("open")),
                 "price_change": _to_float(quote.get("change")),
