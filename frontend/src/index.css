@@ -44,6 +44,18 @@
 
 @layer components {
 
+  /* 价格变动闪光 */
+  @keyframes price-flash-up {
+    0% { background-color: rgba(244, 63, 94, 0.25); }
+    100% { background-color: transparent; }
+  }
+  @keyframes price-flash-down {
+    0% { background-color: rgba(16, 185, 129, 0.25); }
+    100% { background-color: transparent; }
+  }
+  .flash-up { animation: price-flash-up 0.5s ease-out; border-radius: 6px; }
+  .flash-down { animation: price-flash-down 0.5s ease-out; border-radius: 6px; }
+
   /* 卡片样式 - 亮色/暗色适配 */
   .card {
     @apply bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl p-4;

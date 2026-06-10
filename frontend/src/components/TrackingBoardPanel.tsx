@@ -646,6 +646,24 @@ function DetailedTrackingRow({
     const decisionText = analysis?.decision?.toUpperCase() ?? ''
     const directionText = analysis?.direction ?? ''
     
+    // 价格变动闪光
+    const prevPriceRef = useRef<number | null>(null)
+    const priceRef = useRef<HTMLParagraphElement>(null)
+    useEffect(() => {
+        const p = item.live_price
+        const prev = prevPriceRef.current
+        prevPriceRef.current = p ?? null
+        if (p != null && p > 0 && prev != null && p !== prev && priceRef.current) {
+            const el = priceRef.current
+            const cls = p > prev ? 'flash-up' : 'flash-down'
+            el.classList.remove('flash-up', 'flash-down')
+            void el.offsetWidth
+            el.classList.add(cls)
+            const t = setTimeout(() => el.classList.remove(cls), 600)
+            return () => clearTimeout(t)
+        }
+    }, [item.live_price])
+    
     // Fetch relative strength data
     const [relativeStrength, setRelativeStrength] = useState<RelativeStrengthData | null>(null)
     useEffect(() => {
@@ -702,7 +720,7 @@ function DetailedTrackingRow({
                         <div className="flex items-start justify-between">
                             <div>
                                 <p className="text-xs uppercase tracking-[0.14em] text-slate-400">实时价格</p>
-                                <p className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                                <p ref={priceRef} className="mt-1 text-2xl font-semibold text-slate-900 dark:text-slate-100">
                                     {formatPrice(item.live_price)}
                                 </p>
                             </div>

@@ -51,6 +51,23 @@ export default function SimTrading() {
     const selectedStockRef = useRef(selectedStock)
     selectedStockRef.current = selectedStock
     const [quote, setQuote] = useState<QuoteData | null>(null)
+    const prevQuotePriceRef = useRef<number | null>(null)
+    const quotePriceRef = useRef<HTMLSpanElement>(null)
+    // 价格变动闪光
+    useEffect(() => {
+        const p = quote?.price
+        const prev = prevQuotePriceRef.current
+        prevQuotePriceRef.current = p ?? null
+        if (p != null && p > 0 && prev != null && p !== prev && quotePriceRef.current) {
+            const el = quotePriceRef.current
+            const cls = p > prev ? 'flash-up' : 'flash-down'
+            el.classList.remove('flash-up', 'flash-down')
+            void el.offsetWidth
+            el.classList.add(cls)
+            const t = setTimeout(() => el.classList.remove(cls), 600)
+            return () => clearTimeout(t)
+        }
+    }, [quote?.price])
 
     const [orderSide, setOrderSide] = useState<'BUY' | 'SELL'>('BUY')
     const [orderType, setOrderType] = useState('NORMAL')
@@ -352,7 +369,7 @@ export default function SimTrading() {
                                 </div>
                                 {quote && quote.price > 0 ? (
                                     <div className="text-right">
-                                        <span className={`text-2xl font-bold ${quote.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtPrice(quote.price)}</span>
+                                        <span ref={quotePriceRef} className={`text-2xl font-bold ${quote.change >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtPrice(quote.price)}</span>
                                         <span className={`ml-2 text-sm font-medium ${quote.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                             {quote.change >= 0 ? '+' : ''}{quote.change.toFixed(2)} ({quote.change_pct >= 0 ? '+' : ''}{quote.change_pct.toFixed(2)}%)
                                         </span>

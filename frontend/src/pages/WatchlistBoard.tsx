@@ -424,6 +424,25 @@ function WatchlistRow({ item }: {
     const isUp = (pct ?? 0) >= 0
     const priceColor = pct == null ? 'text-slate-800 dark:text-slate-200' : isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
 
+    // 价格变动闪光
+    const prevPriceRef = useRef<number | null>(null)
+    const priceRef = useRef<HTMLDivElement>(null)
+    useEffect(() => {
+        const p = item.live_price
+        const prev = prevPriceRef.current
+        prevPriceRef.current = p ?? null
+        if (p != null && p > 0 && prev != null && p !== prev && priceRef.current) {
+            const el = priceRef.current
+            const cls = p > prev ? 'flash-up' : 'flash-down'
+            el.classList.remove('flash-up', 'flash-down')
+            // Force reflow to restart animation
+            void el.offsetWidth
+            el.classList.add(cls)
+            const t = setTimeout(() => el.classList.remove(cls), 600)
+            return () => clearTimeout(t)
+        }
+    }, [item.live_price])
+
     return (
         <div className="grid grid-cols-[0.45fr_1.4fr_0.9fr_0.7fr_0.7fr_1.4fr_0.7fr_0.9fr] gap-3 border-b border-slate-200 px-5 py-4 last:border-b-0 dark:border-slate-700">
             {/* Col 0: 状态 */}
@@ -439,7 +458,7 @@ function WatchlistRow({ item }: {
             <DayCandle item={item} />
 
             {/* Col 3: 实时现价 */}
-            <div className={`self-center text-xl font-semibold ${priceColor}`}>
+            <div ref={priceRef} className={`self-center text-xl font-semibold ${priceColor}`}>
                 {fmtPrice(item.live_price)}
             </div>
 
