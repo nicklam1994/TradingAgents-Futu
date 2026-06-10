@@ -182,7 +182,7 @@ export default function SimTrading() {
         setSelectedStock({ code: o.code, name: o.stock_name || o.code })
         setOrderSide(o.side as 'BUY' | 'SELL')
         setOrderType(o.order_type || 'NORMAL')
-        setOrderPrice(o.price?.toFixed(2) ?? '')
+        setOrderPrice(o.price?.toFixed(3) ?? '')
         setOrderQty(String(o.qty ?? ''))
         setModifyOrderId(o.order_id)
         setOrderMsg(null)
@@ -416,7 +416,7 @@ export default function SimTrading() {
                             <span className="font-medium text-slate-900 dark:text-slate-100">{orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}</span>
                         </div>
                         {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
-                            <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(2))} className="text-xs text-blue-500 hover:text-blue-600">
+                            <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(3))} className="text-xs text-blue-500 hover:text-blue-600">
                                 使用当前价 {fmtPrice(quote.price)}
                             </button>
                         )}
@@ -452,7 +452,7 @@ export default function SimTrading() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                                <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} x {o.price?.toFixed(2)}</div>
+                                                <div>{o.filled_qty ? `${o.filled_qty}/${o.qty}` : o.qty} x {o.price?.toFixed(3)}</div>
                                                 <div className="text-xs text-slate-400">{formatTime(o.create_time)}</div>
                                             </div>
                                             {(o.status === 'SUBMITTED' || o.status === 'SUBMITTING' || o.status === 'WAITING') && (
@@ -482,7 +482,7 @@ export default function SimTrading() {
                                             <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-500 dark:bg-slate-700 dark:text-slate-400">{ORDER_TYPE_LABEL[d.order_type] ?? d.order_type}</span>
                                         </div>
                                         <div className="text-right text-sm text-slate-600 dark:text-slate-400">
-                                            <div>{d.qty} x {d.price?.toFixed(2)}</div>
+                                            <div>{d.qty} x {d.price?.toFixed(3)}</div>
                                             <div className="text-xs text-slate-400">{formatTime(d.create_time)}</div>
                                         </div>
                                     </div>
@@ -520,7 +520,7 @@ function EmptyState({ text }: { text: string }) {
 /* ─── Helpers ─── */
 
 function fmt(v: number | undefined | null): string { if (v == null) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
-function fmtPrice(v: number | undefined | null): string { if (v == null || v === 0) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) }
+function fmtPrice(v: number | undefined | null): string { if (v == null || v === 0) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) }
 function fmtVol(v: number | undefined | null): string { if (v == null || v === 0) return '--'; if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'; if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'; return v.toLocaleString() }
 function displayCode(code: string): string { if (code.startsWith('HK.')) return code.slice(3) + '.HK'; if (code.startsWith('US.')) return code.slice(3); return code }
 function r3(v: number): number { return Math.round(v * 1000) / 1000 }

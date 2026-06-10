@@ -1163,7 +1163,7 @@ function getModelRangeAlert(
 
 function formatPrice(value?: number | null): string {
     if (value == null || !Number.isFinite(value)) return '--'
-    return formatNumber(value, 3, 2)
+    return formatNumber(value, 3, 3)
 }
 
 function formatPlainPrice(value?: number | null): string {

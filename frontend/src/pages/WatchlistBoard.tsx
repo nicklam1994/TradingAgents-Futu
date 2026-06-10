@@ -650,7 +650,7 @@ function extractName(name: string): string {
 
 function fmtPrice(v: number | null | undefined): string {
     if (v == null) return '--'
-    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return v.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 }
 
 function fmtPct(v: number | null | undefined): string {
