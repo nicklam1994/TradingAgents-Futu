@@ -58,6 +58,8 @@ class OODAState:
     analysis_summary: str = ""
     # Analyze phase results (Disconnection #4: TradingGraph multi-agent analysis)
     analysis_reports: List[Dict[str, Any]] = field(default_factory=list)
+    # Orient phase BM25 lessons (Disconnection #7: reflection → future decisions)
+    bm25_lessons: List[Dict[str, Any]] = field(default_factory=list)
     # Decide phase results
     allocation: Optional[Dict[str, Any]] = None
     trade_decisions: List[Dict[str, Any]] = field(default_factory=list)
@@ -76,6 +78,7 @@ class OODAState:
             "candidates": [c for c in self.candidates],
             "analysis_summary": self.analysis_summary,
             "analysis_reports": self.analysis_reports,
+            "bm25_lessons": self.bm25_lessons,
             "allocation": self.allocation,
             "trade_decisions": self.trade_decisions,
             "executions": self.executions,
@@ -586,6 +589,112 @@ class AutonomousLoop:
             else:
                 logger.info("Task %s: No stocks found from screening", task_id)
                 state.candidates = []
+
+        # ── Disconnection #7: Query BM25 lessons from past reflections ──
+        self._apply_bm25_lessons(task_id, config, state)
+
+    def _apply_bm25_lessons(self, task_id: str, config: AutonomousTaskConfig, state: OODAState) -> None:
+        """Retrieve BM25 lessons from past trade reflections and apply to candidates.
+
+        Builds a situation string from the current task context (market, category,
+        horizon, candidate symbols), queries SimTradeReflector.get_relevant_lessons(),
+        then adjusts composite_score for matching candidates:
+          - Positive lesson (win/positive sentiment) → score +5%
+          - Negative lesson (loss/negative sentiment) → score -10%
+          - Neutral → no adjustment
+
+        Lessons are stored in state.bm25_lessons for Decide phase reference.
+        """
+        reflector = self._get_reflector()
+        if not reflector:
+            return
+
+        if not state.candidates:
+            return
+
+        try:
+            # Build situation from task context + candidate symbols
+            market = "US"
+            category = ""
+            if config.dag:
+                for task in config.dag.get("tasks", []):
+                    if task.get("action") == "select":
+                        params = task.get("params", {})
+                        category = params.get("category", "") or params.get("universe", "") or params.get("sector", "")
+                        cat_lower = category.lower()
+                        if "hk" in cat_lower or "港股" in cat_lower:
+                            market = "HK"
+                        elif "us" in cat_lower or "美股" in cat_lower:
+                            market = "US"
+                        break
+
+            symbols = [c.get("symbol", "") for c in state.candidates[:5]]
+            situation = (
+                f"Trading {market} stocks in {category or 'general market'} sector. "
+                f"Candidates: {', '.join(symbols)}. "
+                f"Budget: {config.budget} USD. "
+                f"Iteration {state.iteration}."
+            )
+
+            # Query BM25 for relevant lessons (top 5)
+            lessons = reflector.get_relevant_lessons(situation, n_matches=5)
+            if not lessons:
+                logger.debug("Task %s: No BM25 lessons found", task_id)
+                return
+
+            state.bm25_lessons = lessons
+            logger.info(
+                "Task %s: Found %d BM25 lessons — %s",
+                task_id, len(lessons),
+                "; ".join(f"[{l.get('similarity_score', 0):.2f}] {l.get('matched_situation', '')[:60]}" for l in lessons[:3]),
+            )
+
+            # Apply lessons to candidate scores
+            for candidate in state.candidates:
+                sym = candidate.get("symbol", "")
+                if not sym:
+                    continue
+
+                for lesson in lessons:
+                    matched = lesson.get("matched_situation", "").upper()
+                    recommendation = lesson.get("recommendation", "").lower()
+                    similarity = lesson.get("similarity_score", 0)
+
+                    # Only apply high-similarity lessons that mention this symbol
+                    if similarity < 0.3:
+                        continue
+                    if sym.upper() not in matched and sym.split(".")[0].upper() not in matched:
+                        continue
+
+                    old_score = candidate.get("composite_score", 0)
+
+                    # Detect sentiment of the lesson
+                    negative_keywords = ["loss", "lost", "decline", "drop", "mistake", "wrong", "avoid", "sell", "bearish", "overvalued", "風險", "虧損", "下跌"]
+                    positive_keywords = ["profit", "gain", "win", "correct", "good", "strong", "bullish", "undervalued", "盈利", "上漲", "看多"]
+
+                    neg_count = sum(1 for kw in negative_keywords if kw in recommendation)
+                    pos_count = sum(1 for kw in positive_keywords if kw in recommendation)
+
+                    if neg_count > pos_count:
+                        # Negative lesson → reduce score by 10%
+                        adjustment = -0.10
+                    elif pos_count > neg_count:
+                        # Positive lesson → boost score by 5%
+                        adjustment = 0.05
+                    else:
+                        continue
+
+                    new_score = max(0, old_score * (1 + adjustment))
+                    candidate["composite_score"] = round(new_score, 4)
+                    logger.info(
+                        "Task %s: BM25 adjustment for %s: %.4f → %.4f (%+.0f%%) — %s",
+                        task_id, sym, old_score, new_score, adjustment * 100,
+                        lesson.get("matched_situation", "")[:80],
+                    )
+                    break  # Apply only the highest-similarity matching lesson
+
+        except Exception as e:
+            logger.debug("BM25 lesson retrieval failed (non-critical): %s", e)
 
     def _get_select_count_from_dag(self, config: AutonomousTaskConfig) -> int:
         """Extract top_n count from DAG select task params."""
