@@ -6088,6 +6088,38 @@ async def autonomous_list(
     return {"ok": True, "data": result}
 
 
+@app.get("/v1/autonomous/{task_id}/analysis-reports")
+async def autonomous_analysis_reports(
+    task_id: str,
+    limit: int = Query(50, description="Max results"),
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """Get historical TradingGraph analysis reports for an autonomous task.
+
+    Returns persisted analysis reports from the analysis_reports table,
+    ordered by most recent first.
+    """
+    try:
+        from api.database import SessionLocal, AnalysisReportDB
+
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(AnalysisReportDB)
+                .filter(AnalysisReportDB.task_id == task_id)
+                .order_by(AnalysisReportDB.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            reports = [r.to_dict() for r in rows]
+            return {"ok": True, "data": {"reports": reports, "total": len(reports)}}
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("Failed to query analysis reports: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 # ── Skills / Strategies API (Phase 9) ──────────────────────────────────────
 
 @app.get("/v1/skills")

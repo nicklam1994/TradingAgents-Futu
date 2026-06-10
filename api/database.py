@@ -94,6 +94,7 @@ def init_db() -> None:
     _ensure_report_schema()
     _ensure_user_schema()
     _ensure_sim_deals_strategy_column()
+    _ensure_analysis_reports_table()
 
 
 def _ensure_report_schema() -> None:
@@ -163,6 +164,37 @@ def _ensure_sim_deals_strategy_column() -> None:
                     pass  # Index may already exist from create_all
     except Exception as e:
         logger.error("Failed to ensure sim_deals strategy column: %s", e)
+
+
+def _ensure_analysis_reports_table() -> None:
+    """Create analysis_reports table if it doesn't exist (SQLite)."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS analysis_reports (
+                    id VARCHAR(36) PRIMARY KEY,
+                    task_id VARCHAR(64) NOT NULL,
+                    iteration INTEGER NOT NULL,
+                    symbol VARCHAR(20) NOT NULL,
+                    verdict VARCHAR(8) NOT NULL,
+                    confidence FLOAT DEFAULT 0.0,
+                    final_trade_decision TEXT,
+                    market_report TEXT,
+                    sentiment_report TEXT,
+                    news_report TEXT,
+                    fundamentals_report TEXT,
+                    macro_report TEXT,
+                    smart_money_report TEXT,
+                    volume_price_report TEXT,
+                    verdict_data JSON,
+                    error TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_analysis_reports_task_id ON analysis_reports(task_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_analysis_reports_symbol ON analysis_reports(symbol)"))
+    except Exception as e:
+        logger.error("Failed to ensure analysis_reports table: %s", e)
 
 
 def _migrate_tokens_to_hashed() -> None:
@@ -530,5 +562,47 @@ class SimDealDB(Base):
     currency = Column(String(8), default="HKD", nullable=False)
     strategy_name = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class AnalysisReportDB(Base):
+    """Persistent storage for OODA loop TradingGraph analysis reports.
+
+    Each row is one symbol's analysis from _phase_analyze(), linked to
+    an autonomous task iteration so historical analyses can be reviewed.
+    """
+
+    __tablename__ = "analysis_reports"
+
+    id = Column(String(36), primary_key=True)
+    task_id = Column(String(64), index=True, nullable=False)
+    iteration = Column(Integer, nullable=False)
+    symbol = Column(String(20), index=True, nullable=False)
+    verdict = Column(String(8), nullable=False)  # BUY / SELL / HOLD
+    confidence = Column(Float, default=0.0)
+    final_trade_decision = Column(Text, nullable=True)
+    market_report = Column(Text, nullable=True)
+    sentiment_report = Column(Text, nullable=True)
+    news_report = Column(Text, nullable=True)
+    fundamentals_report = Column(Text, nullable=True)
+    macro_report = Column(Text, nullable=True)
+    smart_money_report = Column(Text, nullable=True)
+    volume_price_report = Column(Text, nullable=True)
+    verdict_data = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "task_id": self.task_id,
+            "iteration": self.iteration,
+            "symbol": self.symbol,
+            "verdict": self.verdict,
+            "confidence": self.confidence,
+            "final_trade_decision": self.final_trade_decision,
+            "verdict_data": self.verdict_data,
+            "error": self.error,
+            "created_at": str(self.created_at) if self.created_at is not None else None,
+        }
 
 

@@ -949,6 +949,7 @@ class AutonomousLoop:
                     "verdict_data": verdict_data,
                 }
                 state.analysis_reports.append(report)
+                self._save_analysis_report(task_id, state.iteration, report)
 
                 logger.info(
                     "Task %s: %s → %s (confidence=%.2f)",
@@ -960,12 +961,14 @@ class AutonomousLoop:
                     "Task %s: TradingGraph failed for %s: %s",
                     task_id, symbol, e, exc_info=True,
                 )
-                state.analysis_reports.append({
+                error_report = {
                     "symbol": symbol,
                     "verdict": "HOLD",
                     "confidence": 0.0,
                     "error": str(e),
-                })
+                }
+                state.analysis_reports.append(error_report)
+                self._save_analysis_report(task_id, state.iteration, error_report)
 
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
@@ -1384,6 +1387,47 @@ class AutonomousLoop:
             return SimTradeReflector(llm)
         except Exception:
             return None
+
+    def _save_analysis_report(self, task_id: str, iteration: int, report: Dict[str, Any]) -> None:
+        """Persist a single analysis report to the analysis_reports DB table.
+
+        Called from _phase_analyze() after each TradingGraph run completes.
+        Failures are logged but never block the OODA loop.
+        """
+        try:
+            from api.database import SessionLocal, AnalysisReportDB
+            import uuid
+
+            db = SessionLocal()
+            try:
+                row = AnalysisReportDB(
+                    id=uuid.uuid4().hex,
+                    task_id=task_id,
+                    iteration=iteration,
+                    symbol=report.get("symbol", ""),
+                    verdict=report.get("verdict", "HOLD"),
+                    confidence=report.get("confidence", 0.0),
+                    final_trade_decision=report.get("final_trade_decision", ""),
+                    market_report=report.get("market_report", ""),
+                    sentiment_report=report.get("sentiment_report", ""),
+                    news_report=report.get("news_report", ""),
+                    fundamentals_report=report.get("fundamentals_report", ""),
+                    macro_report=report.get("macro_report", ""),
+                    smart_money_report=report.get("smart_money_report", ""),
+                    volume_price_report=report.get("volume_price_report", ""),
+                    verdict_data=report.get("verdict_data"),
+                    error=report.get("error"),
+                )
+                db.add(row)
+                db.commit()
+                logger.info(
+                    "Task %s/I%d: Persisted analysis report for %s (%s, conf=%.2f)",
+                    task_id, iteration, report.get("symbol"), report.get("verdict"), report.get("confidence", 0),
+                )
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug("Failed to persist analysis report (non-critical): %s", e)
 
     def _config_from_dict(self, d: Dict[str, Any]) -> AutonomousTaskConfig:
         """Reconstruct AutonomousTaskConfig from dict."""
