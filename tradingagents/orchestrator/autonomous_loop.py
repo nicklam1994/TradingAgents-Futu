@@ -785,47 +785,11 @@ class AutonomousLoop:
                     logger.warning("Failed to get plate list: %s", plates)
                     return []
 
-                # Step 2: Find matching sector plates by keyword
-                # Map common category keywords to sector names
-                keyword_map = {
-                    "tech": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
-                    "科技": ["半导体", "互联网", "软件", "计算机", "电子"],
-                    "technology": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
-                    "semiconductor": ["半导体"],
-                    "半导体": ["半导体"],
-                    "ai": ["半导体", "互联网", "软件", "人工智能"],
-                    "finance": ["银行", "保险", "金融"],
-                    "金融": ["银行", "保险", "金融"],
-                    "health": ["医疗", "医药", "生物"],
-                    "医疗": ["医疗", "医药", "生物"],
-                    "consumer": ["消费", "零售", "食品"],
-                    "消费": ["消费", "零售", "食品"],
-                    "energy": ["能源", "石油", "新能源"],
-                    "能源": ["能源", "石油", "新能源"],
-                    "电力": ["电力", "電力", "公用事业"],
-                    "power": ["电力", "電力", "公用事业"],
-                    "electricity": ["电力", "電力", "公用事业"],
-                    "renewable": ["新能源", "光伏", "风电"],
-                    "新能源": ["新能源", "光伏", "风电"],
-                    "半导体": ["半导体"],
-                    "ai": ["半导体", "互联网", "软件", "人工智能"],
-                    "semiconductor": ["半导体"],
-                }
-
-                cat_lower = category.lower()
-                matched_keywords = []
-                for key, keywords in keyword_map.items():
-                    if key in cat_lower:
-                        matched_keywords.extend(keywords)
-                if not matched_keywords:
-                    # Default to tech sector
-                    matched_keywords = ["半导体", "互联网", "软件", "电子"]
-
-                # Find matching plates
+                # Step 2: Find matching sector plates by direct substring match
                 matched_plates = []
                 for _, row in plates.iterrows():
                     plate_name = row.get("plate_name", "")
-                    if any(kw in plate_name for kw in matched_keywords):
+                    if category in plate_name:
                         matched_plates.append(row["code"])
                         logger.info("Matched plate: %s (%s)", plate_name, row["code"])
 
@@ -1010,9 +974,18 @@ class AutonomousLoop:
             ctx.close()
 
     def _resolve_plate_code(self, market_enum, category: str):
-        """Return the first matching industry plate_code for *category*, or None."""
+        """Return the first matching industry plate_code for *category*, or None.
+
+        If category is already a plate code (e.g. "HK.LIST1051"), return directly.
+        Otherwise, match as substring against Futu's actual plate names.
+        """
         if not category:
             return None
+
+        # If already a plate code (HK.LISTxxx or US.xxx), return directly
+        if category.startswith("HK.LIST") or category.startswith("US."):
+            return category
+
         try:
             from futu import OpenQuoteContext, Plate, RET_OK
             import os
@@ -1027,44 +1000,30 @@ class AutonomousLoop:
                 if ret != RET_OK:
                     return None
 
-                keyword_map = {
-                    "tech": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
-                    "科技": ["半导体", "互联网", "软件", "计算机", "电子"],
-                    "technology": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
-                    "semiconductor": ["半导体"],
-                    "半导体": ["半导体"],
-                    "ai": ["半导体", "互联网", "软件", "人工智能"],
-                    "finance": ["银行", "保险", "金融"],
-                    "金融": ["银行", "保险", "金融"],
-                    "health": ["医疗", "医药", "生物"],
-                    "医疗": ["医疗", "医药", "生物"],
-                    "consumer": ["消费", "零售", "食品"],
-                    "消费": ["消费", "零售", "食品"],
-                    "energy": ["能源", "石油", "新能源"],
-                    "能源": ["能源", "石油", "新能源"],
-                    "电力": ["电力", "電力", "公用事业"],
-                    "power": ["电力", "電力", "公用事业"],
-                    "electricity": ["电力", "電力", "公用事业"],
-                    "renewable": ["新能源", "光伏", "风电"],
-                    "新能源": ["新能源", "光伏", "风电"],
-                    "半导体": ["半导体"],
-                    "ai": ["半导体", "互联网", "软件", "人工智能"],
-                    "semiconductor": ["半导体"],
-                }
-
-                cat_lower = category.lower()
-                matched_keywords = []
-                for key, keywords in keyword_map.items():
-                    if key in cat_lower:
-                        matched_keywords.extend(keywords)
-                if not matched_keywords:
-                    return None
-
+                # Direct substring match against actual Futu plate names
                 for _, row in plates.iterrows():
                     plate_name = row.get("plate_name", "")
-                    if any(kw in plate_name for kw in matched_keywords):
+                    if category in plate_name:
+                        logger.info(
+                            "Resolved plate '%s' → %s (%s)",
+                            category, row["code"], plate_name,
+                        )
                         return row["code"]
 
+                # Fallback: try progressively shorter substrings
+                if len(category) > 2:
+                    for sublen in range(len(category) - 1, 1, -1):
+                        sub = category[:sublen]
+                        for _, row in plates.iterrows():
+                            plate_name = row.get("plate_name", "")
+                            if sub in plate_name:
+                                logger.info(
+                                    "Resolved plate '%s' (via '%s') → %s (%s)",
+                                    category, sub, row["code"], plate_name,
+                                )
+                                return row["code"]
+
+                logger.warning("No plate match for category '%s' in %s market", category, market_enum)
                 return None
             finally:
                 ctx.close()

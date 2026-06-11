@@ -325,7 +325,7 @@ export default function Autonomous() {
                                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
                                     <option value="">全部板块</option>
                                     {plates.map(p => (
-                                        <option key={p.code} value={p.name}>{p.name}</option>
+                                        <option key={p.code} value={p.code}>{p.name}</option>
                                     ))}
                                     {platesLoading && <option disabled>加载中...</option>}
                                 </select>
