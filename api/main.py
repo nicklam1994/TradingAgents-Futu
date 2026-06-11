@@ -4681,9 +4681,9 @@ def search_stocks(
     # ── Try DB-backed search first ──────────────────────────────────────────
     try:
         from api.services.market_data_service import search_stocks_from_db
-        results = search_stocks_from_db(q, limit=20)
-        if results:
-            return {"results": results}
+        db_results = search_stocks_from_db(q, limit=20)
+        if db_results:
+            return {"results": [{"symbol": r["code"], "name": r["name"]} for r in db_results]}
     except Exception:
         pass
 
