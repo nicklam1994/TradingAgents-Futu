@@ -4712,6 +4712,35 @@ def search_stocks(
     return {"results": results}
 
 
+@app.get("/v1/market/plates")
+def get_market_plates(
+    market: str = Query("HK", regex="^(HK|US)$"),
+):
+    """Get industry plate/sector list from Futu."""
+    try:
+        from futu import OpenQuoteContext, Plate
+        ctx = OpenQuoteContext(host="127.0.0.1", port=11111)
+        try:
+            ret, data = ctx.get_plate_list(
+                market=market if market == "HK" else "US",
+                plate_class=Plate.INDUSTRY,
+            )
+            if ret != 0:
+                return {"ok": False, "error": str(data), "plates": []}
+            plates = []
+            for _, row in data.iterrows():
+                plates.append({
+                    "code": row.get("plate_code", ""),
+                    "name": row.get("plate_name", ""),
+                })
+            return {"ok": True, "plates": plates}
+        finally:
+            ctx.close()
+    except Exception as e:
+        logger.warning("get_market_plates error: %s", e)
+        return {"ok": False, "error": str(e), "plates": []}
+
+
 def _annotate_scheduled_with_imported_context(items: List[dict], db: Session, user_id: str) -> List[dict]:
     imported_map: Dict[str, Dict[str, Any]] = {}
     for item in portfolio_import_service.list_imported_positions(db, user_id):
@@ -5921,11 +5950,12 @@ class AutonomousCreateRequest(BaseModel):
     """Request to create an autonomous trading task."""
     command: str = Field(..., description="Natural language trading command")
     budget: Optional[float] = Field(None, description="Total capital override")
-    currency: str = Field("USD", description="Currency code")
+    currency: Optional[str] = Field(None, description="Currency code (USD/HKD/CNY); None = auto")
     mode: str = Field("simulate", description="Trading mode (simulate only)")
     max_iterations: int = Field(30, description="Max OODA loop iterations")
     fixed_symbols: Optional[List[str]] = Field(None, description="Fixed stock pool")
     strategy_name: Optional[str] = Field(None, description="YAML strategy name (e.g. bull_trend)")
+    category: Optional[str] = Field(None, description="Sector/plate filter (e.g. 科技, 金融)")
 
 
 class AutonomousParseRequest(BaseModel):
@@ -6042,11 +6072,12 @@ async def autonomous_create(
         result = autonomous_service.create_task(
             command=req.command,
             budget=req.budget,
-            currency=req.currency,
+            currency=req.currency or "USD",
             mode=req.mode,
             max_iterations=req.max_iterations,
             fixed_symbols=req.fixed_symbols,
             strategy_name=req.strategy_name,
+            category=req.category,
             **llm_kwargs,
         )
         return {"ok": True, "data": result}

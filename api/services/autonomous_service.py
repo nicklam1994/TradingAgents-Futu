@@ -201,6 +201,7 @@ def create_task(
     max_iterations: int = 30,
     fixed_symbols: Optional[List[str]] = None,
     strategy_name: Optional[str] = None,
+    category: Optional[str] = None,
     llm_api_key: Optional[str] = None,
     llm_provider: Optional[str] = None,
     llm_base_url: Optional[str] = None,
@@ -268,6 +269,13 @@ def create_task(
     )
 
     task_id = loop.start(command, config)
+
+    # Inject user-selected category into DAG's select task params
+    if category and config.dag:
+        for t in config.dag.get("tasks", []):
+            if t.get("action") == "select":
+                t.setdefault("params", {})["category"] = category
+                break
 
     # Extract parsed DAG keywords for frontend preview
     dag_summary = _extract_dag_keywords(config.dag, config)

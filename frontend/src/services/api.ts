@@ -425,18 +425,22 @@ class ApiService {
         return this.request(`/v1/autonomous/${taskId}/stop`, { method: 'POST' })
     }
 
-    async createAutonomousTask(command: string, budget?: number, currency?: string, strategyName?: string, fixedSymbols?: string[], _topN?: number, maxIterations?: number): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
+    async createAutonomousTask(command: string, budget?: number, currency?: string, strategyName?: string, fixedSymbols?: string[], _topN?: number, maxIterations?: number, category?: string): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
         return this.request('/v1/autonomous/create', {
             method: 'POST',
-            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'HKD', strategy_name: strategyName ?? undefined, fixed_symbols: fixedSymbols ?? undefined, max_iterations: maxIterations ?? 30 }),
+            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? undefined, strategy_name: strategyName ?? undefined, fixed_symbols: fixedSymbols ?? undefined, max_iterations: maxIterations ?? 30, category: category ?? undefined }),
         })
     }
 
     async parseAutonomousCommand(command: string, budget?: number, currency?: string, strategyName?: string): Promise<{ ok: boolean; data: { command: string; budget: number; currency: string; market: string; fixed_symbols: string[]; top_n: number; max_iterations: number; strategy_name: string; category: string; dag_summary: Array<{ label: string; icon: string }>; available_strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }> } }> {
         return this.request('/v1/autonomous/parse', {
             method: 'POST',
-            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'HKD', strategy_name: strategyName ?? undefined }),
+            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? undefined, strategy_name: strategyName ?? undefined }),
         })
+    }
+
+    async getPlates(market: string = 'HK'): Promise<{ ok: boolean; plates: Array<{ code: string; name: string }> }> {
+        return this.request(`/v1/market/plates?market=${market}`)
     }
 
     async getStrategies(): Promise<{ ok: boolean; data: { strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>; default: string } }> {

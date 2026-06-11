@@ -41,6 +41,8 @@ export default function Autonomous() {
     // ── Parse → Edit → Confirm state ──
     const [parsing, setParsing] = useState(false)
     const [parseError, setParseError] = useState<string | null>(null)
+    const [plates, setPlates] = useState<Array<{ code: string; name: string }>>([])
+    const [platesLoading, setPlatesLoading] = useState(false)
     const [parsed, setParsed] = useState<null | {
         command: string; budget: number; currency: string; market: string
         fixed_symbols: string[]; top_n: number; max_iterations: number
@@ -56,6 +58,15 @@ export default function Autonomous() {
             setStrategies(list)
         }).catch(() => {})
     }, [])
+
+    // Load plates when parsed market changes
+    useEffect(() => {
+        if (!parsed) return
+        setPlatesLoading(true)
+        api.getPlates(parsed.market).then(res => {
+            setPlates(res.plates ?? [])
+        }).catch(() => setPlates([])).finally(() => setPlatesLoading(false))
+    }, [parsed?.market])
 
     // Load strategy performance data
     const loadPerf = useCallback(async () => {
@@ -168,7 +179,7 @@ export default function Autonomous() {
             const res = await api.createAutonomousTask(
                 parsed.command, parsed.budget, parsed.currency,
                 parsed.strategy_name, parsed.fixed_symbols.length > 0 ? parsed.fixed_symbols : undefined,
-                parsed.top_n, parsed.max_iterations,
+                parsed.top_n, parsed.max_iterations, parsed.category || undefined,
             )
             if (res.ok && res.data?.task_id) {
                 setParsed(null)
@@ -288,6 +299,18 @@ export default function Autonomous() {
                                     {(parsed.available_strategies.length > 0 ? parsed.available_strategies : strategies).map((s: { name: string; display_name: string }) => (
                                         <option key={s.name} value={s.name}>{s.display_name}</option>
                                     ))}
+                                </select>
+                            </div>
+                            {/* 板块 */}
+                            <div className="col-span-2">
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">板块（留空则全市场选股）</label>
+                                <select value={parsed.category} onChange={e => setParsed({ ...parsed, category: e.target.value })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                                    <option value="">全部板块</option>
+                                    {plates.map(p => (
+                                        <option key={p.code} value={p.name}>{p.name}</option>
+                                    ))}
+                                    {platesLoading && <option disabled>加载中...</option>}
                                 </select>
                             </div>
                             {/* 最大迭代 */}
