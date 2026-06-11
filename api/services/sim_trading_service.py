@@ -1111,10 +1111,28 @@ def execute_signal(signal: SignalInput) -> SignalResult:
             reason="Account total assets is zero or negative",
         )
 
-    # ── Determine order price ──
+    # ── Determine order price + lot_size ──
     price = signal.target_price
+    lot_size = 1  # default for US
+    # Always fetch lot_size from snapshot
+    try:
+        from futu import OpenQuoteContext
+        futu_code = _to_futu_trade_code(signal.symbol)[1]
+        qctx = OpenQuoteContext(host=_opend_host(), port=_opend_port())
+        try:
+            ret, snap = qctx.get_market_snapshot([futu_code])
+            if ret == RET_OK and snap is not None and not snap.empty:
+                lot_size = int(snap.iloc[0].get("lot_size", 1) or 1)
+                # Also grab price if not set
+                if (price is None or price <= 0):
+                    price = float(snap.iloc[0].get("last_price", 0) or 0)
+        finally:
+            qctx.close()
+    except Exception:
+        pass
+
     if price is None or price <= 0:
-        # Fetch current price from market data
+        # Fallback: fetch from realtime quotes
         try:
             from tradingagents.dataflows.providers.futu_provider import FutuProvider
             provider = FutuProvider()
@@ -1167,13 +1185,14 @@ def execute_signal(signal: SignalInput) -> SignalResult:
                 reason=f"Failed to query positions for sell: {e}",
             )
     else:
-        # BUY: calculate quantity from allocation
-        quantity = int(max_alloc / price)
+        # BUY: calculate quantity from allocation, round down to lot_size
+        raw_qty = max_alloc / price
+        quantity = int(raw_qty // lot_size) * lot_size
         if quantity <= 0:
             return SignalResult(
                 action_taken="skipped",
                 symbol=signal.symbol,
-                reason=f"Calculated quantity is 0 (max_alloc={max_alloc:.2f}, price={price:.2f})",
+                reason=f"Calculated quantity is 0 (max_alloc={max_alloc:.2f}, price={price:.2f}, lot_size={lot_size})",
             )
 
     # ── Place the order ──
