@@ -21,11 +21,11 @@ interface SymbolTagInputProps {
 
 function getMarketFlag(symbol: string): string {
     const upper = symbol.toUpperCase()
-    if (upper.startsWith('HK.') || upper.startsWith('HK:')) return '🇭🇰'
-    if (upper.startsWith('US.') || upper.startsWith('US:')) return '🇺🇸'
-    // Guess by numeric prefix (HK stocks are typically 5-digit numbers)
-    if (/^\d{4,5}$/.test(symbol)) return '🇭🇰'
-    return '🇺🇸'
+    if (upper.startsWith('HK.') || upper.startsWith('HK:') || upper.endsWith('.HK')) return '🇭🇰'
+    if (upper.startsWith('US.') || upper.startsWith('US:') || upper.endsWith('.US')) return '🇺🇸'
+    // Guess by numeric prefix (HK stocks are typically 4-5 digit numbers)
+    if (/^\d{4,5}(\.HK)?$/.test(symbol)) return '🇭🇰'
+    return '🌍'
 }
 
 export default function SymbolTagInput({ symbols, onChange, placeholder = '输入股票代码，回车添加' }: SymbolTagInputProps) {
