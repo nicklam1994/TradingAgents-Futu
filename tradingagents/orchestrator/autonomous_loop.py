@@ -765,6 +765,40 @@ class AutonomousLoop:
                 # Continue to Path B below
 
         # ── Path B: Legacy plate-based approach ────────────────────────
+
+        # ── Path B.1: Try DB-backed plate resolution first ─────────────
+        try:
+            from api.services.market_data_service import (
+                resolve_plate_code_from_db,
+                get_stocks_in_plate,
+                get_plates_from_db,
+            )
+            mkt = {"HK": "HK", "US": "US"}.get(market, "US")
+
+            # Find matching plates from DB
+            db_plates = get_plates_from_db(mkt)
+            matched_plates = []
+            for p in db_plates:
+                if category in p.get("name", ""):
+                    matched_plates.append(p["code"])
+
+            if matched_plates:
+                all_symbols = set()
+                for plate_code in matched_plates[:5]:
+                    for stock_code in get_stocks_in_plate(plate_code):
+                        if stock_code:
+                            all_symbols.add(stock_code)
+
+                if all_symbols:
+                    result = list(all_symbols)[:30]
+                    logger.info(
+                        "Screened %d stocks from %d plates (DB)", len(result), len(matched_plates[:5]),
+                    )
+                    return result
+        except Exception:
+            pass
+
+        # ── Path B.2: Fallback to Futu API ────────────────────────────
         try:
             from futu import OpenQuoteContext, Plate, RET_OK
 
@@ -977,7 +1011,7 @@ class AutonomousLoop:
         """Return the first matching industry plate_code for *category*, or None.
 
         If category is already a plate code (e.g. "HK.LIST1051"), return directly.
-        Otherwise, match as substring against Futu's actual plate names.
+        Otherwise, try DB first, then match as substring against Futu's actual plate names.
         """
         if not category:
             return None
@@ -986,6 +1020,26 @@ class AutonomousLoop:
         if category.startswith("HK.LIST") or category.startswith("US."):
             return category
 
+        # Determine market string for DB lookup
+        try:
+            from futu import Market
+            mkt = "HK" if market_enum == Market.HK else "US"
+        except Exception:
+            mkt = "HK" if "HK" in str(market_enum) else "US"
+
+        # ── Try DB-backed resolution first ──────────────────────────────────
+        try:
+            from api.services.market_data_service import resolve_plate_code_from_db
+            db_result = resolve_plate_code_from_db(category, mkt)
+            if db_result:
+                logger.info(
+                    "Resolved plate '%s' → %s (from DB)", category, db_result,
+                )
+                return db_result
+        except Exception:
+            pass
+
+        # ── Fallback: Futu API ─────────────────────────────────────────────
         try:
             from futu import OpenQuoteContext, Plate, RET_OK
             import os

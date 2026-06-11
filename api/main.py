@@ -4671,17 +4671,26 @@ def search_stocks(
 ):
     """Search stocks by code prefix or name substring.
 
-    Searches the stock universe (US/ETF/HK, 35k+ entries).
+    Searches the stock universe from DB first (US/ETF/HK).
+    Falls back to stock_resolver JSON if DB is empty.
     """
     q = q.strip()
     if not q:
         return {"results": []}
 
+    # ── Try DB-backed search first ──────────────────────────────────────────
+    try:
+        from api.services.market_data_service import search_stocks_from_db
+        results = search_stocks_from_db(q, limit=20)
+        if results:
+            return {"results": results}
+    except Exception:
+        pass
+
+    # ── Fallback: Search stock universe JSON (US/ETF/HK) ───────────────────
     results = []
     seen_symbols: set[str] = set()
     q_upper = q.upper()
-
-    # ── Search stock universe (US/ETF/HK) ──────────────────────────────────
     try:
         from tradingagents.dataflows.stock_resolver import _get_by_upper, _load
         _load()
@@ -4716,7 +4725,20 @@ def search_stocks(
 def get_market_plates(
     market: str = Query("HK", regex="^(HK|US)$"),
 ):
-    """Get industry plate/sector list from Futu."""
+    """Get industry plate/sector list.
+
+    Reads from DB first. Falls back to Futu API if DB is empty.
+    """
+    # ── Try DB-backed query first ───────────────────────────────────────────
+    try:
+        from api.services.market_data_service import get_plates_from_db
+        db_plates = get_plates_from_db(market)
+        if db_plates:
+            return {"ok": True, "plates": db_plates, "source": "db"}
+    except Exception:
+        pass
+
+    # ── Fallback: Futu API ─────────────────────────────────────────────────
     try:
         from futu import OpenQuoteContext, Plate
         ctx = OpenQuoteContext(host="127.0.0.1", port=11111)
@@ -4733,12 +4755,46 @@ def get_market_plates(
                     "code": row.get("plate_code", ""),
                     "name": row.get("plate_name", ""),
                 })
-            return {"ok": True, "plates": plates}
+            return {"ok": True, "plates": plates, "source": "futu"}
         finally:
             ctx.close()
     except Exception as e:
         logger.warning("get_market_plates error: %s", e)
         return {"ok": False, "error": str(e), "plates": []}
+
+
+# ── Market Data Refresh ─────────────────────────────────────────────────────
+
+@app.post("/v1/market/refresh")
+async def refresh_market_data(
+    market: str = Query("ALL", regex="^(HK|US|ALL)$"),
+):
+    """Trigger a refresh of market plate/stock data from Futu into DB.
+
+    No auth required (internal tool).
+    """
+    from api.services.market_data_service import refresh_all
+
+    markets = ["HK", "US"] if market == "ALL" else [market]
+    results = {}
+    errors = {}
+
+    for mkt in markets:
+        try:
+            stats = refresh_all(mkt)
+            results[mkt] = stats
+            if stats.get("error"):
+                errors[mkt] = stats["error"]
+        except Exception as e:
+            logger.error("refresh_market_data(%s) failed: %s", mkt, e)
+            errors[mkt] = str(e)
+            results[mkt] = {"error": str(e)}
+
+    return {
+        "ok": len(errors) == 0,
+        "results": results,
+        "errors": errors if errors else None,
+    }
 
 
 def _annotate_scheduled_with_imported_context(items: List[dict], db: Session, user_id: str) -> List[dict]:

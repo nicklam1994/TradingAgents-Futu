@@ -606,3 +606,47 @@ class AnalysisReportDB(Base):
         }
 
 
+class PlateDB(Base):
+    """Industry/sector plates from Futu (HK + US)."""
+
+    __tablename__ = "plates"
+
+    code = Column(String(32), primary_key=True)       # e.g. HK.LIST1051
+    name = Column(String(80), nullable=False)          # e.g. 常规电力
+    market = Column(String(4), nullable=False, index=True)  # HK / US
+    plate_id = Column(String(32), nullable=True)       # e.g. LIST1051
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
+class StockPlateDB(Base):
+    """Many-to-many: stock ↔ plate mapping."""
+
+    __tablename__ = "stock_plates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stock_code = Column(String(20), nullable=False, index=True)  # e.g. 00001.HK
+    plate_code = Column(String(32), nullable=False, index=True)  # e.g. HK.LIST1051
+
+    __table_args__ = (
+        UniqueConstraint("stock_code", "plate_code", name="uq_stock_plate"),
+    )
+
+
+class StockDB(Base):
+    """Stock universe: HK stocks + US stocks + ETFs.
+
+    Replaces stock_universe.json for relational queries.
+    """
+
+    __tablename__ = "stocks"
+
+    code = Column(String(20), primary_key=True)        # e.g. 00001.HK / AAPL
+    name = Column(String(120), nullable=False)          # e.g. 长和 / Apple Inc
+    market = Column(String(4), nullable=False, index=True)  # HK / US
+    type = Column(String(16), default="stock", index=True)  # stock / etf
+    lot_size = Column(Integer, nullable=True)           # from Futu snapshot
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
+                        onupdate=lambda: datetime.now(timezone.utc))
+
+
