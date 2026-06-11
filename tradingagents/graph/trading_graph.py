@@ -334,6 +334,13 @@ class TradingAgentsGraph:
 
         graph_args = self.propagator.get_graph_args()
 
+        # Add thread_id for checkpointer (MemorySaver requires it)
+        if "config" not in graph_args:
+            graph_args["config"] = {}
+        if "configurable" not in graph_args["config"]:
+            graph_args["config"]["configurable"] = {}
+        graph_args["config"]["configurable"]["thread_id"] = f"{ticker}_{trade_date}_{id(self)}"
+
         state = self.propagator.create_initial_state(
             ticker, trade_date, user_intent=user_intent, horizon="short"
         )
