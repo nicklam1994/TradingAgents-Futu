@@ -152,12 +152,16 @@ def parse_command(
     # Extract category from select task
     category = ""
     top_n = 3
+    filter_params = None
     dag_dict = dag.to_dict() if hasattr(dag, "to_dict") else {}
     for t in dag_dict.get("tasks", []):
         if t.get("action") == "select":
             p = t.get("params", {})
             category = p.get("category") or p.get("universe") or p.get("sector") or p.get("criteria") or ""
             top_n = p.get("count") or p.get("top_n") or p.get("limit") or p.get("n") or p.get("max_results") or 3
+            fp = p.get("filter_params")
+            if fp and isinstance(fp, dict) and fp.get("filters"):
+                filter_params = fp
             break
 
     # Build dag_summary for preview
@@ -187,6 +191,7 @@ def parse_command(
         "max_iterations": 30,
         "strategy_name": strategy_name or "bull_trend",
         "category": category,
+        "filter_params": filter_params,
         "dag_summary": dag_summary,
         "dag": dag_dict,
         "available_strategies": available_strategies,
