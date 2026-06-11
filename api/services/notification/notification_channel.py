@@ -154,7 +154,7 @@ class NotificationBuilder:
         display = f"{stock_name} {symbol}" if stock_name and stock_name != symbol else symbol
         lines = [
             f"TradingAgents 投研报告",
-            f"标的：{display}",
+            f"股票：{display}",
             f"交易日：{trade_date}",
         ]
         if direction:

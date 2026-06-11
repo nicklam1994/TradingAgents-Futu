@@ -26,7 +26,7 @@ def _clip_text(text: str | None, limit: int = 720) -> str:
 def build_report_message(report: "ReportDB") -> str:
     lines = [
         "TradingAgents 定时分析完成",
-        f"标的：{report.symbol}",
+        f"股票：{report.symbol}",
         f"交易日：{report.trade_date}",
     ]
     if getattr(report, "decision", None):

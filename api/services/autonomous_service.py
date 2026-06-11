@@ -93,7 +93,7 @@ def _extract_dag_keywords(dag: Optional[Dict[str, Any]], config: AutonomousTaskC
     # Symbols
     symbols = [t.get("symbol") or "" for t in dag.get("tasks", []) if t.get("symbol")]
     if symbols:
-        keywords.append({"label": f"标的: {', '.join(symbols)}", "icon": "📈"})
+        keywords.append({"label": f"股票: {', '.join(symbols)}", "icon": "📈"})
 
     return keywords if keywords else [{"label": "LLM 解析中...", "icon": "🤖"}]
 
@@ -105,6 +105,95 @@ def _get_store() -> TaskStore:
         db_path = os.getenv("TA_TASK_STORE_DB", "tradingagents_taskstore.db")
         _store = TaskStore(db_path=db_path)
     return _store
+
+
+def parse_command(
+    command: str,
+    budget: Optional[float] = None,
+    currency: str = "HKD",
+    strategy_name: Optional[str] = None,
+    llm_api_key: Optional[str] = None,
+    llm_provider: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Parse a natural language command into editable structured parameters.
+
+    Returns parsed fields that the user can review and edit before creating the task.
+    Does NOT create or start any task.
+    """
+    from tradingagents.orchestrator.command_router import CommandRouter
+
+    router = CommandRouter(
+        api_key=llm_api_key or "",
+        llm_provider=llm_provider or "openai",
+        base_url=llm_base_url or "",
+        llm_model=llm_model or "",
+    )
+    dag = router.route(command)
+
+    # Extract parsed values (LLM-parsed take priority over defaults)
+    parsed_budget = budget if budget else (dag.budget or 10000.0)
+    parsed_currency = currency if currency != "HKD" else (dag.currency or currency)
+    # If user specified currency explicitly, use it; otherwise use LLM-parsed
+    if budget is None and dag.budget:
+        parsed_budget = dag.budget
+    if currency == "HKD" and dag.currency and dag.currency != "USD":
+        parsed_currency = dag.currency
+
+    # Infer market from currency
+    market = "HK" if parsed_currency == "HKD" else "US"
+
+    # Extract symbols from DAG tasks (TaskNode objects have .symbol attribute)
+    _PLACEHOLDER_PREFIXES = ("FROM_", "SELECTED_", "PLACEHOLDER", "TBD")
+    symbols = []
+    for t in dag.tasks:
+        sym = getattr(t, "symbol", None) or ""
+        if sym and not sym.upper().startswith(_PLACEHOLDER_PREFIXES):
+            symbols.append(sym)
+
+    # Extract category from select task
+    category = ""
+    top_n = 3
+    dag_dict = dag.to_dict() if hasattr(dag, "to_dict") else {}
+    for t in dag_dict.get("tasks", []):
+        if t.get("action") == "select":
+            p = t.get("params", {})
+            category = p.get("category") or p.get("universe") or p.get("sector") or p.get("criteria") or ""
+            top_n = p.get("count") or p.get("top_n") or 3
+            break
+
+    # Build dag_summary for preview
+    config_preview = AutonomousTaskConfig(
+        command=command,
+        budget=parsed_budget,
+        currency=parsed_currency,
+    )
+    config_preview.dag = dag_dict
+    dag_summary = _extract_dag_keywords(dag_dict, config_preview)
+
+    # Get available strategies
+    available_strategies = []
+    try:
+        from tradingagents.strategies.yaml_loader import list_strategies
+        available_strategies = list_strategies()
+    except Exception:
+        pass
+
+    return {
+        "command": command,
+        "budget": parsed_budget,
+        "currency": parsed_currency,
+        "market": market,
+        "fixed_symbols": symbols,
+        "top_n": int(top_n) if top_n else 3,
+        "max_iterations": 30,
+        "strategy_name": strategy_name or "bull_trend",
+        "category": category,
+        "dag_summary": dag_summary,
+        "dag": dag_dict,
+        "available_strategies": available_strategies,
+    }
 
 
 def create_task(

@@ -30,24 +30,29 @@ export default function Autonomous() {
 
     // ── Create task state ──
     const [command, setCommand] = useState('')
-    const [budget, setBudget] = useState('')
     const [creating, setCreating] = useState(false)
     const [createError, setCreateError] = useState<string | null>(null)
-    const [dagKeywords, setDagKeywords] = useState<Array<{ label: string; icon: string }>>([])
-    const [strategyName, setStrategyName] = useState('')
-    const [currency, setCurrency] = useState('HKD')
     const [strategies, setStrategies] = useState<Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>>([])
     const [strategyPerf, setStrategyPerf] = useState<StrategyPerformance[]>([])
     const [perfLoading, setPerfLoading] = useState(false)
     const [showPerf, setShowPerf] = useState(false)
+
+    // ── Parse → Edit → Confirm state ──
+    const [parsing, setParsing] = useState(false)
+    const [parseError, setParseError] = useState<string | null>(null)
+    const [parsed, setParsed] = useState<null | {
+        command: string; budget: number; currency: string; market: string
+        fixed_symbols: string[]; top_n: number; max_iterations: number
+        strategy_name: string; category: string
+        dag_summary: Array<{ label: string; icon: string }>
+        available_strategies: string[]
+    }>(null)
 
     // Load strategies on mount
     useEffect(() => {
         api.getStrategies().then(res => {
             const list = res.data?.strategies ?? []
             setStrategies(list)
-            const defaultName = res.data?.default || ''
-            if (defaultName) setStrategyName(defaultName)
         }).catch(() => {})
     }, [])
 
@@ -137,21 +142,36 @@ export default function Autonomous() {
         }
     }
 
-    const handleCreate = async () => {
+    const handleParse = async () => {
         if (!command.trim()) return
+        setParsing(true)
+        setParseError(null)
+        setParsed(null)
+        try {
+            const res = await api.parseAutonomousCommand(command.trim())
+            if (res.ok && res.data) {
+                setParsed(res.data)
+            }
+        } catch (e) {
+            setParseError(e instanceof Error ? e.message : '解析失败')
+        } finally {
+            setParsing(false)
+        }
+    }
+
+    const handleConfirm = async () => {
+        if (!parsed) return
         setCreating(true)
         setCreateError(null)
-        setDagKeywords([])
         try {
-            const budgetNum = budget ? parseFloat(budget) : undefined
-            const res = await api.createAutonomousTask(command.trim(), budgetNum, currency, strategyName || undefined)
+            const res = await api.createAutonomousTask(
+                parsed.command, parsed.budget, parsed.currency,
+                parsed.strategy_name, parsed.fixed_symbols.length > 0 ? parsed.fixed_symbols : undefined,
+                parsed.top_n, parsed.max_iterations,
+            )
             if (res.ok && res.data?.task_id) {
-                // Store parsed keywords from backend LLM response
-                if (res.data.dag_summary) {
-                    setDagKeywords(res.data.dag_summary)
-                }
+                setParsed(null)
                 setCommand('')
-                setBudget('')
                 await loadTasks()
                 setSelectedId(res.data.task_id)
             }
@@ -183,67 +203,118 @@ export default function Autonomous() {
                 </div>
             )}
 
-            {/* Create task */}
+            {/* Create task: Parse → Edit → Confirm */}
             <div className="card">
                 <div className="flex gap-3">
                     <div className="flex-1">
                         <input
                             value={command}
                             onChange={e => setCommand(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleCreate()}
-                            placeholder="输入交易指令，如：用1000美金模拟账户，选一只美股科技股做短线交易"
-                            disabled={creating}
+                            onKeyDown={e => e.key === 'Enter' && handleParse()}
+                            placeholder="输入交易指令，如：用50000港元模拟账户，选3只港股做短线交易"
+                            disabled={parsing || creating}
                             className="w-full rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-green-500"
                         />
                     </div>
-                    <input
-                        value={budget}
-                        onChange={e => setBudget(e.target.value.replace(/[^0-9.]/g, ''))}
-                        placeholder="预算(可选)"
-                        disabled={creating}
-                        className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
-                    />
-                    <select
-                        value={currency}
-                        onChange={e => setCurrency(e.target.value)}
-                        disabled={creating}
-                        className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    >
-                        <option value="HKD">HKD</option>
-                        <option value="USD">USD</option>
-                    </select>
-                    <select
-                        value={strategyName}
-                        onChange={e => setStrategyName(e.target.value)}
-                        disabled={creating}
-                        className="w-36 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-                    >
-                        {strategies.map(s => (
-                            <option key={s.name} value={s.name}>{s.display_name}</option>
-                        ))}
-                    </select>
                     <button
-                        onClick={handleCreate}
-                        disabled={creating || !command.trim()}
+                        onClick={handleParse}
+                        disabled={parsing || creating || !command.trim()}
                         className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-green-600 dark:hover:bg-green-500"
                     >
-                        {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                        {creating ? '创建中...' : '开始交易'}
+                        {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        {parsing ? '解析中...' : '解析'}
                     </button>
                 </div>
+                {parseError && (
+                    <p className="mt-2 text-sm text-rose-500 dark:text-rose-400">{parseError}</p>
+                )}
                 {createError && (
                     <p className="mt-2 text-sm text-rose-500 dark:text-rose-400">{createError}</p>
                 )}
-                {/* Parsed keywords from LLM — shown after task creation */}
-                {dagKeywords.length > 0 && (
+
+                {/* Parsed keywords pills */}
+                {parsed && parsed.dag_summary.length > 0 && (
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                         <span className="text-xs text-slate-400 dark:text-slate-500">LLM 解析：</span>
-                        {dagKeywords.map((kw, i) => (
+                        {parsed.dag_summary.map((kw, i) => (
                             <span key={i} className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                                {kw.icon && <span>{kw.icon}</span>}
-                                {kw.label}
+                                {kw.icon && <span>{kw.icon}</span>}{kw.label}
                             </span>
                         ))}
+                    </div>
+                )}
+
+                {/* Editable parameters table */}
+                {parsed && (
+                    <div className="mt-4 space-y-3">
+                        <div className="text-sm font-medium text-slate-700 dark:text-slate-300">📋 待执行指令清单 <span className="text-xs font-normal text-slate-400">（可编辑后确认执行）</span></div>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                            {/* 市场 */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">市场</label>
+                                <select value={parsed.market} onChange={e => setParsed({ ...parsed, market: e.target.value, currency: e.target.value === 'HK' ? 'HKD' : 'USD' })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                                    <option value="HK">🇭🇰 港股</option>
+                                    <option value="US">🇺🇸 美股</option>
+                                </select>
+                            </div>
+                            {/* 预算 */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">预算</label>
+                                <input type="number" value={parsed.budget} onChange={e => setParsed({ ...parsed, budget: parseFloat(e.target.value) || 0 })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                            </div>
+                            {/* 币种 */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">币种</label>
+                                <select value={parsed.currency} onChange={e => setParsed({ ...parsed, currency: e.target.value, market: e.target.value === 'HKD' ? 'HK' : 'US' })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                                    <option value="HKD">HKD 港元</option>
+                                    <option value="USD">USD 美元</option>
+                                </select>
+                            </div>
+                            {/* 选股数 */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">选股数</label>
+                                <input type="number" min={1} max={10} value={parsed.top_n} onChange={e => setParsed({ ...parsed, top_n: parseInt(e.target.value) || 3 })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                            </div>
+                            {/* 策略 */}
+                            <div className="col-span-2">
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">交易策略</label>
+                                <select value={parsed.strategy_name} onChange={e => setParsed({ ...parsed, strategy_name: e.target.value })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                                    {(parsed.available_strategies.length > 0 ? parsed.available_strategies : strategies.map(s => s.name)).map(s => (
+                                        <option key={s} value={s}>{strategies.find(x => x.name === s)?.display_name || s}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            {/* 最大迭代 */}
+                            <div>
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">最大迭代</label>
+                                <input type="number" min={1} max={100} value={parsed.max_iterations} onChange={e => setParsed({ ...parsed, max_iterations: parseInt(e.target.value) || 30 })}
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                            </div>
+                            {/* 指定股票 */}
+                            <div className="col-span-2 sm:col-span-3 lg:col-span-4">
+                                <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">指定股票（留空则自动选股）</label>
+                                <input type="text" value={parsed.fixed_symbols.join(', ')} onChange={e => setParsed({ ...parsed, fixed_symbols: e.target.value.split(/[,，\s]+/).filter(Boolean) })}
+                                    placeholder="如：HK.00700, HK.09988（逗号分隔）"
+                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                            </div>
+                        </div>
+                        {/* Confirm button */}
+                        <div className="flex justify-end gap-3 pt-2">
+                            <button onClick={() => setParsed(null)} disabled={creating}
+                                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
+                                取消
+                            </button>
+                            <button onClick={handleConfirm} disabled={creating}
+                                className="flex items-center gap-2 rounded-lg bg-green-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50">
+                                {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                                {creating ? '执行中...' : '确认执行'}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>

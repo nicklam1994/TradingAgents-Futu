@@ -165,7 +165,7 @@ def summarize_instrument_context(context: Mapping[str, Any] | None) -> str:
     ctx = context or {}
     return "\n".join(
         [
-            f"标的代码：{ctx.get('symbol', '—')}",
+            f"股票代码：{ctx.get('symbol', '—')}",
             f"市场归属：{ctx.get('market_country', '—')}",
             f"交易所：{ctx.get('exchange', '—')}",
             f"币种：{ctx.get('currency', '—')}",

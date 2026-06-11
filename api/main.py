@@ -3088,7 +3088,7 @@ async def _ai_extract_symbol_and_date_streaming(
 仅输出 JSON，不要任何其他文字：
 {{"stock_name": "...", "date": "YYYY-MM-DD", "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
 
-如果无法识别股票标的：{{"stock_name": null, "date": null, "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
+如果无法识别股票：{{"stock_name": null, "date": null, "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
 
 用户消息："{text}"
 """
@@ -3196,7 +3196,7 @@ def _ai_extract_symbol_and_date(
 仅输出 JSON，不要任何其他文字：
 {{"stock_name": "...", "date": "YYYY-MM-DD", "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
 
-如果无法识别股票标的：{{"stock_name": null, "date": null, "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
+如果无法识别股票：{{"stock_name": null, "date": null, "horizons": ["short"], "focus_areas": [], "specific_questions": [], "user_context": {{}}}}
 
 用户消息："{text}"
 """
@@ -3292,7 +3292,7 @@ async def chat_completions(
 
                 if not symbol:
                     _emit_job_event(job_id, "job.failed", {
-                        "error": "抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 000700.HK 或 AAPL）或可识别的公司名称。"
+                        "error": "抱歉，我没能从您的消息中识别出股票。请输入代码（如 000700.HK 或 AAPL）或可识别的公司名称。"
                     })
                     return
 
@@ -3386,7 +3386,7 @@ async def chat_completions(
         await asyncio.to_thread(_ai_extract_symbol_and_date, text, config)
 
     if not symbol:
-        raise HTTPException(status_code=400, detail="抱歉，我没能从您的消息中识别出股票标的。请输入代码（如 600519.SH）或可识别的公司名称。")
+        raise HTTPException(status_code=400, detail="抱歉，我没能从您的消息中识别出股票。请输入代码（如 600519.SH）或可识别的公司名称。")
 
     pre_intent = {
         "raw_query": text,
@@ -5926,6 +5926,66 @@ class AutonomousCreateRequest(BaseModel):
     max_iterations: int = Field(30, description="Max OODA loop iterations")
     fixed_symbols: Optional[List[str]] = Field(None, description="Fixed stock pool")
     strategy_name: Optional[str] = Field(None, description="YAML strategy name (e.g. bull_trend)")
+
+
+class AutonomousParseRequest(BaseModel):
+    """Request to parse a command without executing."""
+    command: str = Field(..., description="Natural language trading command")
+    budget: Optional[float] = Field(None, description="Total capital override")
+    currency: str = Field("HKD", description="Currency code")
+    strategy_name: Optional[str] = Field(None, description="YAML strategy name")
+
+
+@app.post("/v1/autonomous/parse")
+async def autonomous_parse(
+    req: AutonomousParseRequest,
+    current_user: UserDB = Depends(_require_api_user),
+) -> Dict[str, Any]:
+    """Parse a natural language command into editable structured parameters.
+
+    Returns parsed fields (budget, currency, market, symbols, strategy, etc.)
+    for the user to review and edit before confirming task creation.
+    """
+    try:
+        llm_kwargs: Dict[str, Any] = {}
+        with get_db_ctx() as db:
+            user_cfg = auth_service.get_user_llm_config(db, current_user.id)
+            api_key = None
+            if user_cfg and user_cfg.api_key_encrypted:
+                api_key = auth_service.decrypt_secret(user_cfg.api_key_encrypted)
+            if not api_key:
+                api_key = os.getenv("TA_API_KEY") or os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                for row in db.query(UserLLMConfigDB).filter(
+                    UserLLMConfigDB.api_key_encrypted.isnot(None)
+                ).all():
+                    try:
+                        candidate = auth_service.decrypt_secret(row.api_key_encrypted)
+                        if candidate:
+                            api_key = candidate
+                            if row.llm_provider:
+                                llm_kwargs["llm_provider"] = row.llm_provider
+                            if row.backend_url:
+                                llm_kwargs["llm_base_url"] = row.backend_url
+                            if row.quick_think_llm:
+                                llm_kwargs["llm_model"] = row.quick_think_llm
+                            break
+                    except Exception:
+                        continue
+            if api_key:
+                llm_kwargs["llm_api_key"] = api_key
+
+        result = autonomous_service.parse_command(
+            command=req.command,
+            budget=req.budget,
+            currency=req.currency,
+            strategy_name=req.strategy_name,
+            **llm_kwargs,
+        )
+        return {"ok": True, "data": result}
+    except Exception as e:
+        logger.error(f"autonomous_parse error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/v1/autonomous/create")

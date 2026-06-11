@@ -1092,8 +1092,11 @@ def execute_signal(signal: SignalInput) -> SignalResult:
         )
 
     # ── Get account info for position sizing ──
+    # Derive trading market from symbol prefix (HK. → HK, US. → US)
+    _sym_upper = signal.symbol.upper()
+    _trd_market = "HK" if _sym_upper.startswith("HK.") else "US"
     try:
-        account = get_account("SIMULATE")
+        account = get_account("SIMULATE", trd_market=_trd_market)
     except Exception as e:
         return SignalResult(
             action_taken="skipped",
@@ -1146,7 +1149,7 @@ def execute_signal(signal: SignalInput) -> SignalResult:
     # For SELL, check existing position
     if signal_lower == "sell":
         try:
-            positions = get_positions("SIMULATE")
+            positions = get_positions("SIMULATE", trd_market=_trd_market)
             existing = [p for p in positions if p.symbol.upper() == signal.symbol.upper()
                         or p.code.upper() == signal.symbol.upper()]
             if not existing:

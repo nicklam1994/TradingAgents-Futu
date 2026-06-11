@@ -621,7 +621,7 @@ class AutonomousLoop:
 
         try:
             # Build situation from task context + candidate symbols
-            market = "US"
+            market = "HK" if getattr(config, "currency", "USD") == "HKD" else "US"
             category = ""
             if config.dag:
                 for task in config.dag.get("tasks", []):
@@ -723,7 +723,7 @@ class AutonomousLoop:
         import os
 
         # Extract select task params from DAG
-        market = "US"
+        market = "HK" if getattr(config, "currency", "USD") == "HKD" else "US"
         category = ""
         horizon = "short"
         if config.dag:
