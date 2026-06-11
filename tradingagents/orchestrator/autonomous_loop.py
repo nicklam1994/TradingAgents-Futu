@@ -269,6 +269,13 @@ class AutonomousLoop:
         else:
             config.command = command
             config.dag = dag.to_dict()
+            # Let LLM-parsed values fill in when frontend didn't provide them
+            if config.budget == 10000.0 and dag.budget:
+                config.budget = dag.budget
+                logger.info("LLM parsed budget: %.0f", dag.budget)
+            if config.currency == "USD" and dag.currency != "USD":
+                config.currency = dag.currency
+                logger.info("LLM parsed currency: %s", dag.currency)
 
         # Extract symbols from DAG (filter out placeholders like FROM_t1, SELECTED_SYMBOL)
         _PLACEHOLDER_PREFIXES = ("FROM_", "SELECTED_", "PLACEHOLDER", "TBD")

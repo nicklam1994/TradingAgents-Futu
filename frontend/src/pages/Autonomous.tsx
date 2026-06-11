@@ -35,6 +35,7 @@ export default function Autonomous() {
     const [createError, setCreateError] = useState<string | null>(null)
     const [dagKeywords, setDagKeywords] = useState<Array<{ label: string; icon: string }>>([])
     const [strategyName, setStrategyName] = useState('')
+    const [currency, setCurrency] = useState('HKD')
     const [strategies, setStrategies] = useState<Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>>([])
     const [strategyPerf, setStrategyPerf] = useState<StrategyPerformance[]>([])
     const [perfLoading, setPerfLoading] = useState(false)
@@ -143,7 +144,7 @@ export default function Autonomous() {
         setDagKeywords([])
         try {
             const budgetNum = budget ? parseFloat(budget) : undefined
-            const res = await api.createAutonomousTask(command.trim(), budgetNum, undefined, strategyName || undefined)
+            const res = await api.createAutonomousTask(command.trim(), budgetNum, currency, strategyName || undefined)
             if (res.ok && res.data?.task_id) {
                 // Store parsed keywords from backend LLM response
                 if (res.data.dag_summary) {
@@ -202,6 +203,15 @@ export default function Autonomous() {
                         disabled={creating}
                         className="w-28 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500"
                     />
+                    <select
+                        value={currency}
+                        onChange={e => setCurrency(e.target.value)}
+                        disabled={creating}
+                        className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-2.5 text-sm text-slate-900 outline-none transition focus:border-green-400 focus:ring-2 focus:ring-green-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                        <option value="HKD">HKD</option>
+                        <option value="USD">USD</option>
+                    </select>
                     <select
                         value={strategyName}
                         onChange={e => setStrategyName(e.target.value)}
