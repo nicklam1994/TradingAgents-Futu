@@ -202,38 +202,43 @@ def refresh_stocks(market: str = "HK") -> int:
     _ensure_tables()
     logger.info("[market_data] refresh_stocks market=%s", market)
     ctx = OpenQuoteContext(host=_opend_host(), port=_opend_port())
+    total_count = 0
     try:
-        ret, data = ctx.get_stock_basicinfo(market, SecurityType.STOCK)
-        if ret != RET_OK or data is None:
-            logger.warning("[market_data] get_stock_basicinfo failed: ret=%s data=%s", ret, data)
-            return 0
+        # Fetch both STOCK and ETF
+        for sec_type, type_label in [(SecurityType.STOCK, "stock"), (SecurityType.ETF, "etf")]:
+            ret, data = ctx.get_stock_basicinfo(market, sec_type)
+            if ret != RET_OK or data is None:
+                logger.warning("[market_data] get_stock_basicinfo(%s, %s) failed: ret=%s", market, type_label, ret)
+                continue
 
-        count = 0
-        with get_db_ctx() as db:
-            for _, row in data.iterrows():
-                futu_code = str(row.get("code", ""))
-                canonical = _futu_to_canonical(futu_code)
-                name = str(row.get("name", ""))
-                lot_size = int(row["lot_size"]) if "lot_size" in row and row["lot_size"] is not None else None
+            count = 0
+            with get_db_ctx() as db:
+                for _, row in data.iterrows():
+                    futu_code = str(row.get("code", ""))
+                    canonical = _futu_to_canonical(futu_code)
+                    name = str(row.get("name", ""))
+                    lot_size = int(row["lot_size"]) if "lot_size" in row and row["lot_size"] is not None else None
 
-                stmt = sqlite_insert(StockDB).values(
-                    code=canonical,
-                    name=name,
-                    market=market,
-                    type="stock",
-                    lot_size=lot_size,
-                )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["code"],
-                    set_={"name": name, "market": market, "type": "stock", "lot_size": lot_size},
-                )
-                db.execute(stmt)
-                count += 1
+                    stmt = sqlite_insert(StockDB).values(
+                        code=canonical,
+                        name=name,
+                        market=market,
+                        type=type_label,
+                        lot_size=lot_size,
+                    )
+                    stmt = stmt.on_conflict_do_update(
+                        index_elements=["code"],
+                        set_={"name": name, "market": market, "type": type_label, "lot_size": lot_size},
+                    )
+                    db.execute(stmt)
+                    count += 1
 
-            db.commit()
+                db.commit()
+            logger.info("[market_data] refresh_stocks %s/%s: %d rows", market, type_label, count)
+            total_count += count
 
-        logger.info("[market_data] refresh_stocks done: %d stocks upserted", count)
-        return count
+        logger.info("[market_data] refresh_stocks done: %d stocks upserted", total_count)
+        return total_count
     except Exception:
         logger.exception("[market_data] refresh_stocks error")
         return 0
