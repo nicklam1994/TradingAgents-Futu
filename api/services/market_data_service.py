@@ -143,9 +143,13 @@ def refresh_stock_plates(market: str = "HK") -> int:
     logger.info("[market_data] refresh_stock_plates: %d plates to process", len(plates))
     ctx = OpenQuoteContext(host=_opend_host(), port=_opend_port())
     total_inserted = 0
+    import time
     try:
-        for plate_code in plates:
+        for i, plate_code in enumerate(plates):
             try:
+                # Futu rate limit: ~2 calls/sec safe
+                if i > 0 and i % 2 == 0:
+                    time.sleep(1)
                 ret, data = ctx.get_plate_stock(plate_code)
                 if ret != RET_OK or data is None:
                     logger.warning("[market_data] get_plate_stock(%s) failed: ret=%s", plate_code, ret)
