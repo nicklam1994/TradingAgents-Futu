@@ -149,7 +149,7 @@ def refresh_stock_plates(market: str = "HK") -> int:
             try:
                 # Futu rate limit: get_plate_stock max 10 per 30s
                 if i > 0:
-                    time.sleep(3)
+                    time.sleep(5)
                 ret, data = ctx.get_plate_stock(plate_code)
                 if ret != RET_OK or data is None:
                     logger.warning("[market_data] get_plate_stock(%s) failed: ret=%s", plate_code, ret)
