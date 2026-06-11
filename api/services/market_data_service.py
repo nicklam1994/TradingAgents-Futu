@@ -17,10 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, delete, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from api.database import get_db_ctx, PlateDB, StockPlateDB, StockDB
@@ -312,18 +313,16 @@ def import_stock_universe() -> int:
 # ---------------------------------------------------------------------------
 
 def refresh_all(market: str = "HK") -> dict[str, int]:
-    """Run all refresh steps in order and return counts.
+    """Run startup refresh: plates + stocks only (stock_plates is lazy-loaded).
 
-    Order: plates → stock_plates → stocks → import_stock_universe
+    Order: plates → stocks → import_stock_universe
     """
     logger.info("[market_data] refresh_all market=%s — starting", market)
     plates_count = refresh_plates(market)
-    stock_plates_count = refresh_stock_plates(market)
     stocks_count = refresh_stocks(market)
     universe_count = import_stock_universe()
     result = {
         "plates": plates_count,
-        "stock_plates": stock_plates_count,
         "stocks": stocks_count,
         "universe_imported": universe_count,
     }
@@ -373,9 +372,33 @@ def resolve_plate_code_from_db(category: str, market: str = "HK") -> str | None:
 # ---------------------------------------------------------------------------
 
 def get_stocks_in_plate(plate_code: str) -> list[dict[str, Any]]:
-    """Return stocks belonging to *plate_code* by joining stocks + stock_plates."""
+    """Return stocks belonging to *plate_code*.
+
+    Lazy-load: check DB first. If no records or fetched_at > 15 days ago,
+    fetch from Futu, write to DB, then return.
+    """
     if not plate_code:
         return []
+
+    STALE_DAYS = 15
+
+    with get_db_ctx() as db:
+        # Check freshness: get max fetched_at for this plate
+        latest = db.execute(
+            select(func.max(StockPlateDB.fetched_at))
+            .where(StockPlateDB.plate_code == plate_code)
+        ).scalar()
+
+        needs_fetch = True
+        if latest is not None:
+            age_days = (datetime.now(timezone.utc) - latest.replace(tzinfo=timezone.utc)).days
+            if age_days < STALE_DAYS:
+                needs_fetch = False
+
+    if needs_fetch:
+        logger.info("[market_data] Lazy-fetching stocks for plate %s (stale/missing)", plate_code)
+        _fetch_plate_stocks_from_futu(plate_code)
+
     with get_db_ctx() as db:
         rows = db.execute(
             select(StockDB.code, StockDB.name, StockDB.market, StockDB.type, StockDB.lot_size)
@@ -386,6 +409,54 @@ def get_stocks_in_plate(plate_code: str) -> list[dict[str, Any]]:
             {"code": r.code, "name": r.name, "market": r.market, "type": r.type, "lot_size": r.lot_size}
             for r in rows
         ]
+
+
+def _fetch_plate_stocks_from_futu(plate_code: str) -> int:
+    """Fetch constituent stocks for a single plate from Futu and upsert into DB.
+
+    Returns number of rows inserted.
+    """
+    from futu import OpenQuoteContext, RET_OK
+
+    ctx = OpenQuoteContext(host=_opend_host(), port=_opend_port())
+    try:
+        ret, data = ctx.get_plate_stock(plate_code)
+        if ret != RET_OK or data is None:
+            logger.warning("[market_data] _fetch_plate_stocks(%s) failed: ret=%s", plate_code, ret)
+            return 0
+
+        now = datetime.now(timezone.utc)
+        rows_to_insert = []
+        for _, row in data.iterrows():
+            futu_code = str(row.get("code", ""))
+            canonical = _futu_to_canonical(futu_code)
+            if not canonical:
+                continue
+            rows_to_insert.append({
+                "stock_code": canonical,
+                "plate_code": plate_code,
+                "fetched_at": now,
+            })
+
+        if rows_to_insert:
+            with get_db_ctx() as db:
+                # Delete old mappings for this plate, then insert fresh
+                db.execute(
+                    delete(StockPlateDB)
+                    .where(StockPlateDB.plate_code == plate_code)
+                )
+                stmt = sqlite_insert(StockPlateDB).values(rows_to_insert)
+                stmt = stmt.on_conflict_do_nothing()
+                db.execute(stmt)
+                db.commit()
+
+        logger.info("[market_data] _fetch_plate_stocks(%s): %d stocks", plate_code, len(rows_to_insert))
+        return len(rows_to_insert)
+    except Exception:
+        logger.exception("[market_data] _fetch_plate_stocks(%s) error", plate_code)
+        return 0
+    finally:
+        ctx.close()
 
 
 # ---------------------------------------------------------------------------

@@ -627,6 +627,7 @@ class StockPlateDB(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     stock_code = Column(String(20), nullable=False, index=True)  # e.g. 00001.HK
     plate_code = Column(String(32), nullable=False, index=True)  # e.g. HK.LIST1051
+    fetched_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("stock_code", "plate_code", name="uq_stock_plate"),
