@@ -945,7 +945,7 @@ class AutonomousLoop:
 
         # Resolve sort_field → StockField, sort_dir → SortDir
         sort_field_enum = None
-        sort_dir_enum = SortDir.ASC
+        sort_dir_enum = SortDir.ASCEND
         sf_name = filter_params.get("sort_field")
         if sf_name:
             try:
@@ -955,9 +955,9 @@ class AutonomousLoop:
 
         sd_name = (filter_params.get("sort_dir") or "DESC").upper()
         if sd_name == "DESC":
-            sort_dir_enum = SortDir.DESC
+            sort_dir_enum = SortDir.DESCEND
         else:
-            sort_dir_enum = SortDir.ASC
+            sort_dir_enum = SortDir.ASCEND
 
         # Try to narrow by plate_code if category matches a sector
         plate_code = self._resolve_plate_code(market_enum, category)
@@ -973,9 +973,6 @@ class AutonomousLoop:
             if plate_code:
                 request_kwargs["plate_code"] = plate_code
                 logger.info("Scoping stock filter to plate_code=%s", plate_code)
-            if sort_field_enum is not None:
-                request_kwargs["sort_field"] = sort_field_enum
-                request_kwargs["sort_dir"] = sort_dir_enum
 
             ret, result = ctx.get_stock_filter(**request_kwargs)
             if ret != RET_OK:
@@ -987,6 +984,15 @@ class AutonomousLoop:
                 "get_stock_filter: %d items (total=%d, has_more=%s, plate=%s)",
                 len(items), total, has_more, plate_code or "global",
             )
+
+            # Manual sort (get_stock_filter doesn't support sort params)
+            if sort_field_enum is not None and items:
+                attr_name = sf_name.lower() if sf_name else ""
+                reverse = (sort_dir_enum == SortDir.DESCEND)
+                try:
+                    items = sorted(items, key=lambda x: getattr(x, attr_name, 0) or 0, reverse=reverse)
+                except Exception:
+                    pass
 
             # Canonicalize codes
             codes = [self._canonicalize_futu_code(item.stock_code) for item in items]
