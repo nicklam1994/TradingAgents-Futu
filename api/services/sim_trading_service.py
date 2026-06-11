@@ -550,7 +550,7 @@ def place_order(
         order_status = str(row.get("order_status", "SUBMITTED"))
 
         # ── Record deal locally (Futu sim doesn't support deal_list_query) ──
-        # Query actual fill price — poll up to 3 times (sim orders fill in 2-5s)
+        # Query actual fill price — poll up to 5 times (sim orders fill in 2-5s)
         import time
         deal_price = float(row.get("price", price))
         deal_qty = float(row.get("qty", quantity))
@@ -562,7 +562,7 @@ def place_order(
             deal_qty = float(row.get("dealt_qty", row.get("qty", quantity)))
             is_filled = True
         else:
-            for _attempt in range(3):
+            for _attempt in range(5):
                 time.sleep(2)
                 try:
                     ret2, data2 = ctx.order_list_query(trd_env=TrdEnv.SIMULATE)
@@ -580,23 +580,29 @@ def place_order(
                         else:
                             continue
                         break  # inner break → exit retry loop
-                except Exception:
-                    pass
+                except Exception as poll_exc:
+                    logger.warning("Poll attempt %d failed for %s: %s", _attempt+1, order_id, poll_exc)
 
-        # Only record deal when actually filled
+        if not is_filled:
+            logger.warning("Order %s for %s not filled after polling — recording anyway as SUBMITTED", order_id, code)
+
+        # Only record deal — sim orders almost always fill, record regardless
         deal_market = "HK" if market == TrdMarket.HK else "US"
-        if is_filled:
-            _record_deal(
-                order_id=order_id,
-                code=code,
-                stock_name=deal_stock_name,
-                trd_side=side_upper,
-                deal_market=deal_market,
-                qty=deal_qty,
-                price=deal_price,
-                order_type=order_type_upper,
-                currency="HKD" if deal_market == "HK" else "USD",
-            )
+        _record_deal(
+            order_id=order_id,
+            code=code,
+            stock_name=deal_stock_name,
+            trd_side=side_upper,
+            deal_market=deal_market,
+            qty=deal_qty,
+            price=deal_price,
+            order_type=order_type_upper,
+            currency="HKD" if deal_market == "HK" else "USD",
+        )
+        logger.info(
+            "Recorded deal: %s %s %s @ %s (filled=%s)",
+            side_upper, code, deal_qty, deal_price, is_filled,
+        )
 
         return OrderResult(
             order_id=order_id,

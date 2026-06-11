@@ -1109,6 +1109,7 @@ class AutonomousLoop:
                 graph_config = {
                     "llm_provider": self._router._provider,
                     "backend_url": self._router._base_url,
+                    "api_key": self._router._api_key,
                     "quick_think_llm": self._router._model,
                     "deep_think_llm": self._router._model,
                     "project_dir": os.path.join(os.path.dirname(__file__), "../../"),
