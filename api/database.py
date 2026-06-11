@@ -95,6 +95,7 @@ def init_db() -> None:
     _ensure_user_schema()
     _ensure_sim_deals_strategy_column()
     _ensure_analysis_reports_table()
+    _ensure_stock_plates_fetched_at()
 
 
 def _ensure_report_schema() -> None:
@@ -195,6 +196,17 @@ def _ensure_analysis_reports_table() -> None:
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_analysis_reports_symbol ON analysis_reports(symbol)"))
     except Exception as e:
         logger.error("Failed to ensure analysis_reports table: %s", e)
+
+
+def _ensure_stock_plates_fetched_at() -> None:
+    """Add fetched_at column to stock_plates if missing."""
+    try:
+        with engine.begin() as conn:
+            columns = {row[1] for row in conn.execute(text("PRAGMA table_info(stock_plates)"))}
+            if "fetched_at" not in columns:
+                conn.execute(text("ALTER TABLE stock_plates ADD COLUMN fetched_at DATETIME"))
+    except Exception as e:
+        logger.error("Failed to ensure stock_plates.fetched_at: %s", e)
 
 
 def _migrate_tokens_to_hashed() -> None:
