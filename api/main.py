@@ -5956,6 +5956,7 @@ class AutonomousCreateRequest(BaseModel):
     fixed_symbols: Optional[List[str]] = Field(None, description="Fixed stock pool")
     strategy_name: Optional[str] = Field(None, description="YAML strategy name (e.g. bull_trend)")
     category: Optional[str] = Field(None, description="Sector/plate filter (e.g. 科技, 金融)")
+    filter_params: Optional[Dict[str, Any]] = Field(None, description="Structured Futu filter params: {filters: [{field, min, max}], sort_field, sort_dir}")
 
 
 class AutonomousParseRequest(BaseModel):
@@ -6080,6 +6081,7 @@ async def autonomous_create(
             fixed_symbols=req.fixed_symbols,
             strategy_name=req.strategy_name,
             category=req.category,
+            filter_params=req.filter_params,
             **llm_kwargs,
         )
         return {"ok": True, "data": result}

@@ -54,7 +54,19 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
     {{
       "id": "t2",
       "action": "select",
-      "params": {{"category": "科技", "count": 5}},
+      "params": {{
+        "count": 5,
+        "market": "HK",
+        "category": "科技",
+        "filter_params": {{
+          "filters": [
+            {{"field": "MARKET_VAL", "min": 1000000000, "max": null}},
+            {{"field": "PE_TTM", "min": 0, "max": 20}}
+          ],
+          "sort_field": "TURNOVER",
+          "sort_dir": "DESC"
+        }}
+      }},
       "depends_on": []
     }},
     {{
@@ -98,6 +110,61 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
 6. 如果未指定股票，action 設為 select（需要 StockSelector 篩選）
 7. mode 默認為 simulate（模擬交易），除非用戶明確要求真實交易
 
+## select 操作的 filter_params（結構化篩選參數）
+
+select 任務的 params 中可包含 `filter_params`，用於向富途 `get_stock_filter` API 傳遞精確的量化篩選條件。filter_params 結構如下：
+
+```json
+{{
+  "filters": [
+    {{"field": "STOCK_FIELD", "min": 數值, "max": 數值或null}},
+    ...
+  ],
+  "sort_field": "STOCK_FIELD",
+  "sort_dir": "ASC或DESC"
+}}
+```
+
+### 可用的 StockField 欄位（精選）
+
+**價格/成交量**:
+- CUR_PRICE（現價）、CHANGE_RATE（漲跌幅%）、TURNOVER_RATE（換手率%）、AMPLITUDE（振幅%）、VOLUME（成交量）、TURNOVER（成交額）
+
+**估值**:
+- PE_TTM（市盈率TTM）、PB_RATE（市淨率）、PS_TTM（市銷率TTM）、PCF_TTM（市現率TTM）
+
+**規模**:
+- MARKET_VAL（總市值）、FLOAT_MARKET_VAL（流通市值）、TOTAL_SHARE（總股本）、LOT_PRICE（每手價）
+
+**技術指標**:
+- MA5/MA10/MA20/MA60（均線）、RSI（RSI）、MACD（MACD）、MACD_DIFF（DIF）、MACD_DEA（DEA）
+
+**財務指標**:
+- NET_PROFIT（淨利潤）、BASIC_EPS（基本EPS）、GROSS_PROFIT_RATE（毛利率%）、RETURN_ON_EQUITY_RATE（ROE%）、EBITDA（EBITDA）
+
+**成長指標**:
+- EPS_GROWTH_RATE（EPS增長率%）、NET_PROFIX_GROWTH（淨利潤增長率%）、SUM_OF_BUSINESS_GROWTH（營收增長率%）
+
+**動量指標**:
+- CHANGE_RATE_BEGIN_YEAR（年初至今漲幅%）、CUR_PRICE_TO_HIGHEST52_WEEKS_RATIO（距52周高點%）、CUR_PRICE_TO_LOWEST52_WEEKS_RATIO（距52周低點%）
+
+### filter_params 規則
+1. **filter_params 是可選的**：如果用戶只說「選5只科技股」沒有具體條件，可以不提供 filter_params，系統會使用默認值
+2. **默認篩選**：MARKET_VAL > 1,000,000,000（排除小市值股）、默認排序：TURNOVER DESC（按成交額降序，優先活躍股）
+3. **語義推斷**（根據用戶描述推斷合理的 filter_params）：
+   - 「低估值」/「便宜」→ PE_TTM max: 15, PB_RATE max: 2
+   - 「放量」/「活躍」/「熱門」→ TURNOVER_RATE min: 3%
+   - 「強勢」/「漲得好」/「動量強」→ CHANGE_RATE min: 3%
+   - 「大盤股」/「藍籌」→ MARKET_VAL min: 50,000,000,000（500億）
+   - 「小盤股」/「成長股」→ MARKET_VAL max: 10,000,000,000（100億），EPS_GROWTH_RATE min: 20
+   - 「高ROE」→ RETURN_ON_EQUITY_RATE min: 15
+   - 「高股息」/「分紅好」→ DIVIDEND_YIELD min: 3（如有）
+   - 「接近52周新高」→ CUR_PRICE_TO_HIGHEST52_WEEKS_RATIO min: 90
+   - 「RSI超賣」→ RSI max: 30
+   - 「年初至今漲幅大」→ CHANGE_RATE_BEGIN_YEAR min: 30
+4. **filter 中 min/max 可為 null**：null 表示不限制該方向的邊界
+5. **sort_dir**：ASC（升序）或 DESC（降序），默認 DESC
+
 ## 示例
 
 ### 示例 1：「50000港元閉環模擬交易」
@@ -105,7 +172,7 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
 {{
   "intent": "以50000港元進行閉環模擬交易",
   "tasks": [
-    {{"id": "t1", "action": "select", "params": {{}}, "depends_on": []}},
+    {{"id": "t1", "action": "select", "params": {{"market": "HK", "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}], "sort_field": "TURNOVER", "sort_dir": "DESC"}}}}, "depends_on": []}},
     {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals", "sentiment"]}}, "depends_on": ["t1"]}},
     {{"id": "t3", "action": "allocate", "params": {{"budget": 50000.0, "currency": "HKD"}}, "depends_on": ["t2"]}},
     {{"id": "t4", "action": "execute", "depends_on": ["t3"]}},
@@ -122,7 +189,7 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
 {{
   "intent": "以2萬美金篩選5只港股並閉環交易",
   "tasks": [
-    {{"id": "t1", "action": "select", "params": {{"count": 5, "market": "HK"}}, "depends_on": []}},
+    {{"id": "t1", "action": "select", "params": {{"count": 5, "market": "HK", "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}], "sort_field": "TURNOVER", "sort_dir": "DESC"}}}}, "depends_on": []}},
     {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals", "sentiment"]}}, "depends_on": ["t1"]}},
     {{"id": "t3", "action": "allocate", "params": {{"budget": 20000.0, "currency": "USD"}}, "depends_on": ["t2"]}},
     {{"id": "t4", "action": "execute", "depends_on": ["t3"]}},
@@ -134,13 +201,37 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
 }}
 ```
 
-### 示例 3：「選3只科技股分析一下」
+### 示例 3：「選3只低估值科技股分析一下」（帶 filter_params）
 ```json
 {{
-  "intent": "篩選3只科技股並進行分析",
+  "intent": "篩選3只低估值科技股並進行分析",
   "tasks": [
-    {{"id": "t1", "action": "select", "params": {{"count": 3, "sector": "technology"}}, "depends_on": []}},
+    {{"id": "t1", "action": "select", "params": {{"count": 3, "category": "科技", "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}, {{"field": "PE_TTM", "min": 0, "max": 15}}, {{"field": "PB_RATE", "min": 0, "max": 2}}], "sort_field": "PE_TTM", "sort_dir": "ASC"}}}}, "depends_on": []}},
     {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals"]}}, "depends_on": ["t1"]}}
+  ],
+  "currency": "USD",
+  "mode": "simulate"
+}}
+```
+
+### 示例 4：「選5只強勢放量港股」（多條件 filter_params）
+```json
+{{
+  "intent": "篩選5只強勢放量港股",
+  "tasks": [
+    {{"id": "t1", "action": "select", "params": {{"count": 5, "market": "HK", "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}, {{"field": "CHANGE_RATE", "min": 3, "max": null}}, {{"field": "TURNOVER_RATE", "min": 3, "max": null}}], "sort_field": "CHANGE_RATE", "sort_dir": "DESC"}}}}, "depends_on": []}}
+  ],
+  "currency": "HKD",
+  "mode": "simulate"
+}}
+```
+
+### 示例 5：「選5只科技股」（無具體條件，使用默認 filter_params）
+```json
+{{
+  "intent": "篩選5只科技股",
+  "tasks": [
+    {{"id": "t1", "action": "select", "params": {{"count": 5, "category": "科技", "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}], "sort_field": "TURNOVER", "sort_dir": "DESC"}}}}, "depends_on": []}}
   ],
   "currency": "USD",
   "mode": "simulate"

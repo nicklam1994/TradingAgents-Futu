@@ -716,9 +716,10 @@ class AutonomousLoop:
     def _screen_stocks_from_dag(self, config: AutonomousTaskConfig) -> List[str]:
         """Screen stocks using Futu API based on DAG select task params.
 
-        Parses the DAG's select task for category/market/horizon, then uses
-        Futu get_plate_list + get_plate_stock + screen_stocks to build a
-        candidate pool.
+        Two modes:
+        1. Structured filter_params (preferred): Build SimpleFilter list
+           directly from DAG params and call get_stock_filter.
+        2. Fallback (legacy): plate-based keyword matching → get_plate_stock.
         """
         import os
 
@@ -726,6 +727,8 @@ class AutonomousLoop:
         market = "HK" if getattr(config, "currency", "USD") == "HKD" else "US"
         category = ""
         horizon = "short"
+        top_n = 5
+        filter_params = None
         if config.dag:
             for task in config.dag.get("tasks", []):
                 if task.get("action") == "select":
@@ -734,6 +737,7 @@ class AutonomousLoop:
                     category = params.get("category", "") or params.get("universe", "") or params.get("sector", "") or params.get("criteria", "")
                     horizon = params.get("horizon", "short")
                     top_n = params.get("count", params.get("top_n", 5))
+                    filter_params = params.get("filter_params")
                     # Infer market from category
                     cat_lower = category.lower()
                     if "hk" in cat_lower or "港股" in cat_lower:
@@ -743,10 +747,24 @@ class AutonomousLoop:
                     break
 
         logger.info(
-            "Task: Screening stocks — market=%s, category='%s', horizon=%s",
-            market, category, horizon,
+            "Task: Screening stocks — market=%s, category='%s', horizon=%s, has_filter_params=%s",
+            market, category, horizon, bool(filter_params),
         )
 
+        # ── Path A: Structured filter_params → get_stock_filter ────────
+        if filter_params and isinstance(filter_params, dict) and filter_params.get("filters"):
+            try:
+                return self._screen_with_filter_params(
+                    market, category, top_n, filter_params,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Structured filter_params screening failed (%s), "
+                    "falling back to plate-based approach.", e,
+                )
+                # Continue to Path B below
+
+        # ── Path B: Legacy plate-based approach ────────────────────────
         try:
             from futu import OpenQuoteContext, Plate, RET_OK
 
@@ -865,6 +883,172 @@ class AutonomousLoop:
         except Exception as e:
             logger.error("Stock screening failed: %s", e, exc_info=True)
             return []
+
+    # ── Structured filter_params screening helper ──────────────────────
+
+    @staticmethod
+    def _canonicalize_futu_code(code: str) -> str:
+        """Convert Futu code (HK.00700) to canonical form (00700.HK / AAPL)."""
+        if code.startswith("HK."):
+            return f"{code[3:]}.HK"
+        elif code.startswith("US."):
+            return code[3:]  # AAPL
+        return code
+
+    def _screen_with_filter_params(
+        self,
+        market: str,
+        category: str,
+        top_n: int,
+        filter_params: dict,
+    ) -> List[str]:
+        """Use Futu get_stock_filter with structured filter_params.
+
+        Args:
+            market: "HK" or "US"
+            category: Category string (used to find plate_code)
+            top_n: Number of results to return
+            filter_params: Dict with keys:
+                - filters: list of {field, min, max}
+                - sort_field: optional string
+                - sort_dir: optional "ASC" or "DESC"
+        """
+        import os
+        from futu import (
+            OpenQuoteContext, SimpleFilter, StockField, Market, Plate, RET_OK,
+            SortDir,
+        )
+
+        host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+        port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+        market_enum = Market.HK if market == "HK" else Market.US
+
+        # Build filter list from structured params
+        filter_list = []
+        for f_entry in filter_params.get("filters", []):
+            field_name = f_entry.get("field", "")
+            try:
+                stock_field = getattr(StockField, field_name)
+            except AttributeError:
+                logger.warning("Unknown StockField '%s', skipping filter entry", field_name)
+                continue
+            sf = SimpleFilter()
+            sf.stock_field = stock_field
+            sf.filter_min = f_entry.get("min", -1e18) if f_entry.get("min") is not None else -1e18
+            sf.filter_max = f_entry.get("max", 1e18) if f_entry.get("max") is not None else 1e18
+            sf.is_no_filter = False
+            filter_list.append(sf)
+
+        if not filter_list:
+            logger.warning("No valid filters built from filter_params, falling back")
+            raise ValueError("No valid filters in filter_params")
+
+        # Resolve sort_field → StockField, sort_dir → SortDir
+        sort_field_enum = None
+        sort_dir_enum = SortDir.ASC
+        sf_name = filter_params.get("sort_field")
+        if sf_name:
+            try:
+                sort_field_enum = getattr(StockField, sf_name)
+            except AttributeError:
+                logger.warning("Unknown sort_field '%s', ignoring sort", sf_name)
+
+        sd_name = (filter_params.get("sort_dir") or "DESC").upper()
+        if sd_name == "DESC":
+            sort_dir_enum = SortDir.DESC
+        else:
+            sort_dir_enum = SortDir.ASC
+
+        # Try to narrow by plate_code if category matches a sector
+        plate_code = self._resolve_plate_code(market_enum, category)
+
+        ctx = OpenQuoteContext(host=host, port=port)
+        try:
+            request_kwargs = dict(
+                market=market_enum,
+                filter_list=filter_list,
+                begin=0,
+                num=min(top_n * 3, 200),  # request extra for scoring headroom
+            )
+            if plate_code:
+                request_kwargs["plate_code"] = plate_code
+                logger.info("Scoping stock filter to plate_code=%s", plate_code)
+            if sort_field_enum is not None:
+                request_kwargs["sort_field"] = sort_field_enum
+                request_kwargs["sort_dir"] = sort_dir_enum
+
+            ret, result = ctx.get_stock_filter(**request_kwargs)
+            if ret != RET_OK:
+                logger.warning("get_stock_filter returned error: %s", result)
+                raise RuntimeError(f"get_stock_filter error: {result}")
+
+            has_more, total, items = result
+            logger.info(
+                "get_stock_filter: %d items (total=%d, has_more=%s, plate=%s)",
+                len(items), total, has_more, plate_code or "global",
+            )
+
+            # Canonicalize codes
+            codes = [self._canonicalize_futu_code(item.stock_code) for item in items]
+            return codes[:top_n * 3]  # Return extra pool for downstream scoring
+
+        finally:
+            ctx.close()
+
+    def _resolve_plate_code(self, market_enum, category: str):
+        """Return the first matching industry plate_code for *category*, or None."""
+        if not category:
+            return None
+        try:
+            from futu import OpenQuoteContext, Plate, RET_OK
+            import os
+
+            host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
+            port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
+            ctx = OpenQuoteContext(host=host, port=port)
+            try:
+                ret, plates = ctx.get_plate_list(
+                    market=market_enum, plate_class=Plate.INDUSTRY
+                )
+                if ret != RET_OK:
+                    return None
+
+                keyword_map = {
+                    "tech": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
+                    "科技": ["半导体", "互联网", "软件", "计算机", "电子"],
+                    "technology": ["半导体", "互联网", "软件", "计算机", "电子", "Technology", "Semiconductor", "Software"],
+                    "semiconductor": ["半导体"],
+                    "半导体": ["半导体"],
+                    "ai": ["半导体", "互联网", "软件", "人工智能"],
+                    "finance": ["银行", "保险", "金融"],
+                    "金融": ["银行", "保险", "金融"],
+                    "health": ["医疗", "医药", "生物"],
+                    "医疗": ["医疗", "医药", "生物"],
+                    "consumer": ["消费", "零售", "食品"],
+                    "消费": ["消费", "零售", "食品"],
+                    "energy": ["能源", "石油", "新能源"],
+                    "能源": ["能源", "石油", "新能源"],
+                }
+
+                cat_lower = category.lower()
+                matched_keywords = []
+                for key, keywords in keyword_map.items():
+                    if key in cat_lower:
+                        matched_keywords.extend(keywords)
+                if not matched_keywords:
+                    return None
+
+                for _, row in plates.iterrows():
+                    plate_name = row.get("plate_name", "")
+                    if any(kw in plate_name for kw in matched_keywords):
+                        return row["code"]
+
+                return None
+            finally:
+                ctx.close()
+        except Exception as e:
+            logger.debug("Plate resolution failed: %s", e)
+            return None
 
     async def _phase_analyze(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState

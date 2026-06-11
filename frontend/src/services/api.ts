@@ -425,10 +425,10 @@ class ApiService {
         return this.request(`/v1/autonomous/${taskId}/stop`, { method: 'POST' })
     }
 
-    async createAutonomousTask(command: string, budget?: number, currency?: string, strategyName?: string, fixedSymbols?: string[], _topN?: number, maxIterations?: number, category?: string): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
+    async createAutonomousTask(command: string, budget?: number, currency?: string, strategyName?: string, fixedSymbols?: string[], _topN?: number, maxIterations?: number, category?: string, filterParams?: { filters: Array<{ field: string; min: number | null; max: number | null }>; sort_field: string; sort_dir: string }): Promise<{ ok: boolean; data: { task_id: string; status: string; dag_summary?: Array<{ label: string; icon: string }> } }> {
         return this.request('/v1/autonomous/create', {
             method: 'POST',
-            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? undefined, strategy_name: strategyName ?? undefined, fixed_symbols: fixedSymbols ?? undefined, max_iterations: maxIterations ?? 30, category: category ?? undefined }),
+            body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? undefined, strategy_name: strategyName ?? undefined, fixed_symbols: fixedSymbols ?? undefined, max_iterations: maxIterations ?? 30, category: category ?? undefined, filter_params: filterParams ?? undefined }),
         })
     }
 

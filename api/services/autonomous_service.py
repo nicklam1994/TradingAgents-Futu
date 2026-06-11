@@ -202,6 +202,7 @@ def create_task(
     fixed_symbols: Optional[List[str]] = None,
     strategy_name: Optional[str] = None,
     category: Optional[str] = None,
+    filter_params: Optional[Dict[str, Any]] = None,
     llm_api_key: Optional[str] = None,
     llm_provider: Optional[str] = None,
     llm_base_url: Optional[str] = None,
@@ -275,6 +276,13 @@ def create_task(
         for t in config.dag.get("tasks", []):
             if t.get("action") == "select":
                 t.setdefault("params", {})["category"] = category
+                break
+
+    # Inject user-edited filter_params into DAG's select task params
+    if filter_params and config.dag:
+        for t in config.dag.get("tasks", []):
+            if t.get("action") == "select":
+                t.setdefault("params", {})["filter_params"] = filter_params
                 break
 
     # Extract parsed DAG keywords for frontend preview

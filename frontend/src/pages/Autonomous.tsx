@@ -17,6 +17,17 @@ import { formatTime } from '@/utils/formatTime'
 import SymbolTagInput from '@/components/SymbolTagInput'
 import type { AutonomousTask, AutonomousTaskDetail, StrategyPerformance } from '@/types'
 
+const FILTER_FIELDS: Record<string, string> = {
+    CUR_PRICE: '现价', CHANGE_RATE: '涨跌幅(%)', TURNOVER_RATE: '换手率(%)', AMPLITUDE: '振幅(%)',
+    VOLUME: '成交量', TURNOVER: '成交额', PE_TTM: '市盈率TTM', PB_RATE: '市净率',
+    PS_TTM: '市销率TTM', PCF_TTM: '市现率TTM', MARKET_VAL: '总市值', FLOAT_MARKET_VAL: '流通市值',
+    LOT_PRICE: '每手价', MA5: '5日均线', MA10: '10日均线', MA20: '20日均线', MA60: '60日均线',
+    RSI: 'RSI', MACD: 'MACD', NET_PROFIT: '净利润', BASIC_EPS: '基本EPS',
+    GROSS_PROFIT_RATE: '毛利率(%)', RETURN_ON_EQUITY_RATE: 'ROE(%)',
+    EPS_GROWTH_RATE: 'EPS增长率(%)', NET_PROFIX_GROWTH: '净利润增长率(%)',
+    SUM_OF_BUSINESS_GROWTH: '营收增长率(%)', CHANGE_RATE_BEGIN_YEAR: '年初至今涨幅(%)',
+}
+
 export default function Autonomous() {
     const [tasks, setTasks] = useState<AutonomousTask[]>([])
     const [counts, setCounts] = useState<Record<string, number>>({})
@@ -49,6 +60,11 @@ export default function Autonomous() {
         strategy_name: string; category: string
         dag_summary: Array<{ label: string; icon: string }>
         available_strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>
+        filter_params?: {
+            filters: Array<{ field: string; min: number | null; max: number | null }>
+            sort_field: string
+            sort_dir: string
+        }
     }>(null)
 
     // Load strategies on mount
@@ -180,6 +196,7 @@ export default function Autonomous() {
                 parsed.command, parsed.budget, parsed.currency,
                 parsed.strategy_name, parsed.fixed_symbols.length > 0 ? parsed.fixed_symbols : undefined,
                 parsed.top_n, parsed.max_iterations, parsed.category || undefined,
+                parsed.filter_params ?? undefined,
             )
             if (res.ok && res.data?.task_id) {
                 setParsed(null)
@@ -328,6 +345,70 @@ export default function Autonomous() {
                                     placeholder="输入股票代码，回车添加（如 HK.00700）"
                                 />
                             </div>
+                        </div>
+
+                        {/* ── 筛选条件编辑器 ── */}
+                        <div className="space-y-2 pt-1">
+                            <div className="text-sm font-medium text-slate-700 dark:text-slate-300">🔍 筛选条件 <span className="text-xs font-normal text-slate-400">（可选，留空则使用默认筛选）</span></div>
+                            {/* Filter rows */}
+                            {(parsed.filter_params?.filters ?? []).map((f, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                    <select value={f.field} onChange={e => {
+                                        const filters = [...(parsed.filter_params?.filters ?? [])]
+                                        filters[i] = { ...filters[i], field: e.target.value }
+                                        setParsed({ ...parsed, filter_params: { filters, sort_field: parsed.filter_params?.sort_field ?? 'CHANGE_RATE', sort_dir: parsed.filter_params?.sort_dir ?? 'DESC' } })
+                                    }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 min-w-[140px]">
+                                        {Object.entries(FILTER_FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                                    </select>
+                                    <span className="text-xs text-slate-400">≥</span>
+                                    <input type="number" value={f.min ?? ''} placeholder="最小" onChange={e => {
+                                        const filters = [...(parsed.filter_params?.filters ?? [])]
+                                        filters[i] = { ...filters[i], min: e.target.value === '' ? null : parseFloat(e.target.value) }
+                                        setParsed({ ...parsed, filter_params: { filters, sort_field: parsed.filter_params?.sort_field ?? 'CHANGE_RATE', sort_dir: parsed.filter_params?.sort_dir ?? 'DESC' } })
+                                    }} className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                                    <span className="text-xs text-slate-400">≤</span>
+                                    <input type="number" value={f.max ?? ''} placeholder="最大" onChange={e => {
+                                        const filters = [...(parsed.filter_params?.filters ?? [])]
+                                        filters[i] = { ...filters[i], max: e.target.value === '' ? null : parseFloat(e.target.value) }
+                                        setParsed({ ...parsed, filter_params: { filters, sort_field: parsed.filter_params?.sort_field ?? 'CHANGE_RATE', sort_dir: parsed.filter_params?.sort_dir ?? 'DESC' } })
+                                    }} className="w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                                    <button onClick={() => {
+                                        const filters = (parsed.filter_params?.filters ?? []).filter((_, j) => j !== i)
+                                        setParsed({ ...parsed, filter_params: filters.length > 0 ? { filters, sort_field: parsed.filter_params?.sort_field ?? 'CHANGE_RATE', sort_dir: parsed.filter_params?.sort_dir ?? 'DESC' } : undefined })
+                                    }} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-500 dark:hover:bg-rose-950/30" title="删除">✕</button>
+                                </div>
+                            ))}
+                            {/* Sort row */}
+                            {(parsed.filter_params?.filters ?? []).length > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs text-slate-500 dark:text-slate-400">排序：</label>
+                                    <select value={parsed.filter_params?.sort_field ?? 'CHANGE_RATE'} onChange={e => {
+                                        setParsed({ ...parsed, filter_params: { ...(parsed.filter_params!), sort_field: e.target.value } })
+                                    }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 min-w-[140px]">
+                                        {Object.entries(FILTER_FIELDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                                    </select>
+                                    <select value={parsed.filter_params?.sort_dir ?? 'DESC'} onChange={e => {
+                                        setParsed({ ...parsed, filter_params: { ...(parsed.filter_params!), sort_dir: e.target.value } })
+                                    }} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
+                                        <option value="DESC">降序 ↓</option>
+                                        <option value="ASC">升序 ↑</option>
+                                    </select>
+                                </div>
+                            )}
+                            <button onClick={() => {
+                                const prev = parsed.filter_params
+                                const newFilter = { field: 'CHANGE_RATE', min: null, max: null }
+                                setParsed({
+                                    ...parsed,
+                                    filter_params: {
+                                        filters: [...(prev?.filters ?? []), newFilter],
+                                        sort_field: prev?.sort_field ?? 'CHANGE_RATE',
+                                        sort_dir: prev?.sort_dir ?? 'DESC',
+                                    },
+                                })
+                            }} className="flex items-center gap-1 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs text-slate-500 transition hover:border-green-400 hover:text-green-600 dark:border-slate-600 dark:hover:border-green-500 dark:hover:text-green-400">
+                                + 添加条件
+                            </button>
                         </div>
                         {/* Confirm button */}
                         <div className="flex justify-end gap-3 pt-2">
