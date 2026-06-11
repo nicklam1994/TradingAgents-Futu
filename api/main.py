@@ -5932,7 +5932,7 @@ class AutonomousParseRequest(BaseModel):
     """Request to parse a command without executing."""
     command: str = Field(..., description="Natural language trading command")
     budget: Optional[float] = Field(None, description="Total capital override")
-    currency: str = Field("HKD", description="Currency code")
+    currency: Optional[str] = Field(None, description="Currency code (e.g. USD, HKD, CNY); None = let LLM decide")
     strategy_name: Optional[str] = Field(None, description="YAML strategy name")
 
 

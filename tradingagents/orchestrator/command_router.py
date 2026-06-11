@@ -53,6 +53,12 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
     }},
     {{
       "id": "t2",
+      "action": "select",
+      "params": {{"category": "科技", "count": 5}},
+      "depends_on": []
+    }},
+    {{
+      "id": "t3",
       "action": "allocate",
       "params": {{"budget": 20000.0, "currency": "USD"}},
       "depends_on": ["t1"]
@@ -65,11 +71,81 @@ INTENT_PROMPT_ZH = """你是一個量化交易系統的指令路由器。用戶�
 
 ## 規則
 1. 如果用戶提到「閉環」或「end-to-end」，生成 analyze → allocate → execute → observe 完整鏈
-2. 金額解析：「2w」= 20000，「5k」= 5000，「1m」= 1000000
-3. 幣種默認 USD，「港幣」/「HKD」→ HKD，「人民幣」/「RMB」/「CNY」→ CNY
-4. 股票代碼：自動識別 HK.00700、US.AAPL、SH.600519 等格式
-5. 如果未指定股票，action 設為 select（需要 StockSelector 篩選）
-6. mode 默認為 simulate（模擬交易），除非用戶明確要求真實交易
+2. **金額解析**（必須正確提取！）：
+   - 「2w」= 20000，「5k」= 5000，「1m」= 1000000
+   - 「兩萬」= 20000，「五萬」= 50000，「十萬」= 100000，「一百萬」= 1000000
+   - 「2萬」= 20000，「5萬」= 50000，「10萬」= 100000
+   - 「2万」= 20000，「5万」= 50000（簡體）
+   - 「1億」= 100000000
+   - 數字可帶逗號：「50,000」= 50000
+   - 複合寫法：「2w5」= 25000，「1.5w」= 15000
+   - 將解析到的金額放在頂層 "budget" 和 allocate 任務的 params.budget 中
+3. **幣種識別**（必須正確提取！）：
+   - 「美金」/「美元」/「美刀」/「美股」/「USD」/「美」/「usd」→ USD
+   - 「港幣」/「港元」/「港紙」/「港股」/「HKD」/「港」/「hkd」→ HKD
+   - 「人民幣」/「RMB」/「CNY」/「人民币」/「cny」/「rmb」→ CNY
+   - 如果指令中同時出現預算和幣種詞（如「50000港元」），必須同時提取兩者
+   - 默認幣種：USD（僅當用戶未提及任何幣種時使用）
+   - 將幣種放在頂層 "currency" 和 allocate 任務的 params.currency 中
+4. **數量/Top N 提取**（用於 select 操作）：
+   - 「選5支」/「選5隻」/「選5只」/「挑5只」/「篩選5只」→ count: 5
+   - 「top 3」/「前三」/「前3名」→ count: 3
+   - 「選10只港股」→ count: 10，且可在 params 中加入 market: "HK"
+   - 「推薦幾只」/「推薦一些」→ 默認 count: 5
+   - 如果用戶指定了數量，必須放在 select 任務的 params.count 中
+   - 默認 count: 3
+5. 股票代碼：自動識別 HK.00700、US.AAPL、SH.600519 等格式
+6. 如果未指定股票，action 設為 select（需要 StockSelector 篩選）
+7. mode 默認為 simulate（模擬交易），除非用戶明確要求真實交易
+
+## 示例
+
+### 示例 1：「50000港元閉環模擬交易」
+```json
+{{
+  "intent": "以50000港元進行閉環模擬交易",
+  "tasks": [
+    {{"id": "t1", "action": "select", "params": {{}}, "depends_on": []}},
+    {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals", "sentiment"]}}, "depends_on": ["t1"]}},
+    {{"id": "t3", "action": "allocate", "params": {{"budget": 50000.0, "currency": "HKD"}}, "depends_on": ["t2"]}},
+    {{"id": "t4", "action": "execute", "depends_on": ["t3"]}},
+    {{"id": "t5", "action": "observe", "depends_on": ["t4"]}}
+  ],
+  "budget": 50000.0,
+  "currency": "HKD",
+  "mode": "simulate"
+}}
+```
+
+### 示例 2：「2萬美金選5只港股閉環」
+```json
+{{
+  "intent": "以2萬美金篩選5只港股並閉環交易",
+  "tasks": [
+    {{"id": "t1", "action": "select", "params": {{"count": 5, "market": "HK"}}, "depends_on": []}},
+    {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals", "sentiment"]}}, "depends_on": ["t1"]}},
+    {{"id": "t3", "action": "allocate", "params": {{"budget": 20000.0, "currency": "USD"}}, "depends_on": ["t2"]}},
+    {{"id": "t4", "action": "execute", "depends_on": ["t3"]}},
+    {{"id": "t5", "action": "observe", "depends_on": ["t4"]}}
+  ],
+  "budget": 20000.0,
+  "currency": "USD",
+  "mode": "simulate"
+}}
+```
+
+### 示例 3：「選3只科技股分析一下」
+```json
+{{
+  "intent": "篩選3只科技股並進行分析",
+  "tasks": [
+    {{"id": "t1", "action": "select", "params": {{"count": 3, "sector": "technology"}}, "depends_on": []}},
+    {{"id": "t2", "action": "analyze", "params": {{"horizon": "short", "analysts": ["market", "fundamentals"]}}, "depends_on": ["t1"]}}
+  ],
+  "currency": "USD",
+  "mode": "simulate"
+}}
+```
 
 用戶指令：{command}
 """

@@ -110,7 +110,7 @@ def _get_store() -> TaskStore:
 def parse_command(
     command: str,
     budget: Optional[float] = None,
-    currency: str = "HKD",
+    currency: Optional[str] = None,
     strategy_name: Optional[str] = None,
     llm_api_key: Optional[str] = None,
     llm_provider: Optional[str] = None,
@@ -121,6 +121,8 @@ def parse_command(
 
     Returns parsed fields that the user can review and edit before creating the task.
     Does NOT create or start any task.
+
+    Priority: explicit user param > LLM-parsed value > hardcoded default.
     """
     from tradingagents.orchestrator.command_router import CommandRouter
 
@@ -132,14 +134,9 @@ def parse_command(
     )
     dag = router.route(command)
 
-    # Extract parsed values (LLM-parsed take priority over defaults)
-    parsed_budget = budget if budget else (dag.budget or 10000.0)
-    parsed_currency = currency if currency != "HKD" else (dag.currency or currency)
-    # If user specified currency explicitly, use it; otherwise use LLM-parsed
-    if budget is None and dag.budget:
-        parsed_budget = dag.budget
-    if currency == "HKD" and dag.currency and dag.currency != "USD":
-        parsed_currency = dag.currency
+    # Priority: user explicit > LLM parsed > default
+    parsed_budget = budget if budget is not None else (dag.budget or 10000.0)
+    parsed_currency = currency if currency is not None else (dag.currency or "USD")
 
     # Infer market from currency
     market = "HK" if parsed_currency == "HKD" else "US"
@@ -160,7 +157,7 @@ def parse_command(
         if t.get("action") == "select":
             p = t.get("params", {})
             category = p.get("category") or p.get("universe") or p.get("sector") or p.get("criteria") or ""
-            top_n = p.get("count") or p.get("top_n") or 3
+            top_n = p.get("count") or p.get("top_n") or p.get("limit") or p.get("n") or p.get("max_results") or 3
             break
 
     # Build dag_summary for preview

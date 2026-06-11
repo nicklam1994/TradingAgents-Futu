@@ -14,6 +14,7 @@ import {
 
 import { api } from '@/services/api'
 import { formatTime } from '@/utils/formatTime'
+import SymbolTagInput from '@/components/SymbolTagInput'
 import type { AutonomousTask, AutonomousTaskDetail, StrategyPerformance } from '@/types'
 
 export default function Autonomous() {
@@ -298,9 +299,11 @@ export default function Autonomous() {
                             {/* 指定股票 */}
                             <div className="col-span-2 sm:col-span-3 lg:col-span-4">
                                 <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">指定股票（留空则自动选股）</label>
-                                <input type="text" value={parsed.fixed_symbols.join(', ')} onChange={e => setParsed({ ...parsed, fixed_symbols: e.target.value.split(/[,，\s]+/).filter(Boolean) })}
-                                    placeholder="如：HK.00700, HK.09988（逗号分隔）"
-                                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                                <SymbolTagInput
+                                    symbols={parsed.fixed_symbols}
+                                    onChange={symbols => setParsed({ ...parsed, fixed_symbols: symbols })}
+                                    placeholder="输入股票代码，回车添加（如 HK.00700）"
+                                />
                             </div>
                         </div>
                         {/* Confirm button */}
