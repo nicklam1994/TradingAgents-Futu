@@ -432,7 +432,7 @@ class ApiService {
         })
     }
 
-    async parseAutonomousCommand(command: string, budget?: number, currency?: string, strategyName?: string): Promise<{ ok: boolean; data: { command: string; budget: number; currency: string; market: string; fixed_symbols: string[]; top_n: number; max_iterations: number; strategy_name: string; category: string; dag_summary: Array<{ label: string; icon: string }>; available_strategies: string[] } }> {
+    async parseAutonomousCommand(command: string, budget?: number, currency?: string, strategyName?: string): Promise<{ ok: boolean; data: { command: string; budget: number; currency: string; market: string; fixed_symbols: string[]; top_n: number; max_iterations: number; strategy_name: string; category: string; dag_summary: Array<{ label: string; icon: string }>; available_strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }> } }> {
         return this.request('/v1/autonomous/parse', {
             method: 'POST',
             body: JSON.stringify({ command, budget: budget ?? undefined, currency: currency ?? 'HKD', strategy_name: strategyName ?? undefined }),

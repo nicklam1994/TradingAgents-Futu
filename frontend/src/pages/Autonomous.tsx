@@ -45,7 +45,7 @@ export default function Autonomous() {
         fixed_symbols: string[]; top_n: number; max_iterations: number
         strategy_name: string; category: string
         dag_summary: Array<{ label: string; icon: string }>
-        available_strategies: string[]
+        available_strategies: Array<{ name: string; display_name: string; description: string; category: string; default_active: boolean }>
     }>(null)
 
     // Load strategies on mount
@@ -284,8 +284,8 @@ export default function Autonomous() {
                                 <label className="mb-1 block text-xs text-slate-500 dark:text-slate-400">交易策略</label>
                                 <select value={parsed.strategy_name} onChange={e => setParsed({ ...parsed, strategy_name: e.target.value })}
                                     className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
-                                    {(parsed.available_strategies.length > 0 ? parsed.available_strategies : strategies.map(s => s.name)).map(s => (
-                                        <option key={s} value={s}>{strategies.find(x => x.name === s)?.display_name || s}</option>
+                                    {(parsed.available_strategies.length > 0 ? parsed.available_strategies : strategies).map((s: { name: string; display_name: string }) => (
+                                        <option key={s.name} value={s.name}>{s.display_name}</option>
                                     ))}
                                 </select>
                             </div>
