@@ -87,7 +87,7 @@ def refresh_plates(market: str = "HK") -> int:
         count = 0
         with get_db_ctx() as db:
             for _, row in data.iterrows():
-                plate_code = str(row.get("plate_code", ""))
+                plate_code = str(row.get("code", row.get("plate_code", "")))
                 plate_name = str(row.get("plate_name", ""))
                 plate_id = str(row.get("plate_id", ""))
                 if not plate_code:
