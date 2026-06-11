@@ -5993,17 +5993,19 @@ async def autonomous_parse(
                         candidate = auth_service.decrypt_secret(row.api_key_encrypted)
                         if candidate:
                             api_key = candidate
-                            if row.llm_provider:
-                                llm_kwargs["llm_provider"] = row.llm_provider
-                            if row.backend_url:
-                                llm_kwargs["llm_base_url"] = row.backend_url
-                            if row.quick_think_llm:
-                                llm_kwargs["llm_model"] = row.quick_think_llm
+                            user_cfg = row  # Use this row's config
                             break
                     except Exception:
                         continue
             if api_key:
                 llm_kwargs["llm_api_key"] = api_key
+            if user_cfg:
+                if user_cfg.llm_provider:
+                    llm_kwargs["llm_provider"] = user_cfg.llm_provider
+                if user_cfg.backend_url:
+                    llm_kwargs["llm_base_url"] = user_cfg.backend_url
+                if user_cfg.quick_think_llm:
+                    llm_kwargs["llm_model"] = user_cfg.quick_think_llm
 
         result = autonomous_service.parse_command(
             command=req.command,
