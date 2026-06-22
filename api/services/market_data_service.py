@@ -321,12 +321,22 @@ def import_stock_universe() -> int:
 def refresh_all(market: str = "HK") -> dict[str, int]:
     """Run startup refresh: plates + stocks from Futu API.
 
-    Order: plates → stocks
-    stock_universe.json deprecated — all data from Futu.
+    Order: plates → stocks → sync JSON backup.
+    stock_universe.json deprecated as primary source — DB is source of truth.
     """
     logger.info("[market_data] refresh_all market=%s — starting", market)
     plates_count = refresh_plates(market)
     stocks_count = refresh_stocks(market)
+
+    # Sync DB → JSON backup after refresh
+    try:
+        from tradingagents.dataflows.stock_resolver import sync_to_json, reload
+        synced = sync_to_json()
+        reload()  # Reload in-memory index with fresh DB data
+        logger.info("[market_data] sync_to_json done: %d entries", synced)
+    except Exception as e:
+        logger.warning("[market_data] sync_to_json failed: %s", e)
+
     result = {
         "plates": plates_count,
         "stocks": stocks_count,

@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Stock universe resolver — validates tickers against a curated universe of
-US stocks, US ETFs, and HK stocks (35k+ entries sourced from DSA index).
+"""Stock universe resolver — validates tickers against the DB-first stock index.
 
 Provides:
 - ``resolve_ticker(code)`` — check if a ticker exists, return canonical form
 - ``to_futu(code)`` / ``to_yfinance(code)`` / ``to_display(code)`` — format converters
-- Lazy-loaded in-memory index with O(1) lookup
+- Lazy-loaded in-memory index from DB with JSON fallback
 """
 from __future__ import annotations
 
@@ -42,7 +41,54 @@ def _candidate_paths() -> tuple[Path, ...]:
     return (here / _UNIVERSE_FILENAME,)
 
 
+def _load_from_db() -> Dict[str, StockEntry]:
+    """Load all stocks from DB into StockEntry dict."""
+    try:
+        from api.database import SessionLocal, StockDB
+        db = SessionLocal()
+        try:
+            rows = db.query(StockDB.code, StockDB.name).all()
+            result: Dict[str, StockEntry] = {}
+            for code_val, name_val in rows:
+                # Determine market from code suffix
+                code_str = str(code_val)
+                market = "HK" if code_str.endswith(".HK") else "US"
+                entry = StockEntry(
+                    code=code_str,
+                    name=str(name_val or ""),
+                    market=market,
+                    type="stock",
+                )
+                result[code_str] = entry
+            return result
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("[StockUniverse] DB load failed: %s", e)
+        return {}
+
+
+def _load_from_json() -> Dict[str, StockEntry]:
+    """Load stocks from stock_universe.json (fallback/backup)."""
+    for p in _candidate_paths():
+        if p.is_file():
+            with p.open("r", encoding="utf-8") as f:
+                items: list[dict] = json.load(f)
+            result: Dict[str, StockEntry] = {}
+            for item in items:
+                entry = StockEntry(
+                    code=item["code"],
+                    name=item["name"],
+                    market=item["market"],
+                    type=item["type"],
+                )
+                result[entry["code"]] = entry
+            return result
+    return {}
+
+
 def _load() -> Dict[str, StockEntry]:
+    """Load stock index: DB-first, JSON fallback for missing entries."""
     global _INDEX, _INDEX_BY_UPPER, _INDEX_BY_NAME
     if _INDEX is not None:
         return _INDEX
@@ -51,38 +97,36 @@ def _load() -> Dict[str, StockEntry]:
         if _INDEX is not None:
             return _INDEX
 
-        for p in _candidate_paths():
-            if p.is_file():
-                with p.open("r", encoding="utf-8") as f:
-                    items: list[dict] = json.load(f)
-                by_code: Dict[str, StockEntry] = {}
-                by_upper: Dict[str, StockEntry] = {}
-                for item in items:
-                    entry = StockEntry(
-                        code=item["code"],
-                        name=item["name"],
-                        market=item["market"],
-                        type=item["type"],
-                    )
-                    by_code[entry["code"]] = entry
-                    by_upper[entry["code"].upper()] = entry
-                    # Also index by bare ticker without .HK for quick lookup
-                    bare = entry["code"].upper().replace(".HK", "")
-                    if bare not in by_upper:
-                        by_upper[bare] = entry
-                    # Index by stock name (Chinese + English)
-                    if entry.get("name"):
-                        by_upper[entry["name"].upper()] = entry
-                _INDEX = by_code
-                _INDEX_BY_UPPER = by_upper
-                _INDEX_BY_NAME = by_upper
-                logger.info("[StockUniverse] Loaded %d entries from %s", len(by_code), p)
-                return by_code
+        # 1. Load from DB (primary source)
+        db_entries = _load_from_db()
 
-        _INDEX = {}
+        # 2. Load from JSON (fallback for entries not in DB)
+        json_entries = _load_from_json()
+
+        # 3. Merge: DB takes priority
+        merged: Dict[str, StockEntry] = {}
+        merged.update(json_entries)  # JSON as base
+        merged.update(db_entries)    # DB overrides (correct names from Futu)
+
+        _INDEX = merged
         _INDEX_BY_UPPER = {}
-        logger.warning("[StockUniverse] No %s found; resolver disabled", _UNIVERSE_FILENAME)
-        return _INDEX
+        _INDEX_BY_NAME = {}
+
+        for entry in merged.values():
+            _INDEX_BY_UPPER[entry["code"].upper()] = entry
+            # Also index by bare ticker without .HK for quick lookup
+            bare = entry["code"].upper().replace(".HK", "")
+            if bare not in _INDEX_BY_UPPER:
+                _INDEX_BY_UPPER[bare] = entry
+            # Index by stock name (Chinese + English)
+            if entry.get("name"):
+                _INDEX_BY_NAME[entry["name"].upper()] = entry
+
+        logger.info(
+            "[StockUniverse] Loaded %d entries (DB=%d, JSON=%d, merged=%d)",
+            len(merged), len(db_entries), len(json_entries), len(merged),
+        )
+        return merged
 
 
 def _get_by_upper() -> Dict[str, StockEntry]:
@@ -94,6 +138,31 @@ def _get_by_name() -> Dict[str, StockEntry]:
     """Name→entry index (Chinese + English names, uppercase keys)."""
     _load()
     return _INDEX_BY_NAME  # type: ignore[return-type]
+
+
+# ── Sync DB → JSON (backup) ──────────────────────────────────────────────────
+
+def sync_to_json() -> int:
+    """Write current DB stocks back to stock_universe.json as backup.
+
+    Returns number of entries written.
+    """
+    db_entries = _load_from_db()
+    if not db_entries:
+        logger.warning("[StockUniverse] No DB entries to sync")
+        return 0
+
+    path = _candidate_paths()[0]
+    items = [
+        {"code": e["code"], "name": e["name"], "market": e["market"], "type": e["type"]}
+        for e in db_entries.values()
+    ]
+    # Sort by market then code for readability
+    items.sort(key=lambda x: (x["market"], x["code"]))
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=1)
+    logger.info("[StockUniverse] Synced %d entries to %s", len(items), path)
+    return len(items)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -233,30 +302,26 @@ def to_canonical(code: str) -> str:
 
 
 def to_futu(code: str) -> str:
-    """Convert to Futu prefix format: ``US.AAPL`` / ``HK.00700``."""
+    """Convert to Futu format: ``HK.00700``, ``US.AAPL``."""
     entry = resolve_ticker(code)
-    if entry:
-        c = entry["code"]
-        if entry["market"] == "HK":
-            return f"HK.{c.replace('.HK', '')}"
-        return f"US.{c}"
-    # Fallback heuristic
-    s = code.strip().upper()
-    if s.endswith(".HK"):
-        return f"HK.{s[:-3]}"
-    if s.startswith("HK."):
-        return s
-    if s.startswith("US."):
-        return s
-    return f"US.{s}"
+    canonical = entry["code"] if entry else code.strip().upper()
+
+    if canonical.endswith(".HK"):
+        return f"HK.{canonical[:-3]}"
+    if canonical.startswith("US."):
+        return canonical
+    # Bare ticker → assume US
+    return f"US.{canonical}"
 
 
 def to_yfinance(code: str) -> str:
-    """Convert to yfinance format: bare ticker for US, CODE.HK for HK."""
+    """Convert to yfinance format: ``AAPL``, ``0700.HK``."""
     entry = resolve_ticker(code)
-    if entry:
-        return entry["code"]
-    return code.strip().upper()
+    canonical = entry["code"] if entry else code.strip().upper()
+
+    if canonical.endswith(".HK"):
+        return canonical.replace(".HK", ".HK")  # already correct
+    return canonical
 
 
 def to_display(code: str) -> str:
@@ -281,3 +346,15 @@ def to_futu_trade(code: str) -> tuple[str, str]:
 def universe_size() -> int:
     """Return the number of entries in the loaded universe."""
     return len(_load())
+
+
+# ── Cache management ──────────────────────────────────────────────────────────
+
+def reload() -> None:
+    """Force reload from DB + JSON on next access."""
+    global _INDEX, _INDEX_BY_UPPER, _INDEX_BY_NAME
+    with _LOCK:
+        _INDEX = None
+        _INDEX_BY_UPPER = None
+        _INDEX_BY_NAME = None
+    _load()
