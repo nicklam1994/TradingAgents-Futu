@@ -574,23 +574,45 @@ class AutonomousLoop:
             self.pause(task_id)
             return
 
+        # Determine target count from DAG (default 5)
+        # When fixed_symbols exist, DAG count means "additional stocks to screen",
+        # so total target = len(fixed_symbols) + dag_count.
+        dag_count = self._get_select_count_from_dag(config)
+
         if config.fixed_symbols:
-            # Use fixed symbol pool from command
+            # Fixed symbols from user — always include them, then fill
+            # remaining slots from DAG screening.
+            pool = list(config.fixed_symbols)
+            total_target = len(pool) + dag_count  # e.g. 1 fixed + 1 screen = 2
+
+            # Always try to screen additional stocks to fill the gap
+            screened = self._screen_stocks_from_dag(config)
+            if screened:
+                # Append screened stocks that aren't already in fixed pool
+                fixed_set = {s.upper() for s in pool}
+                for sym in screened:
+                    if sym.upper() not in fixed_set:
+                        pool.append(sym)
+                logger.info(
+                    "Task %s: Fixed=%d, screened=%d → combined pool=%d (target=%d)",
+                    task_id, len(config.fixed_symbols), len(screened),
+                    len(pool), total_target,
+                )
+
             candidates = self._selector.select(
-                pool=config.fixed_symbols,
+                pool=pool,
                 budget=config.budget,
-                top_n=len(config.fixed_symbols),
+                top_n=total_target,
             )
             state.candidates = [c.to_dict() for c in candidates]
         else:
             # No fixed pool — use DAG select task to screen stocks via Futu API
             pool = self._screen_stocks_from_dag(config)
             if pool:
-                top_n = self._get_select_count_from_dag(config)
                 candidates = self._selector.select(
                     pool=pool,
                     budget=config.budget,
-                    top_n=top_n,
+                    top_n=dag_count,
                 )
                 state.candidates = [c.to_dict() for c in candidates]
             else:

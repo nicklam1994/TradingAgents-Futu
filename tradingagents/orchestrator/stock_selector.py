@@ -47,6 +47,7 @@ class StockCandidate:
     current_price: Optional[float] = None
     market_cap: Optional[float] = None
     pe_ratio: Optional[float] = None
+    lot_size: int = 0  # Minimum trading lot (HK varies, US=1)
     # Analyst reasoning
     reasoning: Dict[str, str] = field(default_factory=dict)
     # Raw analyst outputs
@@ -219,6 +220,7 @@ class StockSelector:
                         "volume": item.get("volume"),
                         "turnover": item.get("turnover"),
                         "name": item.get("name", ""),
+                        "lot_size": int(item.get("lot_size", 0) or 0),
                     }
             except Exception as e:
                 logger.warning("Batch quote fetch failed: %s", e)
@@ -533,6 +535,7 @@ class StockSelector:
                 current_price=self._safe_float(data.get("price")),
                 market_cap=self._safe_float(data.get("market_cap")),
                 pe_ratio=self._safe_float(data.get("pe_ratio")),
+                lot_size=int(data.get("lot_size", 0) or 0),
                 momentum_score=dim_scores.get("momentum") if dim_scores.get("momentum") is not None else 0.5,
                 fundamental_score=dim_scores.get("fundamental") if dim_scores.get("fundamental") is not None else 0.5,
                 sentiment_score=dim_scores.get("sentiment") if dim_scores.get("sentiment") is not None else 0.5,
@@ -560,21 +563,26 @@ class StockSelector:
     ) -> List[StockCandidate]:
         """Filter candidates that are affordable within budget.
 
-        A stock is affordable if we can buy at least 1 lot (100 shares for
-        HK/CN, 1 share for US) within the budget.
+        A stock is affordable if we can buy at least 1 lot within the budget.
+        Uses actual lot_size from Futu snapshot (HK varies per stock, US=1).
         """
         affordable = []
         for c in candidates:
             if c.current_price is not None and c.current_price > 0:
-                # Determine lot size based on exchange
-                lot_size = 100 if c.symbol.startswith(("HK.", "SH.", "SZ.")) else 1
-                min_cost = c.current_price * lot_size
+                # Use actual lot_size from Futu snapshot; fallback to heuristic
+                if c.lot_size > 0:
+                    lot = c.lot_size
+                elif c.symbol.endswith((".HK", ".SH", ".SZ")):
+                    lot = 100  # HK fallback when snapshot didn't have lot_size
+                else:
+                    lot = 1   # US stocks
+                min_cost = c.current_price * lot
                 if min_cost <= budget:
                     affordable.append(c)
                 else:
-                    logger.debug(
-                        "%s too expensive: min lot cost %.2f > budget %.2f",
-                        c.symbol, min_cost, budget,
+                    logger.info(
+                        "%s filtered: min lot (%d × %.2f = %.0f) > budget %.0f",
+                        c.symbol, lot, c.current_price, min_cost, budget,
                     )
             else:
                 # No price data — include with caveat
