@@ -116,7 +116,7 @@ function RealPerformancePanel() {
                 </div>
                 <MetricCardSimple icon={Wallet} label="持仓市值" value={`$${data.total_market_val.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`} color="blue" />
                 <MetricCardSimple icon={Target} label="持仓数" value={`${data.position_count} 只`} description={`HK ${data.hk_count} / US ${data.us_count}`} color="purple" />
-                <MetricCardSimple icon={Percent} label="持仓胜率" value={`${(data.position_win_rate * 100).toFixed(1)}%`} description={`${data.profitable_count} 盈 / ${data.losing_count} 亏`} color={data.position_win_rate >= 0.5 ? 'green' : 'amber'} />
+                <MetricCardSimple icon={BarChart3} label="持仓盈亏比" value={`${data.total_pl_ratio >= 0 ? '+' : ''}${data.total_pl_ratio.toFixed(2)}%`} description={`成本 $${data.total_cost.toLocaleString('zh-CN', { minimumFractionDigits: 0 })}`} color={data.total_pl_ratio >= 0 ? 'green' : 'amber'} />
             </div>
 
             {/* 港美股市值分布 */}
