@@ -470,7 +470,7 @@ export default function Reports() {
                         <div className="flex items-center gap-2 overflow-x-auto pb-1">
                             {symbolHistory.slice().reverse().map(r => {
                                 const { action: a } = parseDecision(r.decision)
-                                const color = a === 'add' ? 'bg-red-500' : a === 'reduce' ? 'bg-green-500' : 'bg-slate-400'
+                                const color = a === 'add' ? 'bg-emerald-500' : a === 'reduce' ? 'bg-rose-500' : 'bg-slate-400'
                                 const isCurrent = r.id === selectedReport.id
                                 return (
                                     <button

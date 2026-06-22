@@ -153,9 +153,9 @@ export default function Dashboard() {
                     <div className="divide-y divide-slate-100 dark:divide-slate-700">
                         {recentReports.map(report => {
                             const decisionColor = report.decision?.toUpperCase().includes('BUY') || report.decision?.includes('增持')
-                                ? 'text-red-600 dark:text-red-400'
+                                ? 'text-emerald-600 dark:text-emerald-400'
                                 : report.decision?.toUpperCase().includes('SELL') || report.decision?.includes('减持')
-                                    ? 'text-green-600 dark:text-green-400'
+                                    ? 'text-rose-600 dark:text-rose-400'
                                     : 'text-slate-500 dark:text-slate-400'
                             return (
                                 <div
