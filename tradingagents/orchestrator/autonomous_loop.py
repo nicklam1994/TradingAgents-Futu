@@ -65,8 +65,15 @@ class OODAState:
     trade_decisions: List[Dict[str, Any]] = field(default_factory=list)
     # Act phase results
     executions: List[Dict[str, Any]] = field(default_factory=list)
+    # Runtime logs (displayed in frontend)
+    logs: List[str] = field(default_factory=list)
     # Error tracking
     errors: List[str] = field(default_factory=list)
+
+    def log(self, msg: str) -> None:
+        """Append a timestamped log line."""
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
+        self.logs.append(f"[{ts}] {msg}")
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -82,6 +89,7 @@ class OODAState:
             "allocation": self.allocation,
             "trade_decisions": self.trade_decisions,
             "executions": self.executions,
+            "logs": self.logs,
             "errors": self.errors,
         }
 
@@ -394,95 +402,133 @@ class AutonomousLoop:
             iteration=iteration,
             started_at=datetime.now(timezone.utc).isoformat(),
         )
+        state.log(f"🚀 迭代 {iteration}/{config.max_iterations} 开始")
+
+        # Helper: save checkpoint with current logs so frontend can see real-time progress
+        def _save_checkpoint(extra: Optional[Dict[str, Any]] = None):
+            cp: Dict[str, Any] = {
+                "phase": state.phase.value,
+                "iteration": iteration,
+                "state": state.to_dict(),
+            }
+            if extra:
+                cp.update(extra)
+            self._store.save_checkpoint(task_id, cp)
 
         try:
             timeout = config.stage_timeout  # seconds per stage (P1-3)
 
             # ── Observe (P1-4: timeout-protected) ──
+            state.log("📡 Observe: 获取市场数据…")
+            _save_checkpoint()
             try:
                 await asyncio.wait_for(
                     asyncio.to_thread(self._phase_observe, task_id, config, state),
                     timeout=timeout,
                 )
+                state.log(f"✅ Observe 完成: {len(state.market_data)} 只股票数据")
             except asyncio.TimeoutError:
                 logger.warning(
                     "Task %s iteration %d: Observe stage timed out after %ds — skipping",
                     task_id, iteration, timeout,
                 )
                 state.errors.append(f"Observe timed out ({timeout}s)")
+                state.log(f"❌ Observe 超时 ({timeout}s)")
+            _save_checkpoint()
 
             # ── Orient (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.ORIENT
+                state.log("🧭 Orient: 选股与预算筛选…")
+                _save_checkpoint()
                 try:
                     await asyncio.wait_for(
                         asyncio.to_thread(self._phase_orient, task_id, config, state),
                         timeout=timeout,
                     )
+                    cand_names = [c.get("symbol", "?") for c in state.candidates]
+                    state.log(f"✅ Orient 完成: 候选 {cand_names}")
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Task %s iteration %d: Orient stage timed out after %ds — skipping",
                         task_id, iteration, timeout,
                     )
                     state.errors.append(f"Orient timed out ({timeout}s)")
+                    state.log(f"❌ Orient 超时 ({timeout}s)")
+                _save_checkpoint()
 
             # ── Analyze (Disconnection #4: TradingGraph multi-agent) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.ANALYZE
+                symbols = [c.get("symbol", "?") for c in state.candidates]
+                state.log(f"🔬 Analyze: TradingGraph 分析 {symbols}…")
+                _save_checkpoint()
+                analyze_timeout = max(timeout * 3, 600)
                 try:
                     # propagate_async is truly async — call directly with await
-                    analyze_timeout = max(timeout * 3, 600)
                     await asyncio.wait_for(
                         self._phase_analyze(task_id, config, state),
                         timeout=analyze_timeout,
                     )
+                    state.log(f"✅ Analyze 完成: {len(state.analysis_reports)} 份报告")
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Task %s iteration %d: Analyze stage timed out after %ds — skipping",
                         task_id, iteration, analyze_timeout,
                     )
                     state.errors.append(f"Analyze timed out ({analyze_timeout}s)")
+                    state.log(f"❌ Analyze 超时 ({analyze_timeout}s)")
+                _save_checkpoint()
 
             # ── Decide (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.DECIDE
+                state.log("🎯 Decide: 制定交易决策…")
+                _save_checkpoint()
                 try:
                     await asyncio.wait_for(
                         asyncio.to_thread(self._phase_decide, task_id, config, state),
                         timeout=timeout,
                     )
+                    decisions = [f"{d.get('symbol','?')} {d.get('action','?')}" for d in state.trade_decisions]
+                    state.log(f"✅ Decide 完成: {decisions}")
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Task %s iteration %d: Decide stage timed out after %ds — skipping",
                         task_id, iteration, timeout,
                     )
                     state.errors.append(f"Decide timed out ({timeout}s)")
+                    state.log(f"❌ Decide 超时 ({timeout}s)")
+                _save_checkpoint()
 
             # ── Act (P1-4: timeout-protected) ──
             if self._should_continue(task_id):
                 state.phase = OODAPhase.ACT
+                state.log("⚡ Act: 执行交易…")
+                _save_checkpoint()
                 try:
                     await asyncio.wait_for(
                         asyncio.to_thread(self._phase_act, task_id, config, state),
                         timeout=timeout,
                     )
+                    execs = [f"{e.get('symbol','?')} {e.get('action','?')} qty={e.get('quantity',0)}" for e in state.executions]
+                    state.log(f"✅ Act 完成: {execs}")
                 except asyncio.TimeoutError:
                     logger.warning(
                         "Task %s iteration %d: Act stage timed out after %ds — skipping",
                         task_id, iteration, timeout,
                     )
                     state.errors.append(f"Act timed out ({timeout}s)")
+                    state.log(f"❌ Act 超时 ({timeout}s)")
+                _save_checkpoint()
 
             # Update progress
             progress = iteration / config.max_iterations
             self._store.update(task_id, progress=progress)
+            state.log(f"🏁 迭代 {iteration} 完成 (进度 {progress:.0%})")
 
-            # Save checkpoint
-            self._store.save_checkpoint(task_id, {
-                "phase": state.phase.value,
-                "iteration": iteration,
-                "state": state.to_dict(),
-            })
+            # Save final checkpoint
+            _save_checkpoint()
 
             # Notify callback
             if self._on_iteration:
@@ -1120,6 +1166,7 @@ class AutonomousLoop:
 
         if not state.candidates:
             logger.info("Task %s: No candidates to analyze", task_id)
+            state.log("⚠️ 无候选股票，跳过分析")
             return
 
         # Take top N candidates (default 3)
@@ -1154,6 +1201,7 @@ class AutonomousLoop:
             logger.info(
                 "Analyzing %s with TradingGraph (%d/%d)", symbol, i, total
             )
+            state.log(f"  📊 分析 {symbol} ({i}/{total})…")
 
             try:
                 # Build config reusing the loop's LLM settings
@@ -1204,12 +1252,14 @@ class AutonomousLoop:
                     "Task %s: %s → %s (confidence=%.2f)",
                     task_id, symbol, signal, confidence,
                 )
+                state.log(f"  📈 {symbol} → {signal} (置信度 {confidence:.0%})")
 
             except Exception as e:
                 logger.error(
                     "Task %s: TradingGraph failed for %s: %s",
                     task_id, symbol, e, exc_info=True,
                 )
+                state.log(f"  ❌ {symbol} 分析失败: {e}")
                 error_report = {
                     "symbol": symbol,
                     "verdict": "HOLD",
@@ -1227,6 +1277,7 @@ class AutonomousLoop:
 
         if not state.candidates:
             logger.info("Task %s: No candidates to allocate", task_id)
+            state.log("⚠️ 无候选股票，跳过决策")
             return
 
         # ── Disconnection #4: Merge TradingGraph verdicts into candidates ──
@@ -1280,6 +1331,10 @@ class AutonomousLoop:
         )
         state.allocation = allocation.to_dict()
 
+        # Log allocation summary
+        alloc_count = sum(1 for a in allocation.allocations if a.shares > 0)
+        state.log(f"💰 资金分配: {alloc_count} 只股票获得配置")
+
         # Build trade decisions from allocation
         for alloc in allocation.allocations:
             if alloc.shares > 0:
@@ -1299,6 +1354,7 @@ class AutonomousLoop:
 
         if not state.trade_decisions:
             logger.info("Task %s: No trade decisions to execute", task_id)
+            state.log("ℹ️ 无交易决策，跳过执行")
             return
 
         # Execute trades via SimExecutor (if in simulate mode)
@@ -1325,6 +1381,12 @@ class AutonomousLoop:
                         "price": result.price,
                         "reason": result.reason,
                     })
+
+                    # Log execution result
+                    if result.action_taken == "executed":
+                        state.log(f"  ✅ {decision['symbol']} {decision['action']} {result.quantity}股 @ {result.price}")
+                    else:
+                        state.log(f"  ⏭️ {decision['symbol']} 跳过: {result.reason}")
 
                     # ── L7: Auto-reflect on each executed trade ──
                     if result.action_taken in ("buy", "sell"):
