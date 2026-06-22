@@ -5892,6 +5892,21 @@ def sim_performance(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+# ── Real Account Performance endpoint ─────────────────────────────────────
+
+@app.get("/v1/real/performance")
+def real_performance(
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict[str, Any]:
+    """Return real account performance metrics from Futu position snapshots."""
+    try:
+        from api.services.real_performance_service import get_real_performance
+        return get_real_performance()
+    except Exception as e:
+        logger.error(f"real_performance error: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 # ── Sim Trade Reflection endpoint (Phase 7.8) ──────────────────────────────
 
 # Module-level cached SimTradeReflector instance (preserves BM25 memory across requests)

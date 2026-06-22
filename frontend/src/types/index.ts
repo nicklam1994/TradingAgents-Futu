@@ -800,6 +800,36 @@ export interface SimPerformance {
     trade_count: number
 }
 
+export interface RealPositionMetric {
+    code: string
+    name: string
+    qty: number
+    cost_price: number
+    current_price: number
+    market_val: number
+    pl_val: number
+    pl_ratio: number
+    is_profitable: boolean
+}
+
+export interface RealPerformance {
+    total_market_val: number
+    total_cost: number
+    total_pl_val: number
+    total_pl_ratio: number
+    position_count: number
+    profitable_count: number
+    losing_count: number
+    win_rate: number
+    hk_pl_val: number
+    us_pl_val: number
+    hk_count: number
+    us_count: number
+    best_position: RealPositionMetric | null
+    worst_position: RealPositionMetric | null
+    positions: RealPositionMetric[]
+}
+
 // ─── Autonomous Task Types (Phase 9) ─────────────────────────────────────
 
 export interface AutonomousTask {

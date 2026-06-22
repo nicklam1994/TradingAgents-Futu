@@ -1,6 +1,6 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse,
     WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse,
-    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance } from '@/types'
+    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, RealPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -399,6 +399,10 @@ class ApiService {
 
     async getSimPerformance(): Promise<{ ok: boolean; data: SimPerformance }> {
         return this.request('/v1/sim/performance')
+    }
+
+    async getRealPerformance(): Promise<{ ok: boolean; data: RealPerformance }> {
+        return this.request('/v1/real/performance')
     }
 
     // ─── Autonomous Task API (Phase 9) ────────────────────────────────────
