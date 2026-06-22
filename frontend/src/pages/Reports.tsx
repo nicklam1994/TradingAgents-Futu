@@ -33,8 +33,8 @@ const parseDecision = (decisionText?: string): { action: 'add' | 'reduce' | 'hol
 
 const getDecisionColor = (decision?: string) => {
     const { action } = parseDecision(decision)
-    if (action === 'add') return 'text-red-600 dark:text-red-400'
-    if (action === 'reduce') return 'text-green-600 dark:text-green-400'
+    if (action === 'add') return 'text-emerald-600 dark:text-emerald-400'
+    if (action === 'reduce') return 'text-rose-600 dark:text-rose-400'
     return 'text-slate-600 dark:text-slate-400'
 }
 

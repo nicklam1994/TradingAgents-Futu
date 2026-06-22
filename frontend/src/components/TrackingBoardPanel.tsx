@@ -247,7 +247,7 @@ export default function TrackingBoardPanel() {
                             {(() => {
                                 const todayPnl = trackingItems.reduce((s, i) => s + (i.today_pl_val ?? 0), 0)
                                 return todayPnl !== 0 ? (
-                                    <span className={`text-xs font-semibold ${todayPnl >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                    <span className={`text-xs font-semibold ${todayPnl >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                         今日 {todayPnl >= 0 ? '+' : ''}{fmtNum(todayPnl)}
                                     </span>
                                 ) : null
@@ -485,9 +485,9 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
     const priceColor = priceChangePct == null
         ? 'text-slate-800 dark:text-slate-200'
         : isUp
-            ? 'text-rose-600 dark:text-rose-400'
-            : 'text-emerald-600 dark:text-emerald-400'
-    const pnlColor = (item.floating_pnl ?? 0) >= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-rose-600 dark:text-rose-400'
+    const pnlColor = (item.floating_pnl ?? 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
     
     // Market value = live_price * qty, cost value = average_cost * qty
     const marketValue = item.live_price && item.current_position ? item.live_price * item.current_position : item.market_value ?? null
@@ -529,8 +529,8 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                     priceChangePct == null
                         ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
                         : isUp
-                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
-                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                            : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
                 }`}>
                     {formatSignedPercent(priceChangePct)}
                 </span>
@@ -694,14 +694,14 @@ function DetailedTrackingRow({
 
     let decisionToneClass = 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
     if (decisionText.includes('BUY') || directionText.includes('增持')) {
-        decisionToneClass = 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
-    } else if (decisionText.includes('SELL') || directionText.includes('减持')) {
         decisionToneClass = 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+    } else if (decisionText.includes('SELL') || directionText.includes('减持')) {
+        decisionToneClass = 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
     }
 
     let floatingClass = 'text-slate-900 dark:text-slate-100'
     if (floatingPnl != null) {
-        floatingClass = floatingPnl >= 0 ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-300'
+        floatingClass = floatingPnl >= 0 ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'
     }
 
     return (
@@ -738,8 +738,8 @@ function DetailedTrackingRow({
                                 priceChangePct == null
                                     ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
                                     : priceChangePct >= 0
-                                        ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
-                                        : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                        ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                        : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
                             }`}>
                                 {priceChangePct == null ? (
                                     <RefreshCw className="h-3.5 w-3.5" />
@@ -832,13 +832,13 @@ function DetailedTrackingRow({
                                     floatingPnl == null
                                         ? 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
                                         : floatingPnl >= 0
-                                            ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
-                                            : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                            ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300'
+                                            : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300'
                                 }`}>
                                     {formatSignedPercent(item.floating_pnl_pct)}
                                 </div>
                                 {item.today_pl_val != null && item.today_pl_val !== 0 && (
-                                    <span className={`text-xs font-semibold ${item.today_pl_val >= 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                    <span className={`text-xs font-semibold ${item.today_pl_val >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                         今日 {item.today_pl_val >= 0 ? '+' : ''}{formatAmount(item.today_pl_val)}
                                     </span>
                                 )}

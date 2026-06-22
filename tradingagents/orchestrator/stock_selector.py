@@ -213,6 +213,14 @@ class StockSelector:
                 quotes = list(reader)
                 for item in quotes:
                     sym = item.get("symbol", "")
+                    sec_status = str(item.get("sec_status", "") or "")
+                    # Skip non-tradable stocks (pre-IPO, dark trade, suspended)
+                    if sec_status and sec_status != "NORMAL":
+                        logger.info(
+                            "%s skipped: sec_status=%s (not NORMAL)",
+                            sym, sec_status,
+                        )
+                        continue
                     data[sym] = {
                         "price": item.get("last_price") or item.get("price"),
                         "market_cap": item.get("market_val"),

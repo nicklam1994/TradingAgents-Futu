@@ -280,9 +280,9 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
                         <h2 className="truncate text-lg font-semibold text-slate-900 dark:text-slate-100">{getDisplayName(symbol)} K线</h2>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                             <span className="text-slate-500 dark:text-slate-400">{panelCandle?.date || '--'}</span>
-                            <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>收盘 {formatNumber(panelCandle?.close)}</span>
+                            <span className={`font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>收盘 {formatNumber(panelCandle?.close)}</span>
                             <span className="text-slate-500 dark:text-slate-400">开盘 {formatNumber(panelCandle?.open)}</span>
-                            <span className={`font-medium ${isUp ? 'text-red-500' : 'text-emerald-500'}`}>{compactChangePercent}</span>
+                            <span className={`font-medium ${isUp ? 'text-emerald-500' : 'text-red-500'}`}>{compactChangePercent}</span>
                             <span className="text-slate-500 dark:text-slate-400">高/低 {formatNumber(panelCandle?.high)} / {formatNumber(panelCandle?.low)}</span>
                             <span className="text-slate-500 dark:text-slate-400">量 {formatVolume(panelCandle?.volume)}</span>
                             <span className="text-slate-500 dark:text-slate-400">换手 {panelCandle?.turnover_rate == null ? '--' : `${formatNumber(panelCandle.turnover_rate)}%`}</span>
