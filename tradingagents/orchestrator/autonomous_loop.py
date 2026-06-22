@@ -797,6 +797,7 @@ class AutonomousLoop:
         horizon = "short"
         top_n = 5
         filter_params = None
+        plate_keywords = []
         if config.dag:
             for task in config.dag.get("tasks", []):
                 if task.get("action") == "select":
@@ -806,6 +807,10 @@ class AutonomousLoop:
                     horizon = params.get("horizon", "short")
                     top_n = params.get("count", params.get("top_n", 5))
                     filter_params = params.get("filter_params")
+                    # LLM-provided plate keywords for semantic sector matching
+                    pk = params.get("plate_keywords", [])
+                    if isinstance(pk, list) and pk:
+                        plate_keywords = pk
                     # Infer market from category
                     cat_lower = category.lower()
                     if "hk" in cat_lower or "港股" in cat_lower:
@@ -815,8 +820,8 @@ class AutonomousLoop:
                     break
 
         logger.info(
-            "Task: Screening stocks — market=%s, category='%s', horizon=%s, has_filter_params=%s",
-            market, category, horizon, bool(filter_params),
+            "Task: Screening stocks — market=%s, category='%s', plate_keywords=%s, horizon=%s, has_filter_params=%s",
+            market, category, plate_keywords, horizon, bool(filter_params),
         )
 
         # ── Path A: Structured filter_params → get_stock_filter ────────
@@ -844,11 +849,16 @@ class AutonomousLoop:
             mkt = {"HK": "HK", "US": "US"}.get(market, "US")
 
             # Find matching plates from DB
+            # Priority: plate_keywords (LLM semantic match) > category (substring)
             db_plates = get_plates_from_db(mkt)
             matched_plates = []
+            search_terms = plate_keywords if plate_keywords else ([category] if category else [])
             for p in db_plates:
-                if category in p.get("name", ""):
-                    matched_plates.append(p["code"])
+                plate_name = p.get("name", "")
+                for term in search_terms:
+                    if term in plate_name:
+                        matched_plates.append(p["code"])
+                        break
 
             if matched_plates:
                 all_symbols = set()
@@ -888,12 +898,16 @@ class AutonomousLoop:
                     return []
 
                 # Step 2: Find matching sector plates by direct substring match
+                # Priority: plate_keywords (LLM semantic match) > category (substring)
                 matched_plates = []
+                search_terms = plate_keywords if plate_keywords else ([category] if category else [])
                 for _, row in plates.iterrows():
                     plate_name = row.get("plate_name", "")
-                    if category in plate_name:
-                        matched_plates.append(row["code"])
-                        logger.info("Matched plate: %s (%s)", plate_name, row["code"])
+                    for term in search_terms:
+                        if term in plate_name:
+                            matched_plates.append(row["code"])
+                            logger.info("Matched plate: %s (%s)", plate_name, row["code"])
+                            break
 
                 if not matched_plates:
                     # Fallback: use top plates by name similarity

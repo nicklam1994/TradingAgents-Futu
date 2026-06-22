@@ -410,11 +410,66 @@ class CommandRouter:
             return self._fallback_dag(command)
 
     def _build_prompt(self, command: str) -> str:
-        """Build the appropriate language prompt with strategy context."""
+        """Build the appropriate language prompt with strategy context and plate list."""
         base = INTENT_PROMPT_ZH.format(command=command) if self._language == "zh" else INTENT_PROMPT_EN.format(command=command)
         if self._strategy_instructions:
             base += f"\n\n## 当前交易策略指引\n\n{self._strategy_instructions}\n\n请根据上述策略指引来理解和分解用户的交易指令。"
+
+        # Inject available plates from DB so LLM can do semantic matching
+        plate_section = self._build_plate_section()
+        if plate_section:
+            base += plate_section
+
         return base
+
+    def _build_plate_section(self) -> str:
+        """Read plates from DB and build a prompt section for sector/plate matching."""
+        try:
+            import sqlite3
+            db_path = os.path.join(os.path.dirname(__file__), "../../tradingagents.db")
+            if not os.path.exists(db_path):
+                return ""
+
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT code, name, market FROM plates WHERE code LIKE 'HK.LIST%' OR code LIKE 'US.LIST%' ORDER BY market, name"
+            ).fetchall()
+            conn.close()
+
+            if not rows:
+                return ""
+
+            hk_plates = [r["name"] for r in rows if r["market"] == "HK"]
+            us_plates = [r["name"] for r in rows if r["market"] == "US"]
+
+            section = "\n\n## 可用板块列表（用于 select 操作的 plate_keywords）\n\n"
+            section += "**港股板块**：" + "、".join(hk_plates) + "\n\n"
+            section += "**美股板块**：" + "、".join(us_plates) + "\n\n"
+            section += """### 板块匹配规则
+当用户提到板块/行业概念时，你需要从上述列表中选择最相关的板块名称，放入 select 任务的 `params.plate_keywords` 数组中。
+- 「AI」/「人工智能」→ 匹配：半导体、应用软件、互联网服务及基础设施、软件基础设施、信息技术服务、计算机硬件、电子元件
+- 「科技」→ 匹配：半导体、应用软件、互联网服务及基础设施、软件基础设施、信息技术服务、计算机硬件、消费电子产品、电子元件
+- 「芯片」→ 匹配：半导体、半导体设备与材料
+- 「新能源」→ 匹配：太阳能、可再生能源公用事业、电气设备及零件
+- 「电动车」→ 匹配：汽车制造、汽车零件
+- 「医药」→ 匹配：生物技术、医疗设备、药品制造商
+- 「互联网」→ 匹配：互联网服务及基础设施、互联网内容与信息、互联网零售
+- 「消费」→ 匹配：百货公司、服装零售、食品
+- 「金融」→ 匹配：银行、保险、资产管理、资本市场
+- 「地产」→ 匹配：地产发展商、地产投资、REITs
+- 如果用户直接说了板块名（如「半导体」），直接用该名称
+- plate_keywords 必须是上述列表中存在的板块名称（精确匹配）
+
+### select 操作输出格式示例（带板块筛选）
+```json
+{{"id": "t1", "action": "select", "params": {{"count": 5, "market": "HK", "plate_keywords": ["半导体", "应用软件", "互联网服务及基础设施"], "filter_params": {{"filters": [{{"field": "MARKET_VAL", "min": 1000000000, "max": null}}], "sort_field": "TURNOVER", "sort_dir": "DESC"}}}}}, "depends_on": []}}
+```
+"""
+            return section
+        except Exception as e:
+            logger.warning("Failed to build plate section: %s", e)
+            return ""
 
     def _parse_response(self, response: str, original_command: str) -> CommandDAG:
         """Parse LLM JSON response into CommandDAG.
