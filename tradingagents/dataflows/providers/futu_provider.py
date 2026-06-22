@@ -7,7 +7,7 @@ Configure via FUTU_OPEND_HOST / FUTU_OPEND_PORT environment variables.
 import json
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -243,6 +243,100 @@ class FutuProvider(BaseMarketDataProvider):
             return header + df.to_csv(index=False)
         finally:
             ctx.close()
+
+    # ── 1.3b get_panel_data — 多股票 panel 格式（Alpha Zoo 用） ──
+
+    def get_panel_data(
+        self,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        autype: Optional[str] = "qfq",
+    ) -> "Dict[str, pd.DataFrame]":
+        """Fetch OHLCV data for multiple symbols and return as panel dict.
+
+        Panel format (Alpha Zoo standard):
+            {
+                "open":   DataFrame(index=DatetimeIndex, columns=symbol),
+                "high":   DataFrame(index=DatetimeIndex, columns=symbol),
+                "low":    DataFrame(index=DatetimeIndex, columns=symbol),
+                "close":  DataFrame(index=DatetimeIndex, columns=symbol),
+                "volume": DataFrame(index=DatetimeIndex, columns=symbol),
+            }
+
+        Args:
+            symbols: List of stock symbols (e.g., ["HK.00700", "AAPL"]).
+            start_date: Start date in YYYY-MM-DD format.
+            end_date: End date in YYYY-MM-DD format.
+            autype: Adjustment type (default "qfq" for forward adjustment).
+
+        Returns:
+            Panel dict with OHLCV DataFrames. Missing symbols are silently skipped.
+        """
+        from futu import KLType, RET_OK, AuType
+
+        autype_map = {
+            None: AuType.NONE,
+            "qfq": AuType.QFQ,
+            "hfq": AuType.HFQ,
+            "NONE": AuType.NONE,
+            "QFQ": AuType.QFQ,
+            "HFQ": AuType.HFQ,
+        }
+        futu_autype = autype_map.get(autype, AuType.NONE)
+
+        # Collect per-symbol DataFrames
+        frames: Dict[str, pd.DataFrame] = {}
+        ctx = self._get_quote_ctx()
+        try:
+            for symbol in symbols:
+                try:
+                    market, code = self._to_futu_code(symbol)
+                    ret, data, _ = ctx.request_history_kline(
+                        self._full_code(market, code),
+                        start=start_date,
+                        end=end_date,
+                        ktype=KLType.K_DAY,
+                        autype=futu_autype,
+                        max_count=10_000,
+                    )
+                    if ret != RET_OK or data is None or data.empty:
+                        continue
+
+                    df = data.rename(columns={
+                        "time_key": "Date",
+                        "open": "open",
+                        "high": "high",
+                        "low": "low",
+                        "close": "close",
+                        "volume": "volume",
+                    })
+                    df["Date"] = pd.to_datetime(df["Date"])
+                    df = df.set_index("Date").sort_index()
+                    # Use canonical symbol as column key
+                    canonical = symbol.replace("HK.", "").replace("US.", "")
+                    if symbol.startswith("HK.") or self._to_futu_code(symbol)[0].name == "HK":
+                        canonical = f"{canonical}.HK" if not canonical.endswith(".HK") else canonical
+                    elif symbol.startswith("US.") or not canonical.endswith(".HK"):
+                        canonical = f"{canonical}" if not canonical.endswith(".US") else canonical
+                    frames[canonical] = df[["open", "high", "low", "close", "volume"]].astype(float)
+                except Exception as e:
+                    logger.debug("Panel data fetch failed for %s: %s", symbol, e)
+                    continue
+        finally:
+            ctx.close()
+
+        if not frames:
+            return {}
+
+        # Pivot into panel format
+        panel: Dict[str, pd.DataFrame] = {}
+        for col in ("open", "high", "low", "close", "volume"):
+            panel[col] = pd.DataFrame(
+                {sym: frames[sym][col] for sym in frames},
+                index=frames[list(frames.keys())[0]].index,
+            )
+        return panel
 
     # ── 1.4 get_indicators — 技术指标 ──
 

@@ -41,6 +41,7 @@ class StockCandidate:
     fundamental_score: float = 0.0
     sentiment_score: float = 0.0
     volume_score: float = 0.0
+    alpha_score: float = 0.0  # Alpha Zoo quantitative factor score
     # Composite score (weighted average)
     composite_score: float = 0.0
     # Market data snapshot
@@ -61,6 +62,7 @@ class StockCandidate:
             "fundamental_score": round(self.fundamental_score, 4),
             "sentiment_score": round(self.sentiment_score, 4),
             "volume_score": round(self.volume_score, 4),
+            "alpha_score": round(self.alpha_score, 4),
             "composite_score": round(self.composite_score, 4),
             "current_price": self.current_price,
             "market_cap": self.market_cap,
@@ -72,21 +74,23 @@ class StockCandidate:
 # ── Dimension weights (configurable) ──────────────────────────────────────
 
 DEFAULT_WEIGHTS = {
-    "momentum": 0.35,
-    "fundamental": 0.30,
-    "sentiment": 0.20,
-    "volume": 0.15,
+    "momentum": 0.28,
+    "fundamental": 0.24,
+    "sentiment": 0.16,
+    "volume": 0.12,
+    "alpha": 0.20,
 }
 
 
 class StockSelector:
     """Multi-dimensional stock screener.
 
-    Evaluates a pool of stocks across 4 dimensions:
+    Evaluates a pool of stocks across 5 dimensions:
     1. Momentum: price trends, RSI, MACD, moving averages
     2. Fundamental: PE, PB, ROE, revenue growth, earnings
     3. Sentiment: news sentiment, social media buzz, insider transactions
     4. Volume: trading volume trends, fund flow, board turnover
+    5. Alpha: quantitative factor scores from Alpha Zoo (50+ pre-built factors)
 
     Each dimension uses the appropriate analyst agent from the tradingagents
     pipeline, running them in parallel for efficiency.
@@ -162,11 +166,14 @@ class StockSelector:
             logger.warning("Empty stock pool — returning no candidates")
             return []
 
-        dims = dimensions or ["momentum", "fundamental", "sentiment", "volume"]
+        dims = dimensions or ["momentum", "fundamental", "sentiment", "volume", "alpha"]
         logger.info(
             "Selecting top %d from %d candidates, dimensions=%s, budget=%.0f",
             top_n, len(pool), dims, budget,
         )
+
+        # Store pool for cross-sectional alpha computation
+        self._last_pool = pool
 
         # Phase 1: Fetch market data for all candidates
         market_data = self._fetch_market_data(pool)
@@ -261,6 +268,7 @@ class StockSelector:
             "fundamental": self._analyze_fundamental,
             "sentiment": self._analyze_sentiment,
             "volume": self._analyze_volume,
+            "alpha": self._analyze_alpha,
         }
 
         tasks = []
@@ -513,6 +521,88 @@ class StockSelector:
 
         return min(1.0, score), f"Volume={volume}, Turnover={turnover}"
 
+    def _analyze_alpha(
+        self, symbol: str, data: Dict[str, Any]
+    ) -> Tuple[Optional[float], str]:
+        """Analyze quantitative factors from Alpha Zoo.
+
+        Computes IC (Information Coefficient) across 50 pre-built factors
+        for the given symbol, using a cross-sectional panel of all pool stocks.
+        Falls back to None when insufficient data is available.
+
+        Returns:
+            (score, reasoning_text) tuple — score in 0.0–1.0 range,
+            or (None, reason) when no data is available.
+        """
+        try:
+            from datetime import datetime, timedelta
+            from tradingagents.factors.registry import get_default_registry, SkipAlpha
+
+            registry = get_default_registry()
+            if registry.health()["loaded"] == 0:
+                return None, "Alpha Zoo: no factors loaded"
+
+            # Build panel from all pool stocks (cross-sectional)
+            # We need at least 3 stocks for meaningful cross-sectional ranking
+            # Use FutuProvider.get_panel_data() if available
+            try:
+                from tradingagents.dataflows.providers.futu_provider import FutuProvider
+                provider = FutuProvider()
+                end_date = datetime.now().strftime("%Y-%m-%d")
+                start_date = (datetime.now() - timedelta(days=120)).strftime("%Y-%m-%d")
+
+                # Get panel for all stocks in the pool (stored in _last_pool)
+                pool = getattr(self, '_last_pool', [symbol])
+                panel = provider.get_panel_data(pool, start_date, end_date)
+                if not panel or "close" not in panel:
+                    return None, f"Alpha Zoo: no panel data for {symbol}"
+
+                # Check symbol is in the panel
+                close_df = panel["close"]
+                if symbol not in close_df.columns:
+                    # Try without exchange suffix
+                    alt_sym = symbol.split(".")[0] if "." in symbol else symbol
+                    if alt_sym not in close_df.columns:
+                        return None, f"Alpha Zoo: {symbol} not in panel"
+                    symbol_key = alt_sym
+                else:
+                    symbol_key = symbol
+
+                # Compute forward returns (1-day)
+                forward_returns = close_df.pct_change().shift(-1)
+
+                # Compute IC for each factor, take mean
+                ic_scores = []
+                factor_ids = registry.list()
+                for fid in factor_ids:
+                    try:
+                        ic = registry.compute_ic(fid, panel, forward_returns)
+                        if not np.isnan(ic):
+                            ic_scores.append(ic)
+                    except (SkipAlpha, Exception):
+                        continue
+
+                if not ic_scores:
+                    return None, f"Alpha Zoo: no valid IC for {symbol}"
+
+                # Convert mean IC to 0-1 score
+                # IC typically ranges from -0.1 to 0.1; map to 0-1
+                mean_ic = float(np.mean(ic_scores))
+                # Normalize: IC=0 → 0.5, IC=0.05 → 0.75, IC=-0.05 → 0.25
+                score = max(0.0, min(1.0, 0.5 + mean_ic * 10))
+
+                n_factors = len(ic_scores)
+                positive_ratio = sum(1 for ic in ic_scores if ic > 0) / n_factors
+                return score, f"Alpha Zoo: mean_IC={mean_ic:.4f}, n={n_factors}, positive={positive_ratio:.0%}"
+
+            except Exception as e:
+                logger.debug("Alpha panel computation failed for %s: %s", symbol, e)
+                return None, f"Alpha Zoo: computation failed for {symbol}: {e}"
+
+        except Exception as e:
+            logger.debug("Alpha Zoo fallback for %s: %s", symbol, e)
+            return None, f"Alpha Zoo unavailable for {symbol}: {e}"
+
     @staticmethod
     def _safe_float(val: Any) -> Optional[float]:
         """Convert a value to float, returning None on failure."""
@@ -548,6 +638,7 @@ class StockSelector:
                 fundamental_score=dim_scores.get("fundamental") if dim_scores.get("fundamental") is not None else 0.5,
                 sentiment_score=dim_scores.get("sentiment") if dim_scores.get("sentiment") is not None else 0.5,
                 volume_score=dim_scores.get("volume") if dim_scores.get("volume") is not None else 0.5,
+                alpha_score=dim_scores.get("alpha") or 0.5,
             )
 
             # Weighted composite score
