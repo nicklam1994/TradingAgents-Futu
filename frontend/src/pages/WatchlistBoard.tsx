@@ -422,7 +422,7 @@ function WatchlistRow({ item }: {
 }) {
     const pct = item.price_change_pct ?? null
     const isUp = (pct ?? 0) >= 0
-    const priceColor = pct == null ? 'text-slate-800 dark:text-slate-200' : isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+    const priceColor = pct == null ? 'text-slate-800 dark:text-slate-200' : isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
 
     // 价格变动闪光
     const prevPriceRef = useRef<number | null>(null)
@@ -466,13 +466,13 @@ function WatchlistRow({ item }: {
             <div className="self-center text-center">
                 <span className={`inline-flex min-w-[80px] items-center justify-center rounded-full px-2.5 py-1.5 text-base font-semibold ${
                     pct == null ? 'bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500'
-                    : isUp ? 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
-                    : 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                    : isUp ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400'
+                    : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
                 }`}>{fmtPct(pct)}</span>
                 <div className={`mt-1 text-xs font-bold ${
                     pct == null ? 'text-slate-400 dark:text-slate-500'
-                    : isUp ? 'text-rose-500 dark:text-rose-400'
-                    : 'text-emerald-500 dark:text-emerald-400'
+                    : isUp ? 'text-emerald-500 dark:text-emerald-400'
+                    : 'text-rose-500 dark:text-rose-400'
                 }`}>
                     {fmtSignedPrice(item.price_change)}
                 </div>
@@ -514,7 +514,7 @@ function DayCandle({ item }: { item: WatchlistBoardItem }) {
     const toY = (v: number) => 4 + ((maxP - v) / range) * 40
 
     const isUp = close >= open
-    const color = isUp ? '#e11d48' : '#059669'
+    const color = isUp ? '#059669' : '#e11d48'
     const bodyTop = Math.min(toY(open), toY(close))
     const bodyH = Math.max(Math.abs(toY(close) - toY(open)), 2)
 
@@ -527,7 +527,7 @@ function DayCandle({ item }: { item: WatchlistBoardItem }) {
             </svg>
             <div className="space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                 <div>开 {fmtPrice(open)}</div>
-                <div className={isUp ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}>收 {fmtPrice(close)}</div>
+                <div className={isUp ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}>收 {fmtPrice(close)}</div>
             </div>
         </div>
     )
