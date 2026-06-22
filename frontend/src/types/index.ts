@@ -813,6 +813,14 @@ export interface RealPositionMetric {
 }
 
 export interface RealPerformance {
+    // FIFO quant metrics (same as sim)
+    max_drawdown: number
+    sharpe_ratio: number
+    sortino_ratio: number
+    win_rate: number
+    calmar_ratio: number
+    trade_count: number
+    // Position snapshot
     total_market_val: number
     total_cost: number
     total_pl_val: number
@@ -820,7 +828,7 @@ export interface RealPerformance {
     position_count: number
     profitable_count: number
     losing_count: number
-    win_rate: number
+    position_win_rate: number
     hk_pl_val: number
     us_pl_val: number
     hk_count: number
@@ -828,6 +836,13 @@ export interface RealPerformance {
     best_position: RealPositionMetric | null
     worst_position: RealPositionMetric | null
     positions: RealPositionMetric[]
+    recent_trades: Array<{
+        code: string
+        buy_price: number
+        sell_price: number
+        qty: number
+        return_pct: number
+    }>
 }
 
 // ─── Autonomous Task Types (Phase 9) ─────────────────────────────────────

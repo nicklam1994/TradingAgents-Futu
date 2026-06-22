@@ -78,8 +78,8 @@ function RealPerformancePanel() {
 
     if (loading) return <LoadingSkeleton />
     if (error) return <ErrorBanner message={error} />
-    if (!data || data.position_count === 0) {
-        return <EmptyState message="真仓暂无持仓数据" />
+    if (!data || (data.position_count === 0 && data.trade_count === 0)) {
+        return <EmptyState message="真仓暂无持仓和交易数据" />
     }
 
     const pnlColor = data.total_pl_val >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
@@ -87,12 +87,25 @@ function RealPerformancePanel() {
 
     return (
         <div className="space-y-6">
-            {/* 总览卡片 */}
+            {/* 量化指标卡片 (FIFO based) */}
+            <div>
+                <h2 className="text-sm font-medium text-slate-500 dark:text-slate-400 mb-3">📊 量化指标（基于历史成交 FIFO 匹配，近 90 天）</h2>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                    <MetricCard icon={Percent} label="交易胜率" value={`${(data.win_rate * 100).toFixed(1)}%`} description={`${data.trade_count} 笔配对`} color="green" good={data.win_rate >= 0.5} />
+                    <MetricCard icon={TrendingDown} label="最大回撤" value={`${(data.max_drawdown * 100).toFixed(2)}%`} description="峰值到谷底" color="red" good={data.max_drawdown < 0.2} />
+                    <MetricCard icon={TrendingUp} label="夏普比率" value={data.sharpe_ratio.toFixed(3)} description="风险调整收益" color="blue" good={data.sharpe_ratio > 1} />
+                    <MetricCard icon={Shield} label="Sortino" value={data.sortino_ratio.toFixed(3)} description="下行风险调整" color="purple" good={data.sortino_ratio > 1} />
+                    <MetricCard icon={BarChart3} label="Calmar" value={data.calmar_ratio.toFixed(3)} description="收益/最大回撤" color="orange" good={data.calmar_ratio > 1} />
+                    <MetricCard icon={Target} label="持仓胜率" value={`${(data.position_win_rate * 100).toFixed(1)}%`} description={`${data.profitable_count} 盈 / ${data.losing_count} 亏`} color={data.position_win_rate >= 0.5 ? 'green' : 'orange'} />
+                </div>
+            </div>
+
+            {/* 持仓盈亏总览 */}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <div className={`rounded-2xl bg-gradient-to-br p-4 ${pnlBg}`}>
                     <div className="flex items-center gap-2 mb-1">
                         {data.total_pl_val >= 0 ? <TrendingUp className="h-4 w-4 text-emerald-500" /> : <TrendingDown className="h-4 w-4 text-rose-500" />}
-                        <span className="text-sm text-slate-600 dark:text-slate-400">总盈亏</span>
+                        <span className="text-sm text-slate-600 dark:text-slate-400">持仓盈亏</span>
                     </div>
                     <p className={`text-2xl font-bold ${pnlColor}`}>
                         {data.total_pl_val >= 0 ? '+' : ''}{data.total_pl_val.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -103,7 +116,7 @@ function RealPerformancePanel() {
                 </div>
                 <MetricCardSimple icon={Wallet} label="持仓市值" value={`$${data.total_market_val.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`} color="blue" />
                 <MetricCardSimple icon={Target} label="持仓数" value={`${data.position_count} 只`} description={`HK ${data.hk_count} / US ${data.us_count}`} color="purple" />
-                <MetricCardSimple icon={Percent} label="持仓胜率" value={`${(data.win_rate * 100).toFixed(1)}%`} description={`${data.profitable_count} 盈 / ${data.losing_count} 亏`} color={data.win_rate >= 0.5 ? 'green' : 'amber'} />
+                <MetricCardSimple icon={Percent} label="持仓胜率" value={`${(data.position_win_rate * 100).toFixed(1)}%`} description={`${data.profitable_count} 盈 / ${data.losing_count} 亏`} color={data.position_win_rate >= 0.5 ? 'green' : 'amber'} />
             </div>
 
             {/* 港美股市值分布 */}
@@ -161,6 +174,40 @@ function RealPerformancePanel() {
 
             {/* 持仓盈亏分布图 */}
             <PositionChart positions={data.positions} />
+
+            {/* 最近成交记录 */}
+            {data.recent_trades && data.recent_trades.length > 0 && (
+                <div className="card">
+                    <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">最近成交配对（FIFO）</h2>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400">
+                                    <th className="py-2 text-left font-medium">股票</th>
+                                    <th className="py-2 text-right font-medium">买入价</th>
+                                    <th className="py-2 text-right font-medium">卖出价</th>
+                                    <th className="py-2 text-right font-medium">数量</th>
+                                    <th className="py-2 text-right font-medium">收益率</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {data.recent_trades.map((t, i) => {
+                                    const cls = t.return_pct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                                    return (
+                                        <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                            <td className="py-2 font-medium text-slate-900 dark:text-slate-100">{t.code}</td>
+                                            <td className="py-2 text-right text-slate-700 dark:text-slate-300">{t.buy_price.toFixed(3)}</td>
+                                            <td className="py-2 text-right text-slate-700 dark:text-slate-300">{t.sell_price.toFixed(3)}</td>
+                                            <td className="py-2 text-right text-slate-700 dark:text-slate-300">{t.qty.toLocaleString()}</td>
+                                            <td className={`py-2 text-right font-medium ${cls}`}>{t.return_pct >= 0 ? '+' : ''}{t.return_pct.toFixed(2)}%</td>
+                                        </tr>
+                                    )
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

@@ -576,6 +576,25 @@ class SimDealDB(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class RealDealDB(Base):
+    """Local backup of real account historical deals from Futu API.
+
+    Futu history_deal_list_query returns deals but with 90-day default range.
+    We cache all fetched deals locally for reliable performance computation.
+    """
+
+    __tablename__ = "real_deals"
+
+    deal_id = Column(String(32), primary_key=True)
+    side = Column(String(8), nullable=False)  # buy / sell
+    code = Column(String(20), nullable=False, index=True)
+    stock_name = Column(String(80), nullable=True)
+    price = Column(Float, nullable=False)
+    qty = Column(Float, nullable=False)
+    create_time = Column(String(32), nullable=False, index=True)
+    synced_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class AnalysisReportDB(Base):
     """Persistent storage for OODA loop TradingGraph analysis reports.
 
