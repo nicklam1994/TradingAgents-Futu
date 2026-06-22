@@ -151,10 +151,10 @@ export default function KlinePanel({ symbol, onSymbolChange }: KlinePanelProps) 
         })
 
         const series = chart.addSeries(CandlestickSeries, {
-            upColor: '#ef4444',
-            downColor: '#22c55e',
-            wickUpColor: '#ef4444',
-            wickDownColor: '#22c55e',
+            upColor: '#22c55e',
+            downColor: '#ef4444',
+            wickUpColor: '#22c55e',
+            wickDownColor: '#ef4444',
             borderVisible: false,
         })
 
