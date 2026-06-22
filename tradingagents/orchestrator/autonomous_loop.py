@@ -1254,6 +1254,13 @@ class AutonomousLoop:
                 )
                 state.log(f"  📈 {symbol} → {signal} (置信度 {confidence:.0%})")
 
+                # Save checkpoint after each stock so frontend sees progress
+                self._store.save_checkpoint(task_id, {
+                    "phase": state.phase.value,
+                    "iteration": state.iteration,
+                    "state": state.to_dict(),
+                })
+
             except Exception as e:
                 logger.error(
                     "Task %s: TradingGraph failed for %s: %s",
@@ -1268,6 +1275,13 @@ class AutonomousLoop:
                 }
                 state.analysis_reports.append(error_report)
                 self._save_analysis_report(task_id, state.iteration, error_report)
+
+                # Save checkpoint after error too
+                self._store.save_checkpoint(task_id, {
+                    "phase": state.phase.value,
+                    "iteration": state.iteration,
+                    "state": state.to_dict(),
+                })
 
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
