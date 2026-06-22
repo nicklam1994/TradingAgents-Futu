@@ -277,7 +277,13 @@ def import_stock_universe() -> int:
         batch: list[dict[str, Any]] = []
         for entry in universe:
             code = entry.get("code", "")
-            if not code or code in existing:
+            market = entry.get("market", "")
+            if not code:
+                continue
+            # Normalize US stocks to .US suffix (Futu format)
+            if market == "US" and "." not in code:
+                code = f"{code}.US"
+            if code in existing:
                 continue
             batch.append({
                 "code": code,
@@ -313,18 +319,17 @@ def import_stock_universe() -> int:
 # ---------------------------------------------------------------------------
 
 def refresh_all(market: str = "HK") -> dict[str, int]:
-    """Run startup refresh: plates + stocks only (stock_plates is lazy-loaded).
+    """Run startup refresh: plates + stocks from Futu API.
 
-    Order: plates → stocks → import_stock_universe
+    Order: plates → stocks
+    stock_universe.json deprecated — all data from Futu.
     """
     logger.info("[market_data] refresh_all market=%s — starting", market)
     plates_count = refresh_plates(market)
     stocks_count = refresh_stocks(market)
-    universe_count = import_stock_universe()
     result = {
         "plates": plates_count,
         "stocks": stocks_count,
-        "universe_imported": universe_count,
     }
     logger.info("[market_data] refresh_all done: %s", result)
     return result
