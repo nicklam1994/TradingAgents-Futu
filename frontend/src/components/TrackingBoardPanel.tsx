@@ -536,8 +536,8 @@ function SimpleTrackingRow({ item }: { item: TrackingBoardItem }) {
                 </span>
                 <span className={`text-[13px] font-semibold ${
                     priceChangePct == null ? 'text-slate-400 dark:text-slate-500'
-                    : isUp ? 'text-rose-500 dark:text-rose-400'
-                    : 'text-emerald-500 dark:text-emerald-400'
+                    : isUp ? 'text-emerald-500 dark:text-emerald-400'
+                    : 'text-rose-500 dark:text-rose-400'
                 }`}>
                     {item.price_change != null ? (item.price_change >= 0 ? '+' : '') + formatPlainPrice(item.price_change) : ''}
                 </span>
