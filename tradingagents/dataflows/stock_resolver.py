@@ -114,9 +114,13 @@ def _load() -> Dict[str, StockEntry]:
 
         for entry in merged.values():
             _INDEX_BY_UPPER[entry["code"].upper()] = entry
-            # Also index by bare ticker without .HK for quick lookup
-            bare = entry["code"].upper().replace(".HK", "")
-            if bare not in _INDEX_BY_UPPER:
+            # Also index by bare ticker without .HK or .US for quick lookup
+            bare = entry["code"].upper()
+            for suffix in (".HK", ".US"):
+                if bare.endswith(suffix):
+                    bare = bare[: -len(suffix)]
+                    break
+            if bare and bare not in _INDEX_BY_UPPER:
                 _INDEX_BY_UPPER[bare] = entry
             # Index by stock name (Chinese + English)
             if entry.get("name"):
