@@ -5391,7 +5391,11 @@ async def websocket_quotes(ws: WebSocket, token: str = Query("")):
             logger.info("[quote-ws] received from %s: %s", user_id[:8], msg.get("type", "?"))
             if msg.get("type") == "subscribe":
                 symbols = msg.get("symbols", [])
-                quote_ws_manager.update_symbols(symbols)
+                source = msg.get("source", "watchlist")
+                if source == "watchlist":
+                    quote_ws_manager.update_symbols(symbols)
+                else:
+                    quote_ws_manager.add_symbols(symbols)
     except WebSocketDisconnect:
         quote_ws_manager.disconnect(user_id)
     except Exception as exc:

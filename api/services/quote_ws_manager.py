@@ -81,7 +81,9 @@ class QuoteWSManager:
 
     def __init__(self):
         self._connections: dict[str, WebSocket] = {}
-        self._subscribed_symbols: set[str] = set()
+        self._base_symbols: set[str] = set()      # Watchlist (primary)
+        self._extra_symbols: set[str] = set()     # SimTrading, etc.
+        self._subscribed_symbols: set[str] = set()  # Merged set
         self._latest_quotes: dict[str, dict[str, Any]] = {}
         self._latest_states: dict[str, str] = {}
         self._futu_to_canonical: dict[str, str] = {}
@@ -135,13 +137,30 @@ class QuoteWSManager:
             self._connections.pop(uid, None)
 
     def update_symbols(self, symbols: list[str]):
-        """Update subscribed symbols — re-subscribe if changed."""
+        """Set base (watchlist) symbols — replaces base set only."""
         new_set = set(symbols)
-        if new_set == self._subscribed_symbols:
+        if new_set == self._base_symbols:
             return
-        self._subscribed_symbols = new_set
-        logger.info("[quote-ws] symbols updated: %d subscribed", len(self._subscribed_symbols))
-        # Re-subscribe in background
+        self._base_symbols = new_set
+        self._resync_subscriptions()
+
+    def add_symbols(self, symbols: list[str]):
+        """Add extra symbols (SimTrading, etc.) — additive."""
+        new_set = set(symbols)
+        if new_set <= self._extra_symbols:
+            return  # Already subscribed
+        self._extra_symbols = new_set
+        self._resync_subscriptions()
+
+    def _resync_subscriptions(self):
+        """Merge base + extra and re-subscribe if changed."""
+        merged = self._base_symbols | self._extra_symbols
+        if merged == self._subscribed_symbols:
+            return
+        self._subscribed_symbols = merged
+        logger.info("[quote-ws] symbols resync: base=%d + extra=%d = total %d",
+                     len(self._base_symbols), len(self._extra_symbols),
+                     len(self._subscribed_symbols))
         if self._loop and self._running:
             self._loop.call_soon_threadsafe(self._schedule_resubscribe)
 

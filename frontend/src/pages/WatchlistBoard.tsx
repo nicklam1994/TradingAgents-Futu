@@ -85,7 +85,7 @@ export default function WatchlistBoard() {
     // Send subscribe message when items change OR WebSocket reconnects
     useEffect(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN && items.length > 0) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: items.map(i => i.symbol) }))
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'watchlist', symbols: items.map(i => i.symbol) }))
         }
     }, [items.map(i => i.symbol).join(','), wsConnected])
 

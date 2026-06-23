@@ -171,7 +171,7 @@ export default function SimTrading() {
         positions.forEach(p => symbols.add(p.code))
         if (selectedStockRef.current) symbols.add(selectedStockRef.current.code)
         if (symbols.size > 0) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
     }, [positions])
 
@@ -205,7 +205,7 @@ export default function SimTrading() {
         // Subscribe to selected stock + all positions
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             const symbols = new Set([r.symbol, ...positions.map(p => p.code)])
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
 
         // Fallback: fetch quote via HTTP API immediately
@@ -244,7 +244,7 @@ export default function SimTrading() {
         // Subscribe to this stock + all positions
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             const symbols = new Set([o.code, ...positions.map(p => p.code)])
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
         // Fetch quote via HTTP API
