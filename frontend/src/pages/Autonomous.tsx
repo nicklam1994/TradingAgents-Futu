@@ -225,6 +225,17 @@ export default function Autonomous() {
                 </button>
             </div>
 
+            {/* Sim Environment Notice */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800/50 dark:bg-amber-950/20">
+                <div className="flex items-center gap-2">
+                    <span className="text-amber-600 dark:text-amber-400">⚠️</span>
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                        <span className="font-medium">模拟环境</span> — 自主交易使用 Futu 模拟账户执行，不计算佣金/印花税/滑点。
+                        策略评分和回测使用真实费用计算。
+                    </p>
+                </div>
+            </div>
+
             {error && (
                 <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">
                     {error}

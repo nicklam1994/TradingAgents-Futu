@@ -250,6 +250,19 @@ export default function SimTrading() {
                 </button>
             </div>
 
+            {/* Sim Environment Notice */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800/50 dark:bg-amber-950/20">
+                <div className="flex items-center gap-2">
+                    <span className="text-amber-600 dark:text-amber-400">⚠️</span>
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                        <span className="font-medium">模拟环境</span> — 数据来自 Futu 模拟账户，不计算佣金/印花税/滑点。
+                        回测引擎（策略管理）使用真实费用计算。真实交易费用请参考
+                        <span className="mx-1 font-medium">HK: 万1.5 + 印花税0.13%</span> /
+                        <span className="mx-1 font-medium">US: 零佣金</span>
+                    </p>
+                </div>
+            </div>
+
             {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-300">{error}</div>}
 
             {/* Market Tabs */}
@@ -432,6 +445,7 @@ export default function SimTrading() {
                             <span className="text-slate-500 dark:text-slate-400">金额</span>
                             <span className="font-medium text-slate-900 dark:text-slate-100">{orderAmount > 0 ? `${activeAccount?.currency ?? 'USD'} ${fmt(orderAmount)}` : '--'}</span>
                         </div>
+                        <p className="text-xs text-slate-400 dark:text-slate-500">* 模拟环境，不计佣金/印花税</p>
                         {quote && quote.price > 0 && !orderPrice && !isMarketOrder && (
                             <button type="button" onClick={() => setOrderPrice(quote.price.toFixed(3))} className="text-xs text-blue-500 hover:text-blue-600">
                                 使用当前价 {fmtPrice(quote.price)}
