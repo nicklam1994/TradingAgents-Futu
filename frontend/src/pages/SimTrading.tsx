@@ -118,9 +118,17 @@ export default function SimTrading() {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data)
+                // Normalize code to canonical format for comparison
+                const toCanonical = (c: string) => {
+                    if (c.startsWith('HK.')) return c.slice(3) + '.HK'
+                    if (c.startsWith('US.')) return c.slice(3)
+                    return c
+                }
                 const updateQuote = (code: string, q: Record<string, number | string>) => {
                     const sel = selectedStockRef.current
-                    if (!sel || code !== sel.code) return
+                    if (!sel) return
+                    // Compare in canonical format
+                    if (toCanonical(code) !== toCanonical(sel.code)) return
                     setQuote(prev => prev ? {
                         ...prev,
                         price: (q.price as number) ?? prev.price,
@@ -143,7 +151,7 @@ export default function SimTrading() {
                 if (msg.type === 'quote_update' && msg.symbol && msg.data) {
                     const q = msg.data
                     setPositions(prev => prev.map(p => {
-                        if (p.code !== msg.symbol) return p
+                        if (toCanonical(p.code) !== toCanonical(msg.symbol)) return p
                         const np = q.price ?? p.current_price
                         return { ...p, current_price: np, market_val: r3(np * p.qty), unrealized_pnl: r3((np - p.cost_price) * p.qty), unrealized_pnl_pct: p.cost_price > 0 ? r2((np / p.cost_price - 1) * 100) : p.unrealized_pnl_pct, today_pnl: p.prev_close ? r3((np - p.prev_close) * p.qty) : p.today_pnl }
                     }))
@@ -185,7 +193,28 @@ export default function SimTrading() {
         setSelectedStock({ code: r.symbol, name: r.name })
         setSearchQuery(''); setShowDropdown(false); setSearchResults([])
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: r.name })
-        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
+
+        // Subscribe via WebSocket for real-time updates
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
+        }
+
+        // Fallback: fetch quote via HTTP API immediately
+        api.getStockQuote(r.symbol).then(res => {
+            if (res.ok && res.data) {
+                const q = res.data
+                setQuote(prev => prev ? {
+                    ...prev,
+                    price: q.price ?? 0,
+                    change: q.change ?? 0,
+                    change_pct: q.change_pct ?? 0,
+                    open: q.open ?? 0,
+                    high: q.high ?? 0,
+                    low: q.low ?? 0,
+                    volume: q.volume ?? 0,
+                } : prev)
+            }
+        }).catch(() => {})
     }
 
     // ── Order actions ──

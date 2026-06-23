@@ -271,6 +271,10 @@ class ApiService {
         return this.request<{ results: StockSearchResult[] }>(`/v1/market/stock-search?q=${encodeURIComponent(q)}`)
     }
 
+    async getStockQuote(symbol: string): Promise<{ ok: boolean; data?: { price: number; change: number; change_pct: number; volume: number; high: number; low: number; open: number; prev_close: number } }> {
+        return this.request(`/v1/market/quote?symbol=${encodeURIComponent(symbol)}`)
+    }
+
     async getConfig(): Promise<RuntimeConfig> {
         return this.request<RuntimeConfig>('/v1/config')
     }

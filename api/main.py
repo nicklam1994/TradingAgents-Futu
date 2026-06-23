@@ -2930,6 +2930,55 @@ def get_kline(
 
 
 
+@app.get("/v1/market/quote")
+def get_stock_quote(symbol: str):
+    """Get real-time quote for a single stock.
+
+    Returns price, change, change_pct, volume, high, low, open, prev_close.
+    Uses FutuProvider for HK/US stocks, yfinance for indices.
+    """
+    if not symbol:
+        raise HTTPException(400, "symbol is required")
+
+    try:
+        from tradingagents.dataflows.providers.futu_provider import FutuProvider
+        provider = FutuProvider()
+        result = provider.get_realtime_quotes([symbol])
+
+        if not result or not isinstance(result, str):
+            raise HTTPException(404, f"No quote data for {symbol}")
+
+        # Parse CSV result
+        lines = result.strip().split('\n')
+        if len(lines) < 2:
+            raise HTTPException(404, f"No quote data for {symbol}")
+
+        headers = lines[0].split(',')
+        values = lines[1].split(',')
+        data = dict(zip(headers, values))
+
+        return {
+            "ok": True,
+            "data": {
+                "symbol": data.get("symbol", symbol),
+                "price": float(data.get("price", 0) or 0),
+                "change": float(data.get("change", 0) or 0),
+                "change_pct": float(data.get("change_pct", 0) or 0),
+                "volume": float(data.get("volume", 0) or 0),
+                "turnover": float(data.get("turnover", 0) or 0),
+                "high": float(data.get("high", 0) or 0),
+                "low": float(data.get("low", 0) or 0),
+                "open": float(data.get("open", 0) or 0),
+                "prev_close": float(data.get("prev_close", 0) or 0),
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"get_stock_quote error for {symbol}: {e}")
+        raise HTTPException(500, str(e))
+
+
 @app.get("/v1/market/hot-stocks")
 def get_hot_stocks(source: str = "em", limit: int = 30) -> Dict:
     """Return hot stocks from available sources.
