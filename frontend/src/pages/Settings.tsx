@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Save, Key, Database, Loader2, Trash2, Link2, Copy, Plus, CheckCircle2, Mail, Flame, Webhook, Search, MessageCircle, BarChart3 } from 'lucide-react'
 import { api } from '@/services/api'
 import { useAuthStore } from '@/stores/authStore'
+import NotificationSettings from '@/components/NotificationSettings'
 import type { RuntimeWarmupResult, UserToken } from '@/types'
 
 type ProviderPreset = {
@@ -1460,6 +1461,9 @@ export default function Settings() {
                     )}
                 </div>
             </div>
+
+            {/* ─── Phase 11: 通知系统 ─── */}
+            <NotificationSettings />
 
             <div className="flex items-center gap-4">
                 <button onClick={handleSaveAll} disabled={saveAllSaving} className="btn-primary inline-flex items-center gap-2">

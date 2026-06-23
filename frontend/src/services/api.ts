@@ -1,6 +1,7 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse,
     WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse,
-    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, RealPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance } from '@/types'
+    SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, RealPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance,
+    NotificationConfigResponse, NotificationConfigUpdate, NotificationTestResponse, NotificationDiagnosticsResponse, AlertRule, AlertRuleRequest } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -476,6 +477,57 @@ class ApiService {
     async getRelativeStrength(symbol: string): Promise<{ ok: boolean; data?: RelativeStrengthData; error?: string }> {
         return this.request(`/v1/relative-strength/${symbol}`)
     }
+
+    // ── Notification System (Phase 11) ─────────────────────────────
+
+    async getNotificationConfig(): Promise<NotificationConfigResponse> {
+        return this.request<NotificationConfigResponse>('/v1/notifications/config')
+    }
+
+    async updateNotificationConfig(updates: NotificationConfigUpdate): Promise<NotificationConfigResponse> {
+        return this.request<NotificationConfigResponse>('/v1/notifications/config', {
+            method: 'PUT',
+            body: JSON.stringify(updates),
+        })
+    }
+
+    async testNotification(channel: string, message?: string): Promise<NotificationTestResponse> {
+        return this.request<NotificationTestResponse>('/v1/notifications/test', {
+            method: 'POST',
+            body: JSON.stringify({ channel, message }),
+        })
+    }
+
+    async getNotificationDiagnostics(): Promise<NotificationDiagnosticsResponse> {
+        return this.request<NotificationDiagnosticsResponse>('/v1/notifications/diagnostics')
+    }
+
+    async getAlertRules(status?: string): Promise<{ rules: AlertRule[] }> {
+        const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+        return this.request<{ rules: AlertRule[] }>(`/v1/notifications/alerts${qs}`)
+    }
+
+    async createAlertRule(rule: AlertRuleRequest): Promise<{ rule: AlertRule }> {
+        return this.request<{ rule: AlertRule }>('/v1/notifications/alerts', {
+            method: 'POST',
+            body: JSON.stringify(rule),
+        })
+    }
+
+    async updateAlertRule(ruleId: string, rule: AlertRuleRequest): Promise<{ rule: AlertRule }> {
+        return this.request<{ rule: AlertRule }>(`/v1/notifications/alerts/${ruleId}`, {
+            method: 'PUT',
+            body: JSON.stringify(rule),
+        })
+    }
+
+    async deleteAlertRule(ruleId: string): Promise<{ deleted: boolean }> {
+        return this.request<{ deleted: boolean }>(`/v1/notifications/alerts/${ruleId}`, {
+            method: 'DELETE',
+        })
+    }
+
+    // ── Generic helpers ────────────────────────────────────────────
 
     async get<T>(url: string): Promise<T> {
         return this.request<T>(url)

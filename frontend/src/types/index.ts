@@ -924,3 +924,94 @@ export interface DebateMessage {
     isVerdict?: boolean
     horizon?: string
 }
+
+// ─── Notification System Types (Phase 11) ────────────────────────────────
+
+export interface NotificationChannelKeyStatus {
+    configured: boolean
+    display: string | null
+}
+
+export interface NotificationChannelInfo {
+    enabled: boolean
+    display_name: string
+    keys: Record<string, NotificationChannelKeyStatus>
+}
+
+export interface NotificationNoiseConfig {
+    dedup_ttl_seconds: number
+    cooldown_seconds: number
+    quiet_hours: string
+    timezone: string
+    min_severity: string
+}
+
+export interface NotificationRouteConfig {
+    description: string
+    env_key: string
+}
+
+export interface NotificationConfigResponse {
+    channels: Record<string, NotificationChannelInfo>
+    routes: Record<string, string[]>
+    noise: NotificationNoiseConfig
+    available_channels: string[]
+    route_configs: Record<string, NotificationRouteConfig>
+}
+
+export interface NotificationConfigUpdate {
+    channels?: Record<string, Record<string, unknown>>
+    routes?: Record<string, string[]>
+    noise?: Record<string, unknown>
+}
+
+export interface NotificationTestResponse {
+    sent: boolean
+    message: string
+    channel: string
+}
+
+export interface NotificationDiagnosticIssue {
+    severity: string
+    code: string
+    message: string
+    key?: string
+}
+
+export interface NotificationDiagnosticsResponse {
+    ok: boolean
+    configured_channels: string[]
+    errors: NotificationDiagnosticIssue[]
+    warnings: NotificationDiagnosticIssue[]
+    info: NotificationDiagnosticIssue[]
+    text: string
+}
+
+export interface AlertRule {
+    id: string
+    name: string
+    description: string
+    status: 'active' | 'paused' | 'triggered'
+    stock_codes: string[]
+    condition: string
+    condition_value: string
+    severity: string
+    channels: string[]
+    route_type: string
+    created_at: string
+    updated_at: string
+    last_triggered_at: string | null
+    trigger_count: number
+}
+
+export interface AlertRuleRequest {
+    name: string
+    description?: string
+    status?: string
+    stock_codes?: string[]
+    condition?: string
+    condition_value?: string
+    severity?: string
+    channels?: string[]
+    route_type?: string
+}
