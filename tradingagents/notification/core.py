@@ -299,9 +299,13 @@ class NotificationService:
 
     @staticmethod
     def detect_configured_channels(config: Dict[str, Any]) -> List[NotificationChannel]:
-        """根据配置字典静态检测已配置的渠道（不依赖 sender 注册）。"""
-        # This is a lightweight check based on known env key patterns.
-        # Each sender's is_configured() provides the authoritative check.
+        """根据配置字典静态检测已配置的渠道（不依赖 sender 注册）。
+
+        支持大小写不敏感的 key 匹配。
+        """
+        # 构建小写 key -> value 映射以支持大小写不敏感查找
+        lower_config = {k.lower(): v for k, v in config.items()}
+
         detected: List[NotificationChannel] = []
         channel_checks: Dict[NotificationChannel, List[str]] = {
             NotificationChannel.WECHAT: ["wechat_webhook_url"],
@@ -319,7 +323,7 @@ class NotificationService:
             NotificationChannel.ASTRBOT: ["astrbot_url"],
         }
         for channel, keys in channel_checks.items():
-            if all(config.get(k) for k in keys):
+            if all(lower_config.get(k) for k in keys):
                 detected.append(channel)
         return detected
 
