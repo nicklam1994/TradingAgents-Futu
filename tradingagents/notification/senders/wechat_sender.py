@@ -40,6 +40,7 @@ class WechatSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("企业微信 Webhook 未配置，跳过推送")

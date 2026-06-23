@@ -72,13 +72,15 @@ class Sender(ABC):
 
     @abstractmethod
     def send(self, content: str, *, title: Optional[str] = None,
-             timeout_seconds: Optional[float] = None) -> bool:
+             timeout_seconds: Optional[float] = None,
+             image_bytes: Optional[bytes] = None) -> bool:
         """发送消息。
 
         Args:
             content: 消息正文（Markdown 或纯文本，视渠道而定）。
             title: 可选标题。
             timeout_seconds: 发送超时。
+            image_bytes: 可选 PNG 图片字节（用于不支持 Markdown 的渠道）。
 
         Returns:
             True 表示发送成功，False 表示失败。

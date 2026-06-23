@@ -42,10 +42,15 @@ class TelegramSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Telegram 配置不完整，跳过推送")
             return False
+
+        # 优先发送图片
+        if image_bytes:
+            return self._send_photo(image_bytes, caption=title, timeout_seconds=timeout_seconds)
 
         api_url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
         text = self._convert_to_telegram_markdown(content)
@@ -125,6 +130,35 @@ class TelegramSender(Sender):
             if not self._send_message(api_url, chunk, timeout_seconds=timeout_seconds):
                 all_ok = False
         return all_ok
+
+    def _send_photo(
+        self,
+        image_bytes: bytes,
+        *,
+        caption: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> bool:
+        """发送图片消息。"""
+        api_url = f"https://api.telegram.org/bot{self._bot_token}/sendPhoto"
+        data: Dict[str, Any] = {"chat_id": self._chat_id}
+        if caption:
+            data["caption"] = caption[:1024]  # Telegram caption limit
+        if self._message_thread_id:
+            data["message_thread_id"] = self._message_thread_id
+
+        files = {"photo": ("image.png", image_bytes, "image/png")}
+        try:
+            resp = requests.post(
+                api_url, data=data, files=files, timeout=timeout_seconds or 30,
+            )
+            if resp.status_code == 200 and resp.json().get("ok"):
+                logger.info("Telegram 图片发送成功")
+                return True
+            logger.error("Telegram 图片发送失败: %s", resp.text[:200])
+            return False
+        except Exception as exc:
+            logger.error("Telegram 图片发送异常: %s", exc)
+            return False
 
     @staticmethod
     def _escape_telegram_markdown(text: str) -> str:

@@ -50,6 +50,7 @@ class SlackSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Slack 配置不完整，跳过推送")
@@ -65,6 +66,7 @@ class SlackSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         """通过 Incoming Webhook 发送。"""
         # 构建 Block Kit payload
@@ -107,6 +109,7 @@ class SlackSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         """通过 Bot API (chat.postMessage) 发送。"""
         api_url = "https://slack.com/api/chat.postMessage"

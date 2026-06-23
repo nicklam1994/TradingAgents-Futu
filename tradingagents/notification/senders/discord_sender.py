@@ -43,6 +43,7 @@ class DiscordSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("Discord 配置不完整，跳过推送")
@@ -60,6 +61,7 @@ class DiscordSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         """通过 Webhook 发送。"""
         chunks = self._split_content(content, _DISCORD_MAX_CHARS)
@@ -93,6 +95,7 @@ class DiscordSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         """通过 Bot API 发送。"""
         api_url = f"https://discord.com/api/v10/channels/{self._channel_id}/messages"

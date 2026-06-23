@@ -73,6 +73,7 @@ class EmailSender(Sender):
         *,
         title: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
+        image_bytes: Optional[bytes] = None,
     ) -> bool:
         if not self.is_configured():
             logger.warning("邮件配置不完整，跳过推送")
