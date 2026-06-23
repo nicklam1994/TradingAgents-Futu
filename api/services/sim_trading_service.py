@@ -18,6 +18,15 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+# Import unified data classes from tradingagents.models
+from tradingagents.models import (
+    AccountInfo,
+    Position,
+    OrderResult,
+    OrderInfo,
+    DealInfo,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,86 +80,6 @@ class OrderType(str, Enum):
     MARKET = "MARKET"          # 市价单（仅美股/期货）
     AUCTION_LIMIT = "AUCTION_LIMIT"  # 竞价限价单
     AUCTION_MARKET = "AUCTION_MARKET"  # 竞价市价单
-
-
-# ── Data classes ─────────────────────────────────────────────────────────────
-
-@dataclass
-class AccountInfo:
-    """Account financial information."""
-    market: str = "HK"              # 市场 (HK/US)
-    total_assets: float = 0.0       # 总资产
-    cash_balance: float = 0.0       # 现金余额
-    frozen_cash: float = 0.0        # 冻结资金
-    market_val: float = 0.0         # 持仓市值
-    currency: str = "HKD"
-    available_cash: float = 0.0     # 可用资金（买入力）
-    unrealized_pnl: float = 0.0     # 未实现盈亏
-    realized_pnl: float = 0.0       # 已实现盈亏
-
-
-@dataclass
-class Position:
-    """Single position entry."""
-    code: str = ""                  # 股票代码 (e.g., "HK.00700", "US.AAPL")
-    symbol: str = ""                # 原始符号
-    stock_name: str = ""            # 股票名称
-    qty: int = 0                    # 持仓数量
-    cost_price: float = 0.0         # 成本价
-    current_price: float = 0.0      # 现价
-    prev_close: float = 0.0         # 昨收价
-    market_val: float = 0.0         # 市值
-    cost_val: float = 0.0           # 成本市值
-    unrealized_pnl: float = 0.0     # 持仓盈亏
-    unrealized_pnl_pct: float = 0.0 # 持仓盈亏%
-    today_pnl: float = 0.0          # 今日盈亏
-    currency: str = "HKD"
-
-
-@dataclass
-class OrderResult:
-    """Result of placing an order."""
-    order_id: str = ""
-    code: str = ""
-    side: str = ""
-    price: float = 0.0
-    qty: float = 0.0
-    status: str = ""
-    create_time: str = ""
-
-
-@dataclass
-class OrderInfo:
-    """Order detail."""
-    order_id: str = ""
-    code: str = ""
-    stock_name: str = ""
-    side: str = ""
-    order_type: str = ""
-    price: float = 0.0
-    qty: float = 0.0
-    filled_qty: float = 0.0
-    filled_avg_price: float = 0.0
-    status: str = ""
-    create_time: str = ""
-    updated_time: str = ""
-    currency: str = "HKD"
-
-
-@dataclass
-class DealInfo:
-    """Executed deal detail."""
-    deal_id: str = ""
-    code: str = ""
-    stock_name: str = ""
-    side: str = ""
-    deal_market: str = ""
-    order_type: str = ""
-    qty: float = 0.0
-    price: float = 0.0
-    create_time: str = ""
-    status: str = ""
-    currency: str = "HKD"
 
 
 def _safe_float(val, default=0.0) -> float:

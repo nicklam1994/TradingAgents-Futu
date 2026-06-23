@@ -65,6 +65,8 @@ class OODAState:
     trade_decisions: List[Dict[str, Any]] = field(default_factory=list)
     # Act phase results
     executions: List[Dict[str, Any]] = field(default_factory=list)
+    # Strategy metrics (Phase 13+ integration)
+    metrics: Dict[str, Any] = field(default_factory=dict)
     # Runtime logs (displayed in frontend)
     logs: List[str] = field(default_factory=list)
     # Error tracking
@@ -89,6 +91,7 @@ class OODAState:
             "allocation": self.allocation,
             "trade_decisions": self.trade_decisions,
             "executions": self.executions,
+            "metrics": self.metrics,
             "logs": self.logs,
             "errors": self.errors,
         }
@@ -552,11 +555,14 @@ class AutonomousLoop:
     def _phase_observe(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
     ) -> None:
-        """Observe phase: Check positions, fetch market data."""
+        """Observe phase: Check positions, fetch market data, calculate metrics."""
         logger.debug("Task %s O%d: Observe phase", task_id, state.iteration)
 
         # L-7~8: trigger reflection when win_rate drops below 40%
         self._trigger_reflection_if_needed(task_id, config, state)
+
+        # Calculate strategy metrics
+        self._update_strategy_metrics(task_id, config, state)
 
         # Check existing positions for alerts
         checkpoint = self._store.get_checkpoint(task_id)
@@ -586,6 +592,124 @@ class AutonomousLoop:
                     "Task %s: %d critical alerts — may need intervention",
                     task_id, len(critical),
                 )
+
+    def _update_strategy_metrics(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """Calculate and update strategy metrics in OODAState.
+
+        Metrics calculated:
+        - win_rate: Percentage of profitable trades
+        - sharpe_ratio: Risk-adjusted return (annualized)
+        - sortino_ratio: Downside risk-adjusted return
+        - max_drawdown: Maximum peak-to-trough decline
+        - total_pnl: Total profit/loss
+        - trade_count: Number of completed trades
+        """
+        try:
+            from tradingagents.dataflows.quant_metrics import QuantMetrics
+
+            returns = self._get_recent_returns()
+            if len(returns) < 2:
+                state.metrics = {
+                    "status": "insufficient_data",
+                    "trade_count": len(returns),
+                    "message": "需要至少2笔交易才能计算指标",
+                }
+                return
+
+            qm = QuantMetrics()
+
+            # Determine market for annualization
+            market = "HK" if config.currency == "HKD" else "US"
+
+            # Calculate metrics
+            win_rate = QuantMetrics.win_rate(returns)
+            sharpe = qm.sharpe_ratio(returns, market=market)
+            sortino = qm.sortino_ratio(returns, market=market)
+
+            # Calculate max drawdown from equity curve
+            equity = [1.0]
+            for r in returns:
+                equity.append(equity[-1] * (1 + r))
+            peak = equity[0]
+            max_dd = 0.0
+            for eq in equity:
+                if eq > peak:
+                    peak = eq
+                dd = (peak - eq) / peak
+                if dd > max_dd:
+                    max_dd = dd
+
+            total_pnl = sum(returns) * config.budget
+
+            state.metrics = {
+                "status": "ok",
+                "trade_count": len(returns),
+                "win_rate": round(win_rate, 4),
+                "sharpe_ratio": round(sharpe, 4),
+                "sortino_ratio": round(sortino, 4),
+                "max_drawdown": round(max_dd, 4),
+                "total_pnl": round(total_pnl, 2),
+                "total_pnl_pct": round(sum(returns) * 100, 2),
+                "market": market,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            logger.debug(
+                "Task %s metrics: win_rate=%.2f%%, sharpe=%.2f, max_dd=%.2f%%",
+                task_id, win_rate * 100, sharpe, max_dd * 100,
+            )
+
+        except Exception as e:
+            logger.warning("Metrics calculation failed: %s", e)
+            state.metrics = {
+                "status": "error",
+                "message": str(e),
+            }
+
+    def _record_shadow_trade(
+        self,
+        task_id: str,
+        config: AutonomousTaskConfig,
+        decision: Dict[str, Any],
+        result: Any,
+    ) -> None:
+        """Record trade for Shadow Account pattern analysis.
+
+        Stores trade data in a format compatible with Shadow Account's
+        extractor for later rule extraction and behavior analysis.
+        """
+        try:
+            from tradingagents.shadow.models import ShadowRule
+            import json
+
+            # Build trade record
+            trade = {
+                "task_id": task_id,
+                "symbol": decision.get("symbol", ""),
+                "side": decision.get("action", "buy"),
+                "price": result.price if hasattr(result, "price") else 0,
+                "quantity": result.quantity if hasattr(result, "quantity") else 0,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "strategy": self._strategy_params.get("display_name", "") if self._strategy_params else "",
+                "reasoning": decision.get("reasoning", ""),
+            }
+
+            # Store in checkpoint for later extraction
+            checkpoint = self._store.get_checkpoint(task_id)
+            shadow_trades = checkpoint.get("shadow_trades", [])
+            shadow_trades.append(trade)
+            checkpoint["shadow_trades"] = shadow_trades
+            self._store.save_checkpoint(task_id, checkpoint)
+
+            logger.debug(
+                "Task %s: Shadow trade recorded for %s",
+                task_id, trade["symbol"],
+            )
+
+        except Exception as e:
+            logger.warning("Shadow trade recording failed: %s", e)
 
     def _phase_orient(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
@@ -1419,6 +1543,10 @@ class AutonomousLoop:
                     # ── L7: Auto-reflect on each executed trade ──
                     if result.action_taken in ("buy", "sell"):
                         self._reflect_on_trade(task_id, decision, result)
+
+                    # ── Shadow Account: Record trade for pattern analysis ──
+                    if result.action_taken == "executed":
+                        self._record_shadow_trade(task_id, config, decision, result)
 
             except ImportError:
                 logger.warning("SimExecutor not available — skipping execution")
