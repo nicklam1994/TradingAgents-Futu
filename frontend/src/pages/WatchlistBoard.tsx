@@ -523,7 +523,7 @@ function DayCandle({ item }: { item: WatchlistBoardItem }) {
             <svg width="40" height="48" viewBox="0 0 40 48" className="shrink-0 overflow-visible">
                 <rect x="0.5" y="0.5" width="39" height="47" rx="10" className="fill-slate-50 stroke-slate-200 dark:fill-slate-800 dark:stroke-slate-700" />
                 <line x1="20" y1={toY(high)} x2="20" y2={toY(low)} stroke={color} strokeWidth="2" strokeLinecap="round" />
-                <rect x="13" y={bodyTop} width="14" height={bodyH} rx="3" fill={isUp ? '#ffe4e6' : '#dcfce7'} stroke={color} strokeWidth="1.5" />
+                <rect x="13" y={bodyTop} width="14" height={bodyH} rx="3" fill={isUp ? '#dcfce7' : '#ffe4e6'} stroke={color} strokeWidth="1.5" />
             </svg>
             <div className="space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                 <div>开 {fmtPrice(open)}</div>
