@@ -172,11 +172,11 @@ class FutuProvider(BaseMarketDataProvider):
             SysConfig.set_init_rsa_file(rsa_path)
             FutuProvider._encrypt_done = True
 
-    # ── 1.3 get_stock_data — K 线 ──
+    # ── 1.3 get_bars — K 线（返回 List[BarData]，推荐使用） ──
 
-    def get_stock_data(self, symbol: str, start_date: str, end_date: str,
-                       autype: Optional[str] = None) -> str:
-        """Fetch historical K-line data via FutuOpenD.
+    def get_bars(self, symbol: str, start_date: str, end_date: str,
+                 autype: Optional[str] = None) -> list:
+        """Fetch historical K-line data as typed BarData objects.
 
         Args:
             symbol: Stock symbol (e.g., "HK.00700", "AAPL")
@@ -185,30 +185,24 @@ class FutuProvider(BaseMarketDataProvider):
             autype: Adjustment type — None (no adjustment), "qfq" (forward),
                     "hfq" (backward).  Default None.
 
-        Returns CSV string with columns: Date,Open,High,Low,Close,Volume.
+        Returns list of BarData objects. Empty list if no data.
         """
         from futu import KLType, RET_OK, SubType, AuType
+        from tradingagents.models import BarData
 
         market, code = self._to_futu_code(symbol)
         ctx = self._get_quote_ctx()
         try:
-            # Map autype string to Futu AuType enum
             autype_map = {
-                None: AuType.NONE,
-                "qfq": AuType.QFQ,
-                "hfq": AuType.HFQ,
-                "NONE": AuType.NONE,
-                "QFQ": AuType.QFQ,
-                "HFQ": AuType.HFQ,
+                None: AuType.NONE, "qfq": AuType.QFQ, "hfq": AuType.HFQ,
+                "NONE": AuType.NONE, "QFQ": AuType.QFQ, "HFQ": AuType.HFQ,
             }
             futu_autype = autype_map.get(autype, AuType.NONE)
 
             ret, data, _ = ctx.request_history_kline(
                 self._full_code(market, code),
-                start=start_date,
-                end=end_date,
-                ktype=KLType.K_DAY,
-                autype=futu_autype,
+                start=start_date, end=end_date,
+                ktype=KLType.K_DAY, autype=futu_autype,
             )
             if ret != RET_OK:
                 raise RuntimeError(
@@ -216,33 +210,43 @@ class FutuProvider(BaseMarketDataProvider):
                 )
 
             if data is None or data.empty:
-                return ""  # No data available is not an error — return empty
+                return []
 
-            # Normalize column names to match the expected CSV format
-            df = data.rename(
-                columns={
-                    "time_key": "Date",
-                    "open": "Open",
-                    "high": "High",
-                    "low": "Low",
-                    "close": "Close",
-                    "volume": "Volume",
-                }
-            )
-            # Keep only the standard columns
-            cols = ["Date", "Open", "High", "Low", "Close", "Volume"]
-            df = df[cols].copy()
-            df["Date"] = pd.to_datetime(df["Date"]).dt.strftime("%Y-%m-%d")
-
-            header = f"# Stock data for {symbol} from {start_date} to {end_date}\n"
-            header += f"# Total records: {len(df)}\n"
-            header += (
-                f"# Data retrieved on: "
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-            )
-            return header + df.to_csv(index=False)
+            bars = []
+            for _, row in data.iterrows():
+                bars.append(BarData(
+                    symbol=symbol,
+                    datetime=pd.to_datetime(row["time_key"]),
+                    interval="1d",
+                    open_price=float(row["open"]),
+                    high_price=float(row["high"]),
+                    low_price=float(row["low"]),
+                    close_price=float(row["close"]),
+                    volume=float(row["volume"]),
+                    turnover=float(row.get("turnover", 0)),
+                ))
+            return bars
         finally:
             ctx.close()
+
+    # ── 1.3b get_stock_data — K 线（返回 CSV 字符串，向后兼容） ──
+
+    def get_stock_data(self, symbol: str, start_date: str, end_date: str,
+                       autype: Optional[str] = None) -> str:
+        """Fetch historical K-line data as CSV string.
+
+        DEPRECATED: Use get_bars() for type-safe BarData objects.
+        Kept for backward compatibility with DataCollector._parse_csv_to_dataframe().
+        """
+        bars = self.get_bars(symbol, start_date, end_date, autype)
+        if not bars:
+            return ""
+
+        header = f"# Stock data for {symbol} from {start_date} to {end_date}\n"
+        header += f"# Total records: {len(bars)}\n"
+        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        csv_lines = [BarData.csv_header()] + [bar.to_csv_row() for bar in bars]
+        return header + "\n".join(csv_lines)
 
     # ── 1.3b get_panel_data — 多股票 panel 格式（Alpha Zoo 用） ──
 

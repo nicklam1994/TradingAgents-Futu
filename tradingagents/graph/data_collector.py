@@ -58,6 +58,34 @@ def _parse_csv_to_dataframe(raw_csv: str) -> Optional[pd.DataFrame]:
     return df
 
 
+def _bars_to_dataframe(bars: list) -> Optional[pd.DataFrame]:
+    """Convert List[BarData] to normalized OHLCV DataFrame.
+
+    Phase 13.1: Type-safe alternative to _parse_csv_to_dataframe().
+
+    Args:
+        bars: List of BarData objects from FutuProvider.get_bars().
+
+    Returns DataFrame with columns: date, open, high, low, close, volume.
+    Returns None if bars is empty.
+    """
+    if not bars:
+        return None
+
+    rows = []
+    for bar in bars:
+        rows.append({
+            "date": bar.datetime.strftime("%Y-%m-%d") if bar.datetime else "",
+            "open": bar.open_price,
+            "high": bar.high_price,
+            "low": bar.low_price,
+            "close": bar.close_price,
+            "volume": bar.volume,
+        })
+    df = pd.DataFrame(rows)
+    return df
+
+
 # ── VPA (Volume Price Analysis) 预计算 ──────────────────────────
 
 
