@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tempfile
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -133,14 +134,38 @@ class AlertService:
     """预警规则管理服务。
 
     规则持久化到 JSON 文件，默认路径: ~/.tradingagents/alert_rules.json
-    线程安全。
+    线程安全。使用模块级锁保护单例创建，避免 TOCTOU 竞态。
     """
 
+    # 类级锁：保护单例创建（B4 修复）
+    _singleton_lock = threading.Lock()
+    _instances: Dict[str, "AlertService"] = {}
+
+    def __new__(cls, rules_path: Optional[str] = None) -> "AlertService":
+        """单例工厂：同一 rules_path 只创建一个实例。"""
+        path = rules_path or os.path.expanduser("~/.tradingagents/alert_rules.json")
+        with cls._singleton_lock:
+            if path in cls._instances:
+                return cls._instances[path]
+            instance = super().__new__(cls)
+            cls._instances[path] = instance
+            return instance
+
     def __init__(self, rules_path: Optional[str] = None) -> None:
+        # 防止 __new__ 返回已有实例时重复初始化
+        if hasattr(self, "_initialized"):
+            return
         self._rules_path = rules_path or os.path.expanduser("~/.tradingagents/alert_rules.json")
         self._rules: Dict[str, AlertRule] = {}
         self._lock = threading.Lock()
         self._load_rules()
+        self._initialized = True
+
+    @classmethod
+    def _reset_singletons(cls) -> None:
+        """清空单例缓存，仅用于测试。"""
+        with cls._singleton_lock:
+            cls._instances.clear()
 
     # --- 持久化 ---
 
@@ -159,12 +184,29 @@ class AlertService:
             logger.error("加载预警规则失败: %s", exc)
 
     def _save_rules(self) -> None:
-        """持久化规则到磁盘。"""
+        """持久化规则到磁盘（原子写入）。
+
+        先写入同目录临时文件，再 os.rename() 替换目标文件。
+        rename 在 POSIX 上是原子操作，崩溃时不会损坏原文件。
+        """
         try:
-            os.makedirs(os.path.dirname(self._rules_path), exist_ok=True)
-            with open(self._rules_path, "w", encoding="utf-8") as f:
-                json.dump([r.to_dict() for r in self._rules.values()], f,
-                          ensure_ascii=False, indent=2)
+            dir_name = os.path.dirname(self._rules_path)
+            os.makedirs(dir_name, exist_ok=True)
+            tmp_fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+            try:
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    json.dump([r.to_dict() for r in self._rules.values()], f,
+                              ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.rename(tmp_path, self._rules_path)
+            except Exception:
+                # 清理临时文件，避免残留
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except Exception as exc:
             logger.error("保存预警规则失败: %s", exc)
 
