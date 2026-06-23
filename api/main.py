@@ -4662,6 +4662,218 @@ async def warmup_wecom_webhook(
     }
 
 
+# ── Notification System (Phase 11) ─────────────────────────────────────────
+
+class NotificationChannelUpdate(BaseModel):
+    """单个通知渠道的配置更新。"""
+    enabled: Optional[bool] = None
+    # 通用字段
+    webhook_url: Optional[str] = None
+    bot_token: Optional[str] = None
+    chat_id: Optional[str] = None
+    email_sender: Optional[str] = None
+    email_password: Optional[str] = None
+    email_receivers: Optional[List[str]] = None
+    email_sender_name: Optional[str] = None
+    # 飞书高级
+    feishu_webhook_secret: Optional[str] = None
+    feishu_webhook_keyword: Optional[str] = None
+    # Telegram 高级
+    telegram_message_thread_id: Optional[str] = None
+    # Pushover
+    pushover_user_key: Optional[str] = None
+    pushover_api_token: Optional[str] = None
+    # ntfy / gotify / pushplus / serverchan3 / custom / astrbot
+    url: Optional[str] = None
+    token: Optional[str] = None
+    sendkey: Optional[str] = None
+    urls: Optional[str] = None
+
+
+class NotificationConfigUpdate(BaseModel):
+    """PUT /v1/notifications/config 请求体。"""
+    channels: Optional[Dict[str, NotificationChannelUpdate]] = None
+    routes: Optional[Dict[str, List[str]]] = None
+    noise: Optional[Dict[str, Any]] = None
+
+
+class NotificationTestRequest(BaseModel):
+    """POST /v1/notifications/test 请求体。"""
+    channel: str
+    message: Optional[str] = None
+
+
+class AlertRuleRequest(BaseModel):
+    """POST/PUT /v1/notifications/alerts 请求体。"""
+    name: str = ""
+    description: str = ""
+    status: Optional[str] = None  # active / paused
+    stock_codes: Optional[List[str]] = None
+    condition: Optional[str] = None  # signal_match / price_above / price_below / change_above / change_below / any_analysis
+    condition_value: Optional[str] = None
+    severity: Optional[str] = None  # info / warning / error / critical
+    channels: Optional[List[str]] = None
+    route_type: Optional[str] = None
+
+
+@app.get("/v1/notifications/config")
+def get_notification_config(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """读取当前用户的通知配置（渠道、路由、噪音控制）。"""
+    from api.services.notification_bridge import get_notification_config_response
+    return get_notification_config_response(db, current_user.id)
+
+
+@app.put("/v1/notifications/config")
+def update_notification_config(
+    updates: NotificationConfigUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """更新当前用户的通知配置。"""
+    from api.services.notification_bridge import update_notification_config as _update
+
+    update_dict: Dict[str, Any] = {}
+    if updates.channels is not None:
+        # 将 Pydantic model 转为 dict，过滤 None
+        channels_dict: Dict[str, Any] = {}
+        for ch_name, ch_update in updates.channels.items():
+            ch_data = ch_update.model_dump(exclude_none=True)
+            if ch_data:
+                channels_dict[ch_name] = ch_data
+        if channels_dict:
+            update_dict["channels"] = channels_dict
+    if updates.routes is not None:
+        update_dict["routes"] = updates.routes
+    if updates.noise is not None:
+        update_dict["noise"] = updates.noise
+
+    return _update(db, current_user.id, update_dict)
+
+
+@app.post("/v1/notifications/test")
+async def test_notification(
+    request: NotificationTestRequest,
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """测试发送指定渠道的通知。"""
+    from api.services.notification_bridge import test_notification_channel, load_notification_config
+
+    db_config = load_notification_config(db, current_user.id)
+    result = await asyncio.to_thread(
+        test_notification_channel, request.channel, request.message, db_config
+    )
+    if not result["sent"]:
+        raise HTTPException(status_code=400, detail=result["message"])
+    return result
+
+
+@app.get("/v1/notifications/diagnostics")
+def notification_diagnostics(
+    db: Session = Depends(get_db),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """运行通知配置诊断，返回渠道状态、路由有效性、噪音控制检查结果。"""
+    from api.services.notification_bridge import get_diagnostics, load_notification_config
+
+    db_config = load_notification_config(db, current_user.id)
+    return get_diagnostics(db_config)
+
+
+@app.get("/v1/notifications/alerts")
+def list_alert_rules(
+    status: Optional[str] = Query(None),
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """列出当前用户的预警规则。"""
+    from api.services.notification_bridge import get_alert_service
+    from tradingagents.notification.alert_service import AlertStatus
+
+    svc = get_alert_service()
+    filter_status = AlertStatus(status) if status else None
+    rules = svc.list_rules(status=filter_status)
+    return {"rules": [r.to_dict() for r in rules]}
+
+
+@app.post("/v1/notifications/alerts")
+def create_alert_rule(
+    body: AlertRuleRequest,
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """创建预警规则。"""
+    from api.services.notification_bridge import get_alert_service
+    from tradingagents.notification.alert_service import AlertCondition, AlertRule, AlertStatus
+
+    svc = get_alert_service()
+    rule = AlertRule(
+        name=body.name,
+        description=body.description,
+        stock_codes=body.stock_codes or [],
+        condition=AlertCondition(body.condition) if body.condition else AlertCondition.ANY_ANALYSIS,
+        condition_value=body.condition_value or "",
+        severity=body.severity or "warning",
+        channels=body.channels or [],
+        route_type=body.route_type or "alert",
+    )
+    created = svc.create_rule(rule)
+    return {"rule": created.to_dict()}
+
+
+@app.put("/v1/notifications/alerts/{rule_id}")
+def update_alert_rule(
+    rule_id: str,
+    body: AlertRuleRequest,
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """更新预警规则。"""
+    from api.services.notification_bridge import get_alert_service
+    from tradingagents.notification.alert_service import AlertCondition, AlertStatus
+
+    svc = get_alert_service()
+    kwargs: Dict[str, Any] = {}
+    if body.name:
+        kwargs["name"] = body.name
+    if body.description:
+        kwargs["description"] = body.description
+    if body.status:
+        kwargs["status"] = AlertStatus(body.status)
+    if body.stock_codes is not None:
+        kwargs["stock_codes"] = body.stock_codes
+    if body.condition:
+        kwargs["condition"] = AlertCondition(body.condition)
+    if body.condition_value is not None:
+        kwargs["condition_value"] = body.condition_value
+    if body.severity:
+        kwargs["severity"] = body.severity
+    if body.channels is not None:
+        kwargs["channels"] = body.channels
+    if body.route_type:
+        kwargs["route_type"] = body.route_type
+
+    rule = svc.update_rule(rule_id, **kwargs)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="预警规则不存在")
+    return {"rule": rule.to_dict()}
+
+
+@app.delete("/v1/notifications/alerts/{rule_id}")
+def delete_alert_rule(
+    rule_id: str,
+    current_user: UserDB = Depends(_require_web_user),
+):
+    """删除预警规则。"""
+    from api.services.notification_bridge import get_alert_service
+
+    svc = get_alert_service()
+    deleted = svc.delete_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="预警规则不存在")
+    return {"deleted": True}
+
+
 # ── Stock Search ──────────────────────────────────────────────────────────────
 
 @app.get("/v1/market/stock-search")
