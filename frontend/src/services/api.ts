@@ -1,7 +1,8 @@
 import type { AnalysisRequest, AnalysisResponse, Announcement, AuthUser, AuthVerifyResponse, JobStatus, AnalysisReport, KlineResponse, LatestAnnouncementResponse, PortfolioImportState, PortfolioOverviewResponse, PortfolioPositionInput, Report, ReportDetail, ReportListResponse, RuntimeConfig, RuntimeConfigUpdate, RuntimeConfigUpdateResponse, RuntimeWarmupRequest, RuntimeWarmupResponse, WatchlistItem, WatchlistBatchResponse,
     WatchlistBoardResponse, ScheduledAnalysis, ScheduledBatchTriggerResponse, StockSearchResult, TrackingBoardResponse, UserToken, UserTokenCreateRequest, WecomWarmupRequest, WecomWarmupResponse, FeedbackItem, FeedbackListResponse, FeedbackUnreadResponse,
     SimAccount, SimPosition, SimOrder, SimDeal, SimPerformance, RealPerformance, AutonomousTaskDetail, AutonomousListResponse, Strategy, ReflectionEntry, RelativeStrengthData, StrategyPerformance,
-    NotificationConfigResponse, NotificationConfigUpdate, NotificationTestResponse, NotificationDiagnosticsResponse, AlertRule, AlertRuleRequest } from '@/types'
+    NotificationConfigResponse, NotificationConfigUpdate, NotificationTestResponse, NotificationDiagnosticsResponse, AlertRule, AlertRuleRequest,
+    StrategyBacktestResult, StrategyScore, ShadowComparison, HeatmapData } from '@/types'
 
 export function getBaseUrl(): string {
     const envUrl = (import.meta.env.VITE_API_URL as string) || ''
@@ -472,6 +473,34 @@ class ApiService {
 
     async getBestStrategy(): Promise<{ ok: boolean; data: { strategy_name: string | null } }> {
         return this.request('/v1/strategies/best')
+    }
+
+    // ─── Strategy Analytics API ─────────────────────────────────────────
+
+    async runStrategyBacktest(strategyName: string, market: string, trades: Array<{symbol: string; direction: number; price: number; size: number; datetime: string}>, initialCapital: number = 1000000): Promise<{ ok: boolean; data: StrategyBacktestResult }> {
+        return this.request('/v1/strategies/backtest', {
+            method: 'POST',
+            body: JSON.stringify({ strategy_name: strategyName, market, trades, initial_capital: initialCapital }),
+        })
+    }
+
+    async getStrategyScore(strategyName: string, market: string, trades: Array<{symbol: string; direction: number; price: number; size: number; datetime: string}>, initialCapital: number = 1000000): Promise<{ ok: boolean; data: StrategyScore }> {
+        return this.request('/v1/strategies/score', {
+            method: 'POST',
+            body: JSON.stringify({ strategy_name: strategyName, market, trades, initial_capital: initialCapital }),
+        })
+    }
+
+    async getStrategyShadow(strategyName: string, market: string, actualTrades: Array<{symbol: string; direction: number; price: number; size: number; datetime: string; pnl?: number}>, idealSignals: Array<{symbol: string; direction: number; price: number; size: number; datetime: string; pnl?: number}>): Promise<{ ok: boolean; data: ShadowComparison }> {
+        return this.request('/v1/strategies/shadow', {
+            method: 'POST',
+            body: JSON.stringify({ strategy_name: strategyName, market, actual_trades: actualTrades, ideal_signals: idealSignals }),
+        })
+    }
+
+    async getStrategyHeatmap(marketRegimes?: string[]): Promise<{ ok: boolean; data: HeatmapData }> {
+        const regimes = marketRegimes ? marketRegimes.join(',') : ''
+        return this.request(`/v1/strategies/heatmap?market_regimes=${regimes}`)
     }
 
     async getRelativeStrength(symbol: string): Promise<{ ok: boolean; data?: RelativeStrengthData; error?: string }> {

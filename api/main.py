@@ -4454,16 +4454,6 @@ def list_strategies():
     }
 
 
-@app.get("/v1/strategies/{name}")
-def get_strategy(name: str):
-    """Get a specific strategy by name or alias."""
-    from tradingagents.strategies.yaml_loader import load_strategy
-    strategy = load_strategy(name)
-    if not strategy:
-        raise HTTPException(404, f"Strategy '{name}' not found")
-    return {"ok": True, "data": strategy}
-
-
 @app.get("/v1/strategies/performance")
 def strategies_performance():
     """Return all strategies ranked by performance metrics."""
@@ -4488,6 +4478,176 @@ def best_strategy():
     except Exception as e:
         logger.error(f"strategies/best error: {e}")
         raise HTTPException(500, detail=str(e))
+
+
+@app.get("/v1/strategies/heatmap")
+def strategy_heatmap(market_regimes: str = ""):
+    """Get strategy heatmap by market regime.
+
+    Args:
+        market_regimes: Comma-separated regimes (e.g. "trending_up,ranging").
+                       Default: all 4 regimes.
+    """
+    try:
+        from api.services.strategy_analytics_service import get_strategy_analytics
+        from tradingagents.strategies.yaml_loader import list_strategies
+        svc = get_strategy_analytics()
+        strategies = list_strategies()
+        regimes = [r.strip() for r in market_regimes.split(",") if r.strip()] if market_regimes else None
+        cells = svc.generate_heatmap(strategies, regimes)
+        return {"ok": True, "data": {
+            "cells": [
+                {
+                    "strategy_name": c.strategy_name,
+                    "market_regime": c.market_regime,
+                    "suitability_score": round(c.suitability_score, 1),
+                    "historical_performance": round(c.historical_performance, 1),
+                    "current_recommendation": c.current_recommendation,
+                }
+                for c in cells
+            ],
+            "regimes": regimes or ["trending_up", "trending_down", "ranging", "volatile"],
+            "strategies": [s["name"] for s in strategies],
+        }}
+    except Exception as e:
+        logger.error(f"strategies/heatmap error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.get("/v1/strategies/{name}")
+def get_strategy(name: str):
+    """Get a specific strategy by name or alias."""
+    from tradingagents.strategies.yaml_loader import load_strategy
+    strategy = load_strategy(name)
+    if not strategy:
+        raise HTTPException(404, f"Strategy '{name}' not found")
+    return {"ok": True, "data": strategy}
+
+
+# ---------------------------------------------------------------------------
+# Strategy Analytics — 策略分析增强
+# ---------------------------------------------------------------------------
+
+class BacktestRequest(BaseModel):
+    """策略回测请求"""
+    strategy_name: str
+    market: str = "HK"
+    initial_capital: float = 1_000_000.0
+    trades: list[dict[str, Any]]
+
+
+class ScoreRequest(BaseModel):
+    """策略评分请求"""
+    strategy_name: str
+    market: str = "HK"
+    trades: list[dict[str, Any]]
+    initial_capital: float = 1_000_000.0
+
+
+class ShadowRequest(BaseModel):
+    """Shadow 对比请求"""
+    strategy_name: str
+    market: str = "HK"
+    actual_trades: list[dict[str, Any]]
+    ideal_signals: list[dict[str, Any]]
+
+
+@app.post("/v1/strategies/backtest")
+def strategy_backtest(req: BacktestRequest):
+    """Run backtest for a strategy with real market costs (佣金/印花税/滑点)."""
+    try:
+        from api.services.strategy_analytics_service import get_strategy_analytics
+        svc = get_strategy_analytics()
+        result = svc.run_backtest(
+            strategy_name=req.strategy_name,
+            trades=req.trades,
+            market=req.market,
+            initial_capital=req.initial_capital,
+        )
+        return {"ok": True, "data": {
+            "strategy_name": result.strategy_name,
+            "market": result.market,
+            "period": result.period,
+            "total_trades": result.total_trades,
+            "winning_trades": result.winning_trades,
+            "losing_trades": result.losing_trades,
+            "win_rate": round(result.win_rate, 4),
+            "total_pnl": round(result.total_pnl, 2),
+            "max_drawdown": round(result.max_drawdown, 4),
+            "sharpe_ratio": round(result.sharpe_ratio, 4),
+            "sortino_ratio": round(result.sortino_ratio, 4),
+            "calmar_ratio": round(result.calmar_ratio, 4),
+            "profit_factor": round(result.profit_factor, 4),
+            "commission_paid": round(result.commission_paid, 2),
+            "slippage_cost": round(result.slippage_cost, 2),
+            "equity_curve": result.equity_curve[-100:],  # Last 100 points
+        }}
+    except Exception as e:
+        logger.error(f"strategies/backtest error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.post("/v1/strategies/score")
+def strategy_score(req: ScoreRequest):
+    """Calculate strategy score (Sharpe/胜率/回撤/一致性)."""
+    try:
+        from api.services.strategy_analytics_service import get_strategy_analytics
+        svc = get_strategy_analytics()
+        # Run backtest first
+        backtest_result = svc.run_backtest(
+            strategy_name=req.strategy_name,
+            trades=req.trades,
+            market=req.market,
+            initial_capital=req.initial_capital,
+        )
+        # Calculate score
+        score = svc.calculate_score(backtest_result)
+        return {"ok": True, "data": {
+            "strategy_name": score.strategy_name,
+            "market": score.market,
+            "overall_score": round(score.overall_score, 1),
+            "sharpe_score": round(score.sharpe_score, 1),
+            "win_rate_score": round(score.win_rate_score, 1),
+            "drawdown_score": round(score.drawdown_score, 1),
+            "consistency_score": round(score.consistency_score, 1),
+            "risk_adjusted_return": round(score.risk_adjusted_return, 4),
+            "grade": score.grade,
+        }}
+    except Exception as e:
+        logger.error(f"strategies/score error: {e}")
+        raise HTTPException(500, detail=str(e))
+
+
+@app.post("/v1/strategies/shadow")
+def strategy_shadow(req: ShadowRequest):
+    """Compare actual trades with ideal signals (Shadow Account)."""
+    try:
+        from api.services.strategy_analytics_service import get_strategy_analytics
+        svc = get_strategy_analytics()
+        comparison = svc.compare_shadow(
+            strategy_name=req.strategy_name,
+            actual_trades=req.actual_trades,
+            ideal_signals=req.ideal_signals,
+            market=req.market,
+        )
+        return {"ok": True, "data": {
+            "strategy_name": comparison.strategy_name,
+            "market": comparison.market,
+            "actual_trades": comparison.actual_trades,
+            "ideal_trades": comparison.ideal_trades,
+            "actual_pnl": round(comparison.actual_pnl, 2),
+            "ideal_pnl": round(comparison.ideal_pnl, 2),
+            "delta_pnl": round(comparison.delta_pnl, 2),
+            "missed_signals": comparison.missed_signals,
+            "noise_trades": comparison.noise_trades,
+            "early_exits": comparison.early_exits,
+            "late_exits": comparison.late_exits,
+            "execution_quality": round(comparison.execution_quality, 1),
+        }}
+    except Exception as e:
+        logger.error(f"strategies/shadow error: {e}")
+        raise HTTPException(500, detail=str(e))
+
 
 
 @app.get("/v1/models")

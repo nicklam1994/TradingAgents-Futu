@@ -900,6 +900,68 @@ export interface StrategyPerformance {
     composite_score: number
 }
 
+// ─── Strategy Analytics Types (Phase 13+) ──────────────────────────────
+
+export interface StrategyBacktestResult {
+    strategy_name: string
+    market: string
+    period: string
+    total_trades: number
+    winning_trades: number
+    losing_trades: number
+    win_rate: number
+    total_pnl: number
+    max_drawdown: number
+    sharpe_ratio: number
+    sortino_ratio: number
+    calmar_ratio: number
+    profit_factor: number
+    commission_paid: number
+    slippage_cost: number
+    equity_curve: number[]
+}
+
+export interface StrategyScore {
+    strategy_name: string
+    market: string
+    overall_score: number
+    sharpe_score: number
+    win_rate_score: number
+    drawdown_score: number
+    consistency_score: number
+    risk_adjusted_return: number
+    grade: 'A' | 'B' | 'C' | 'D' | 'F'
+}
+
+export interface ShadowComparison {
+    strategy_name: string
+    market: string
+    actual_trades: number
+    ideal_trades: number
+    actual_pnl: number
+    ideal_pnl: number
+    delta_pnl: number
+    missed_signals: number
+    noise_trades: number
+    early_exits: number
+    late_exits: number
+    execution_quality: number
+}
+
+export interface HeatmapCell {
+    strategy_name: string
+    market_regime: string
+    suitability_score: number
+    historical_performance: number
+    current_recommendation: 'strong_buy' | 'buy' | 'neutral' | 'sell' | 'strong_sell'
+}
+
+export interface HeatmapData {
+    cells: HeatmapCell[]
+    regimes: string[]
+    strategies: string[]
+}
+
 // ─── Reflection Types (Phase 9) ──────────────────────────────────────────
 
 export interface ReflectionEntry {
