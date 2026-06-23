@@ -53,6 +53,7 @@ class TelegramSender(Sender):
             return self._send_photo(image_bytes, caption=title, timeout_seconds=timeout_seconds)
 
         api_url = f"https://api.telegram.org/bot{self._bot_token}/sendMessage"
+        safe_token = self._mask_token(self._bot_token)
         text = self._convert_to_telegram_markdown(content)
 
         if title:
@@ -90,10 +91,10 @@ class TelegramSender(Sender):
                 if attempt < max_retries:
                     delay = 2 ** attempt
                     logger.warning("Telegram 请求失败 (attempt %d/%d): %s, %ds 后重试",
-                                   attempt, max_retries, exc, delay)
+                                   attempt, max_retries, type(exc).__name__, delay)
                     _time.sleep(delay)
                     continue
-                logger.error("Telegram 请求失败 (已重试 %d 次): %s", max_retries, exc)
+                logger.error("Telegram 请求失败 (已重试 %d 次): %s", max_retries, type(exc).__name__)
                 return False
 
             if resp.status_code == 200:
@@ -111,7 +112,7 @@ class TelegramSender(Sender):
                 _time.sleep(retry_after)
                 continue
 
-            logger.error("Telegram HTTP %d: %s", resp.status_code, resp.text[:200])
+            logger.error("Telegram HTTP %d", resp.status_code)
             return False
 
         return False
@@ -154,10 +155,10 @@ class TelegramSender(Sender):
             if resp.status_code == 200 and resp.json().get("ok"):
                 logger.info("Telegram 图片发送成功")
                 return True
-            logger.error("Telegram 图片发送失败: %s", resp.text[:200])
+            logger.error("Telegram 图片发送失败: HTTP %d", resp.status_code)
             return False
         except Exception as exc:
-            logger.error("Telegram 图片发送异常: %s", exc)
+            logger.error("Telegram 图片发送异常: %s", type(exc).__name__)
             return False
 
     @staticmethod

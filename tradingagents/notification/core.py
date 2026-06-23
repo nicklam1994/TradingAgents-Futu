@@ -90,6 +90,16 @@ class Sender(ABC):
         """检查该渠道是否已配置（至少具备最小必需 key）。"""
         return False
 
+    @staticmethod
+    def _mask_token(value: str, keep: int = 6) -> str:
+        """将敏感 token/webhook URL 脱敏为前 keep 位 + ***。
+
+        用于日志输出，防止完整密钥泄露。
+        """
+        if not value or len(value) <= keep:
+            return "***"
+        return f"{value[:keep]}***"
+
 
 # ---------------------------------------------------------------------------
 # N1.2: ChannelAttemptResult / NotificationDispatchResult

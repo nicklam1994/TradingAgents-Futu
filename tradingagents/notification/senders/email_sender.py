@@ -116,7 +116,7 @@ class EmailSender(Sender):
             return True
 
         except Exception as exc:
-            logger.error("邮件发送失败: %s", exc)
+            logger.error("邮件发送失败: %s", type(exc).__name__)
             return False
         finally:
             self._close_server(server)

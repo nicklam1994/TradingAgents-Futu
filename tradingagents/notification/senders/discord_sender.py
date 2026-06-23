@@ -84,7 +84,7 @@ class DiscordSender(Sender):
                     logger.error("Discord Webhook 发送失败: HTTP %d", resp.status_code)
                     all_ok = False
             except Exception as exc:
-                logger.error("Discord Webhook 发送异常: %s", exc)
+                logger.error("Discord Webhook 发送异常: %s", type(exc).__name__)
                 all_ok = False
 
         return all_ok
@@ -118,7 +118,7 @@ class DiscordSender(Sender):
                     logger.error("Discord Bot API 发送失败: HTTP %d", resp.status_code)
                     all_ok = False
             except Exception as exc:
-                logger.error("Discord Bot API 发送异常: %s", exc)
+                logger.error("Discord Bot API 发送异常: %s", type(exc).__name__)
                 all_ok = False
 
         return all_ok

@@ -63,12 +63,12 @@ class WechatSender(Sender):
                 )
                 data = resp.json()
                 if data.get("errcode", 0) != 0:
-                    logger.error("企业微信发送失败: %s", data)
+                    logger.error("企业微信发送失败: errcode=%s", data.get("errcode"))
                     all_ok = False
                 else:
                     logger.info("企业微信消息发送成功")
             except Exception as exc:
-                logger.error("企业微信发送异常: %s", exc)
+                logger.error("企业微信发送异常: %s", type(exc).__name__)
                 all_ok = False
 
         return all_ok

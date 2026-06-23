@@ -123,12 +123,12 @@ class FeishuSender(Sender):
                 )
                 data = resp.json()
                 if data.get("code", 0) != 0:
-                    logger.error("飞书发送失败: %s", data)
+                    logger.error("飞书发送失败: code=%s", data.get("code"))
                     all_ok = False
                 else:
                     logger.info("飞书消息发送成功")
             except Exception as exc:
-                logger.error("飞书发送异常: %s", exc)
+                logger.error("飞书发送异常: %s", type(exc).__name__)
                 all_ok = False
 
         return all_ok

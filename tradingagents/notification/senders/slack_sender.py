@@ -97,10 +97,10 @@ class SlackSender(Sender):
             if resp.status_code == 200 and resp.text == "ok":
                 logger.info("Slack Webhook 消息发送成功")
                 return True
-            logger.error("Slack Webhook 发送失败: HTTP %d, %s", resp.status_code, resp.text[:200])
+            logger.error("Slack Webhook 发送失败: HTTP %d", resp.status_code)
             return False
         except Exception as exc:
-            logger.error("Slack Webhook 发送异常: %s", exc)
+            logger.error("Slack Webhook 发送异常: %s", type(exc).__name__)
             return False
 
     def _send_via_bot(
@@ -153,7 +153,7 @@ class SlackSender(Sender):
             logger.error("Slack Bot API 发送失败: %s", data.get("error", "unknown"))
             return False
         except Exception as exc:
-            logger.error("Slack Bot API 发送异常: %s", exc)
+            logger.error("Slack Bot API 发送异常: %s", type(exc).__name__)
             return False
 
     @staticmethod
