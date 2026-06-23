@@ -5319,7 +5319,11 @@ async def websocket_quotes(ws: WebSocket, token: str = Query("")):
     from api.services import auth_service
     db = SessionLocal()
     try:
-        payload = auth_service.decode_access_token(token)
+        try:
+            payload = auth_service.decode_access_token(token)
+        except Exception:
+            await ws.close(code=4001, reason="Invalid token")
+            return
         if not payload:
             await ws.close(code=4001, reason="Invalid token")
             return
