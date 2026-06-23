@@ -684,9 +684,11 @@ class FutuProvider(BaseMarketDataProvider):
 
 
 def _canonical_to_futu(code: str) -> str:
-    """Convert canonical code (00700.HK, AAPL) to Futu format (HK.00700, US.AAPL)."""
+    """Convert canonical code (00700.HK, AAPL, NVDA.US) to Futu format (HK.00700, US.AAPL, US.NVDA)."""
     if code.endswith(".HK"):
         return f"HK.{code[:-3]}"
+    if code.endswith(".US"):
+        return f"US.{code[:-3]}"
     # Numeric-only codes are HK (stock_resolver stores them without .HK)
     if code.isdigit():
         return f"HK.{code}"
