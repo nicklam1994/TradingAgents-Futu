@@ -167,15 +167,9 @@ export default function SimTrading() {
     // Subscribe to all relevant symbols (positions + selected stock)
     const subscribeAll = useCallback(() => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) return
-        // Convert Futu format (HK.00700, US.AAPL) to canonical (00700.HK, AAPL)
-        const toCanonical = (c: string) => {
-            if (c.startsWith('HK.')) return c.slice(3) + '.HK'
-            if (c.startsWith('US.')) return c.slice(3) + '.US'
-            return c
-        }
         const symbols = new Set<string>()
-        positions.forEach(p => symbols.add(toCanonical(p.code)))
-        if (selectedStockRef.current) symbols.add(toCanonical(selectedStockRef.current.code))
+        positions.forEach(p => symbols.add(p.code))
+        if (selectedStockRef.current) symbols.add(selectedStockRef.current.code)
         if (symbols.size > 0) {
             wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
@@ -210,12 +204,7 @@ export default function SimTrading() {
 
         // Subscribe to selected stock + all positions
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const toCanonical = (c: string) => {
-                if (c.startsWith('HK.')) return c.slice(3) + '.HK'
-                if (c.startsWith('US.')) return c.slice(3) + '.US'
-                return c
-            }
-            const symbols = new Set([r.symbol, ...positions.map(p => toCanonical(p.code))])
+            const symbols = new Set([r.symbol, ...positions.map(p => p.code)])
             wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
 
@@ -254,12 +243,7 @@ export default function SimTrading() {
         setOrderMsg(null)
         // Subscribe to this stock + all positions
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const toCanonical = (c: string) => {
-                if (c.startsWith('HK.')) return c.slice(3) + '.HK'
-                if (c.startsWith('US.')) return c.slice(3) + '.US'
-                return c
-            }
-            const symbols = new Set([toCanonical(o.code), ...positions.map(p => toCanonical(p.code))])
+            const symbols = new Set([o.code, ...positions.map(p => p.code)])
             wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
         }
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
