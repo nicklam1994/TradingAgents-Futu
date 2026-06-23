@@ -683,16 +683,16 @@ class FutuProvider(BaseMarketDataProvider):
                 ctx.close()
 
 
+from tradingagents.models.code_format import to_futu as _to_futu_format
+
+
 def _canonical_to_futu(code: str) -> str:
-    """Convert canonical code (00700.HK, AAPL, NVDA.US) to Futu format (HK.00700, US.AAPL, US.NVDA)."""
-    if code.endswith(".HK"):
-        return f"HK.{code[:-3]}"
-    if code.endswith(".US"):
-        return f"US.{code[:-3]}"
-    # Numeric-only codes are HK (stock_resolver stores them without .HK)
-    if code.isdigit():
-        return f"HK.{code}"
-    return f"US.{code}"
+    """Convert any code format to Futu format (MARKET.CODE).
+    
+    DEPRECATED: Use tradingagents.models.code_format.to_futu() directly.
+    This wrapper kept for backward compatibility.
+    """
+    return _to_futu_format(code)
 
 
 def get_market_state(symbols: list[str]) -> dict[str, str]:

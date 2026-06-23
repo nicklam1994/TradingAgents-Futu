@@ -34,25 +34,13 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
     symbols: list[str] = [str(row.symbol) for row in rows]
 
     # 2. Convert symbols to Futu-compatible format for quotes
-    from tradingagents.dataflows.stock_resolver import to_futu, to_display
+    from tradingagents.models.code_format import to_futu, to_display, to_canonical
     futu_symbols = []
     symbol_map = {}  # futu_code -> canonical
     for sym in symbols:
         futu_code = to_futu(sym)
-        # HK.00700 -> 00700.HK format for FutuProvider
-        if futu_code.startswith("HK."):
-            display_code = futu_code[3:] + ".HK"
-        elif futu_code.startswith("US."):
-            bare = futu_code[3:]
-            # Numeric-only codes with US prefix are likely HK (stock_resolver fallback)
-            if bare.isdigit():
-                display_code = bare.zfill(5) + ".HK"
-            else:
-                display_code = bare
-        else:
-            display_code = sym
-        futu_symbols.append(display_code)
-        symbol_map[display_code] = sym
+        futu_symbols.append(futu_code)
+        symbol_map[futu_code] = sym  # sym is already canonical from DB
 
     # 3. Use WebSocket cached quotes if available, otherwise fetch directly
     cached_quotes: dict = quote_ws_manager.latest_quotes
@@ -74,18 +62,14 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
     # Fetch fresh quotes for symbols NOT in cache
     if uncached_symbols:
         uncached_futu = [to_futu(s) for s in uncached_symbols]
-        # Convert to FutuProvider format (HK.00700 -> 00700.HK)
+        # Convert to FutuProvider format (canonical -> futu)
+        from tradingagents.models.code_format import to_futu as _to_futu_fmt
         futu_provider_codes = []
         sym_to_futu = {}
-        for sym, futu_code in zip(uncached_symbols, uncached_futu):
-            if futu_code.startswith("HK."):
-                display_code = futu_code[3:] + ".HK"
-            elif futu_code.startswith("US."):
-                display_code = futu_code[3:]
-            else:
-                display_code = sym
-            futu_provider_codes.append(display_code)
-            sym_to_futu[display_code] = sym
+        for sym in uncached_symbols:
+            futu_code = _to_futu_fmt(sym)
+            futu_provider_codes.append(futu_code)
+            sym_to_futu[futu_code] = sym
         
         raw_quotes = _fetch_live_quotes(futu_provider_codes)
         for futu_code, q in raw_quotes.items():

@@ -121,7 +121,7 @@ export default function SimTrading() {
                 // Normalize code to canonical format for comparison
                 const toCanonical = (c: string) => {
                     if (c.startsWith('HK.')) return c.slice(3) + '.HK'
-                    if (c.startsWith('US.')) return c.slice(3)
+                    if (c.startsWith('US.')) return c.slice(3) + '.US'
                     return c
                 }
                 const updateQuote = (code: string, q: Record<string, number | string>) => {
@@ -608,6 +608,10 @@ function EmptyState({ text }: { text: string }) {
 function fmt(v: number | undefined | null): string { if (v == null) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function fmtPrice(v: number | undefined | null): string { if (v == null || v === 0) return '--'; return v.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) }
 function fmtVol(v: number | undefined | null): string { if (v == null || v === 0) return '--'; if (v >= 1e8) return (v / 1e8).toFixed(1) + '亿'; if (v >= 1e4) return (v / 1e4).toFixed(1) + '万'; return v.toLocaleString() }
-function displayCode(code: string): string { if (code.startsWith('HK.')) return code.slice(3) + '.HK'; if (code.startsWith('US.')) return code.slice(3); return code }
+function displayCode(code: string): string { 
+    if (code.startsWith('HK.')) return code.slice(3) + '.HK'
+    if (code.startsWith('US.')) return code.slice(3) + '.US'
+    return code 
+}
 function r3(v: number): number { return Math.round(v * 1000) / 1000 }
 function r2(v: number): number { return Math.round(v * 100) / 100 }

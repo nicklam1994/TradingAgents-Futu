@@ -39,20 +39,17 @@ def _opend_port() -> int:
     return int(os.getenv("FUTU_OPEND_PORT", "11111"))
 
 
+from tradingagents.models.code_format import to_canonical as _to_canonical, to_futu as _to_futu
+
+
 def _futu_to_canonical(futu_code: str) -> str:
-    """Convert Futu format (HK.00001, US.AAPL) to canonical (00001.HK, AAPL)."""
-    parts = futu_code.split(".", 1)
-    if len(parts) == 2:
-        return f"{parts[1]}.{parts[0]}"
-    return futu_code
+    """Convert Futu format to canonical. DEPRECATED: use code_format.to_canonical()."""
+    return _to_canonical(futu_code)
 
 
 def _canonical_to_futu(canonical: str) -> str:
-    """Convert canonical (00001.HK, AAPL) to Futu format (HK.00001)."""
-    if "." in canonical:
-        code_part, market = canonical.rsplit(".", 1)
-        return f"{market}.{code_part}"
-    return canonical
+    """Convert canonical to Futu format. DEPRECATED: use code_format.to_futu()."""
+    return _to_futu(canonical)
 
 
 def _ensure_tables() -> None:
