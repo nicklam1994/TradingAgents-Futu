@@ -15,6 +15,7 @@ from api.database import ReportDB, WatchlistItemDB
 from api.services.quote_ws_manager import quote_ws_manager
 from tradingagents.dataflows.interface import route_to_vendor
 from tradingagents.dataflows.market_calendar import today_str, previous_trading_day
+from tradingagents.dataflows.providers.futu_provider import get_market_state
 
 REFRESH_INTERVAL_SECONDS = 20
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
         .order_by(WatchlistItemDB.sort_order, WatchlistItemDB.created_at)
         .all()
     )
-    symbols = [row.symbol for row in rows]
+    symbols: list[str] = [str(row.symbol) for row in rows]
 
     # 2. Convert symbols to Futu-compatible format for quotes
     from tradingagents.dataflows.stock_resolver import to_futu, to_display
@@ -54,19 +55,45 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
         symbol_map[display_code] = sym
 
     # 3. Use WebSocket cached quotes if available, otherwise fetch directly
-    cached_quotes = quote_ws_manager.latest_quotes
-    cached_states = quote_ws_manager.latest_states
-    if cached_quotes and any(s in cached_quotes for s in symbols):
-        quotes = {s: cached_quotes[s] for s in symbols if s in cached_quotes}
-        market_states = {s: cached_states.get(s, "") for s in symbols}
-    else:
-        raw_quotes = _fetch_live_quotes(futu_symbols)
-        quotes = {}
+    cached_quotes: dict = quote_ws_manager.latest_quotes
+    cached_states: dict = quote_ws_manager.latest_states
+    
+    # Always start with empty quotes dict
+    quotes: dict = {}
+    market_states: dict = {}
+    
+    # Fill from cache first
+    uncached_symbols: list[str] = []
+    for sym in symbols:
+        if sym in cached_quotes:
+            quotes[sym] = cached_quotes[sym]
+            market_states[sym] = cached_states.get(sym, "")
+        else:
+            uncached_symbols.append(sym)
+    
+    # Fetch fresh quotes for symbols NOT in cache
+    if uncached_symbols:
+        uncached_futu = [to_futu(s) for s in uncached_symbols]
+        # Convert to FutuProvider format (HK.00700 -> 00700.HK)
+        futu_provider_codes = []
+        sym_to_futu = {}
+        for sym, futu_code in zip(uncached_symbols, uncached_futu):
+            if futu_code.startswith("HK."):
+                display_code = futu_code[3:] + ".HK"
+            elif futu_code.startswith("US."):
+                display_code = futu_code[3:]
+            else:
+                display_code = sym
+            futu_provider_codes.append(display_code)
+            sym_to_futu[display_code] = sym
+        
+        raw_quotes = _fetch_live_quotes(futu_provider_codes)
         for futu_code, q in raw_quotes.items():
-            canonical = symbol_map.get(futu_code, futu_code)
+            canonical = sym_to_futu.get(futu_code, futu_code)
             quotes[canonical] = q
-        from tradingagents.dataflows.providers.futu_provider import get_market_state
-        market_states = get_market_state(symbols)
+        
+        fresh_states = get_market_state(uncached_symbols)
+        market_states.update(fresh_states)
 
     # 4. Fetch analysis reports
     reports = _select_reports_for_symbols(db, user_id, symbols, previous_trade_date)
