@@ -164,11 +164,19 @@ export default function SimTrading() {
         return () => { ws.close() }
     }, [])
 
-    useEffect(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN && positions.length > 0) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: positions.map(p => p.code) }))
+    // Subscribe to all relevant symbols (positions + selected stock)
+    const subscribeAll = useCallback(() => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return
+        const symbols = new Set<string>()
+        positions.forEach(p => symbols.add(p.code))
+        if (selectedStockRef.current) symbols.add(selectedStockRef.current.code)
+        if (symbols.size > 0) {
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
         }
-    }, [positions.map(p => p.code).join(',')])
+    }, [positions])
+
+    // Re-subscribe when positions change
+    useEffect(() => { subscribeAll() }, [positions.map(p => p.code).join(','), subscribeAll])
 
     // ── Search ──
     useEffect(() => {
@@ -194,9 +202,10 @@ export default function SimTrading() {
         setSearchQuery(''); setShowDropdown(false); setSearchResults([])
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: r.name })
 
-        // Subscribe via WebSocket for real-time updates
+        // Subscribe to selected stock + all positions
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [r.symbol] }))
+            const symbols = new Set([r.symbol, ...positions.map(p => p.code)])
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
         }
 
         // Fallback: fetch quote via HTTP API immediately
@@ -232,8 +241,19 @@ export default function SimTrading() {
         setOrderQty(String(o.qty ?? ''))
         setModifyOrderId(o.order_id)
         setOrderMsg(null)
-        if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: [o.code] }))
+        // Subscribe to this stock + all positions
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+            const symbols = new Set([o.code, ...positions.map(p => p.code)])
+            wsRef.current.send(JSON.stringify({ type: 'subscribe', symbols: Array.from(symbols) }))
+        }
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
+        // Fetch quote via HTTP API
+        api.getStockQuote(o.code).then(res => {
+            if (res.ok && res.data) {
+                const q = res.data
+                setQuote(prev => prev ? { ...prev, price: q.price ?? 0, change: q.change ?? 0, change_pct: q.change_pct ?? 0, open: q.open ?? 0, high: q.high ?? 0, low: q.low ?? 0, volume: q.volume ?? 0 } : prev)
+            }
+        }).catch(() => {})
     }
 
     const cancelModify = () => { setModifyOrderId(null); setOrderPrice(''); setOrderQty(''); setOrderMsg(null) }
@@ -248,10 +268,16 @@ export default function SimTrading() {
                 setModifyOrderId(null)
             } else {
                 const res = await api.placeSimOrder({ symbol: selectedStock.code, side: orderSide, quantity: parseFloat(orderQty) || 0, price: isMarketOrder ? 0 : effectivePrice, order_type: orderType })
-                if (res.ok) { setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` }); setOrderPrice(''); setOrderQty(''); setTriggerPrice('') }
+                if (res.ok) {
+                    setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
+                    setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
+                }
                 else setOrderMsg({ type: 'err', text: '下单失败' })
             }
-            loadMarketData()
+            // Reload market data (positions, orders, deals)
+            await loadMarketData()
+            // Re-subscribe to include new position
+            setTimeout(() => subscribeAll(), 500)
         } catch (e) { setOrderMsg({ type: 'err', text: e instanceof Error ? e.message : '操作失败' }) }
         finally { setSubmitting(false) }
     }
