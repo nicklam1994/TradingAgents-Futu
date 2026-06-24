@@ -1621,33 +1621,47 @@ class AutonomousLoop:
         # L-5~6: adjust strategy weights when Sharpe ratio is low
         adjusted_candidates = self._adjust_strategy_weights(state.candidates)
 
-        # Phase B2: Risk adjustment based on strategy metrics (Sharpe, drawdown, win rate)
-        metrics = state.metrics
-        if metrics and metrics.get("status") != "insufficient_data":
+        # ── B2: Risk-adjusted budget based on strategy metrics ──
+        # Scale position sizing by Sharpe, drawdown, and win rate so that
+        # poor-performing strategies automatically de-risk.
+        adjusted_budget = config.budget
+        metrics = getattr(state, "metrics", None)
+        if metrics and metrics.get("status") == "ok":
             sharpe = metrics.get("sharpe_ratio", 0)
             max_dd = metrics.get("max_drawdown", 0)
             win_rate = metrics.get("win_rate", 0)
             risk_factor = 1.0
+
             # Sharpe penalty/boost
             if sharpe < 0.5:
                 risk_factor *= 0.7
+                state.log(f"⚠️ Sharpe={sharpe:.2f} < 0.5 → risk ×0.7")
             elif sharpe > 1.5:
                 risk_factor *= 1.2
+                state.log(f"✅ Sharpe={sharpe:.2f} > 1.5 → risk ×1.2")
+
             # Drawdown penalty
             if max_dd > 0.15:
                 risk_factor *= 0.8
+                state.log(f"⚠️ 最大回撤={max_dd:.1%} > 15% → risk ×0.8")
+
             # Win rate penalty
             if win_rate < 0.4:
                 risk_factor *= 0.9
-            adjusted_budget = config.budget * risk_factor
+                state.log(f"⚠️ 胜率={win_rate:.1%} < 40% → risk ×0.9")
+
             if risk_factor != 1.0:
+                adjusted_budget = config.budget * risk_factor
+                state.log(
+                    f"💰 风险调整预算: {config.budget:,.0f} → {adjusted_budget:,.0f} {config.currency} "
+                    f"(factor={risk_factor:.2f})"
+                )
                 logger.info(
-                    "Task %s: Risk-adjusted budget %.0f → %.0f (factor=%.2f, sharpe=%.2f, dd=%.2f, wr=%.2f)",
+                    "Task %s: risk-adjusted budget %.0f → %.0f (factor=%.2f, sharpe=%.2f, dd=%.2f, wr=%.2f)",
                     task_id, config.budget, adjusted_budget, risk_factor, sharpe, max_dd, win_rate,
                 )
-                state.log(f"📊 风险调整: 预算 {config.budget:.0f} → {adjusted_budget:.0f} (factor={risk_factor:.2f})")
         else:
-            adjusted_budget = config.budget
+            state.log("ℹ️ 无策略指标数据，使用原始预算")
 
         allocation = self._allocator.allocate(
             candidates=adjusted_candidates,
