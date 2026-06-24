@@ -947,6 +947,14 @@ class AutonomousLoop:
                     # Only apply high-similarity lessons that mention this symbol
                     if similarity < 0.3:
                         continue
+                    # For moderate-similarity lessons, require keyword overlap
+                    # to reduce false-positive matches (Phase B1)
+                    if similarity < 0.5:
+                        situation_keywords = set(situation.lower().split())
+                        lesson_keywords = set(matched.lower().split())
+                        overlap = len(situation_keywords & lesson_keywords)
+                        if overlap < 3:
+                            continue
                     if sym.upper() not in matched and sym.split(".")[0].upper() not in matched:
                         continue
 
@@ -1613,9 +1621,37 @@ class AutonomousLoop:
         # L-5~6: adjust strategy weights when Sharpe ratio is low
         adjusted_candidates = self._adjust_strategy_weights(state.candidates)
 
+        # Phase B2: Risk adjustment based on strategy metrics (Sharpe, drawdown, win rate)
+        metrics = state.metrics
+        if metrics and metrics.get("status") != "insufficient_data":
+            sharpe = metrics.get("sharpe_ratio", 0)
+            max_dd = metrics.get("max_drawdown", 0)
+            win_rate = metrics.get("win_rate", 0)
+            risk_factor = 1.0
+            # Sharpe penalty/boost
+            if sharpe < 0.5:
+                risk_factor *= 0.7
+            elif sharpe > 1.5:
+                risk_factor *= 1.2
+            # Drawdown penalty
+            if max_dd > 0.15:
+                risk_factor *= 0.8
+            # Win rate penalty
+            if win_rate < 0.4:
+                risk_factor *= 0.9
+            adjusted_budget = config.budget * risk_factor
+            if risk_factor != 1.0:
+                logger.info(
+                    "Task %s: Risk-adjusted budget %.0f → %.0f (factor=%.2f, sharpe=%.2f, dd=%.2f, wr=%.2f)",
+                    task_id, config.budget, adjusted_budget, risk_factor, sharpe, max_dd, win_rate,
+                )
+                state.log(f"📊 风险调整: 预算 {config.budget:.0f} → {adjusted_budget:.0f} (factor={risk_factor:.2f})")
+        else:
+            adjusted_budget = config.budget
+
         allocation = self._allocator.allocate(
             candidates=adjusted_candidates,
-            total_budget=config.budget,
+            total_budget=adjusted_budget,
             currency=config.currency,
         )
         state.allocation = allocation.to_dict()
