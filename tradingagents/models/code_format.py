@@ -55,7 +55,7 @@ def _is_canonical(code: str) -> bool:
         return False
     code_part, market = parts
     # Market must be 2 letters, code must not be empty
-    return len(market) == 2 and market.isalpha() and len(code_part) > 0
+    return len(market) == 2 and market.isalpha() and len(code_part) > 0 and code_part.isalnum()
 
 
 # ── Futu (MARKET.CODE) ───────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ def _is_futu(code: str) -> bool:
     if len(parts) != 2:
         return False
     market, code_part = parts
-    return market in ("HK", "US", "SH", "SZ") and len(code_part) > 0
+    return market in ("HK", "US", "SH", "SZ") and len(code_part) > 0 and code_part.isalnum()
 
 
 def _infer_and_format(code: str) -> str:
