@@ -579,7 +579,7 @@ class AutonomousLoop:
             positions = []
             executed_symbols = []
             for ex in prev_executions:
-                if ex.get("action_taken") == "executed":
+                if ex.get("action_taken") in ("buy", "sell"):
                     sym = ex.get("symbol")
                     positions.append({
                         "symbol": sym,
@@ -1662,12 +1662,12 @@ class AutonomousLoop:
                         None,
                     )
                     if report:
-                        confidence = report.get("confidence", 0.6)
+                        confidence = report.get("confidence", 0.65)
                     elif decision.get("source") == "risk_control":
                         # Stop-loss / take-profit: high confidence to execute
                         confidence = 0.9
                     else:
-                        confidence = 0.6
+                        confidence = 0.65
 
                     signal = TradeSignal(
                         symbol=symbol,
@@ -1687,7 +1687,7 @@ class AutonomousLoop:
                     })
 
                     # Log execution result
-                    if result.action_taken == "executed":
+                    if result.action_taken in ("buy", "sell"):
                         state.log(f"  ✅ {decision['symbol']} {decision['action']} {result.quantity}股 @ {result.price}")
                     else:
                         state.log(f"  ⏭️ {decision['symbol']} 跳过: {result.reason}")
@@ -1697,7 +1697,7 @@ class AutonomousLoop:
                         self._reflect_on_trade(task_id, decision, result)
 
                     # ── Shadow Account: Record trade for pattern analysis ──
-                    if result.action_taken == "executed":
+                    if result.action_taken in ("buy", "sell"):
                         self._record_shadow_trade(task_id, config, decision, result)
 
             except ImportError:
@@ -1806,7 +1806,7 @@ class AutonomousLoop:
         equity = [budget]
         for item in all_executions:
             ex = item["ex"]
-            if ex.get("action_taken") != "executed":
+            if ex.get("action_taken") not in ("buy", "sell"):
                 continue
             price = ex.get("price", 0)
             qty = ex.get("quantity", 0)

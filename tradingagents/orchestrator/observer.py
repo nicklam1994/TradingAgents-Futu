@@ -55,7 +55,7 @@ class PositionAlert:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        result = {
             "alert_type": self.alert_type.value,
             "symbol": self.symbol,
             "message": self.message,
@@ -69,6 +69,10 @@ class PositionAlert:
             "threshold_value": self.threshold_value,
             "timestamp": self.timestamp,
         }
+        # Add action field for downstream sell filter compatibility
+        if self.should_exit:
+            result["action"] = "sell"
+        return result
 
 
 @dataclass
