@@ -19,6 +19,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -947,16 +948,19 @@ class AutonomousLoop:
                     # Only apply high-similarity lessons that mention this symbol
                     if similarity < 0.3:
                         continue
+                    # Nit-1: check symbol first (cheaper) before keyword overlap
+                    if sym.upper() not in matched and sym.split(".")[0].upper() not in matched:
+                        continue
                     # For moderate-similarity lessons, require keyword overlap
                     # to reduce false-positive matches (Phase B1)
                     if similarity < 0.5:
-                        situation_keywords = set(situation.lower().split())
-                        lesson_keywords = set(matched.lower().split())
+                        # Warning-1: unified regex tokenization (consistent with BM25 index)
+                        situation_keywords = set(re.findall(r'\b\w+', situation.lower()))
+                        lesson_keywords = set(re.findall(r'\b\w+', matched.lower()))
                         overlap = len(situation_keywords & lesson_keywords)
-                        if overlap < 3:
+                        # Warning-2: lowered threshold from 3 to 2 for short strings
+                        if overlap < 2:
                             continue
-                    if sym.upper() not in matched and sym.split(".")[0].upper() not in matched:
-                        continue
 
                     old_score = candidate.get("composite_score", 0)
 
@@ -1632,18 +1636,13 @@ class AutonomousLoop:
             win_rate = metrics.get("win_rate", 0)
             risk_factor = 1.0
 
-            # Sharpe penalty/boost
-            if sharpe < 0.5:
-                risk_factor *= 0.7
-                state.log(f"⚠️ Sharpe={sharpe:.2f} < 0.5 → risk ×0.7")
-            elif sharpe > 1.5:
-                risk_factor *= 1.2
-                state.log(f"✅ Sharpe={sharpe:.2f} > 1.5 → risk ×1.2")
-
-            # Drawdown penalty
-            if max_dd > 0.15:
+            # Drawdown penalty (gradient)
+            if max_dd > 0.30:
+                risk_factor *= 0.5
+                state.log(f"🔴 最大回撤={max_dd:.1%}，大幅降低風険偏好 50%")
+            elif max_dd > 0.15:
                 risk_factor *= 0.8
-                state.log(f"⚠️ 最大回撤={max_dd:.1%} > 15% → risk ×0.8")
+                state.log(f"⚠️ 最大回撤={max_dd:.1%}，降低風険偏好 20%")
 
             # Win rate penalty
             if win_rate < 0.4:
@@ -1661,7 +1660,7 @@ class AutonomousLoop:
                     task_id, config.budget, adjusted_budget, risk_factor, sharpe, max_dd, win_rate,
                 )
         else:
-            state.log("ℹ️ 无策略指标数据，使用原始预算")
+            state.log("ℹ️ 策略指標正常，預算不變")
 
         allocation = self._allocator.allocate(
             candidates=adjusted_candidates,
@@ -1895,7 +1894,19 @@ class AutonomousLoop:
             if len(returns) < 2:
                 return candidates
             sharpe = QuantMetrics.sharpe_ratio(returns)
-            if sharpe < 0.5:
+            if sharpe < 0:
+                # Negative Sharpe: strategy is losing money, drastically reduce risk
+                logger.warning(
+                    "Negative Sharpe ratio %.2f — quartering strategy weights",
+                    sharpe,
+                )
+                adjusted = []
+                for c in candidates:
+                    c_copy = dict(c)
+                    c_copy["composite_score"] = c_copy.get("composite_score", 0.5) * 0.25
+                    adjusted.append(c_copy)
+                return adjusted
+            elif sharpe < 0.5:
                 logger.warning(
                     "Low Sharpe ratio %.2f < 0.5 — halving strategy weights",
                     sharpe,
