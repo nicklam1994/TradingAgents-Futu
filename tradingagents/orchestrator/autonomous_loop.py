@@ -1886,7 +1886,7 @@ class AutonomousLoop:
                 price = ex.get("price", 0)
                 qty = ex.get("quantity", 0)
 
-                if action != "executed" or price <= 0 or qty <= 0:
+                if action not in ("buy", "sell") or price <= 0 or qty <= 0:
                     continue
 
                 # Determine buy/sell from trade decisions
