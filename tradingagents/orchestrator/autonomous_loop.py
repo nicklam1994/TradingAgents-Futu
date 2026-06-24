@@ -14,6 +14,8 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import os
@@ -65,6 +67,8 @@ class OODAState:
     trade_decisions: List[Dict[str, Any]] = field(default_factory=list)
     # Act phase results
     executions: List[Dict[str, Any]] = field(default_factory=list)
+    # Position tracking (real-time prices from Observe phase)
+    positions: List[Dict[str, Any]] = field(default_factory=list)
     # Strategy metrics (Phase 13+ integration)
     metrics: Dict[str, Any] = field(default_factory=dict)
     # Runtime logs (displayed in frontend)
@@ -91,6 +95,7 @@ class OODAState:
             "allocation": self.allocation,
             "trade_decisions": self.trade_decisions,
             "executions": self.executions,
+            "positions": self.positions,
             "metrics": self.metrics,
             "logs": self.logs,
             "errors": self.errors,
@@ -570,20 +575,100 @@ class AutonomousLoop:
         prev_executions = prev_state.get("executions", [])
 
         if prev_executions:
-            # Convert executions to position format for monitoring
+            # Collect executed positions from previous iterations
             positions = []
+            executed_symbols = []
             for ex in prev_executions:
                 if ex.get("action_taken") == "executed":
+                    sym = ex.get("symbol")
                     positions.append({
-                        "symbol": ex.get("symbol"),
+                        "symbol": sym,
                         "entry_price": ex.get("price", 0),
-                        "current_price": ex.get("price", 0),  # Would fetch real price
+                        "current_price": ex.get("price", 0),  # fallback
                         "quantity": ex.get("quantity", 0),
                         "side": "long",
                     })
+                    if sym:
+                        executed_symbols.append(sym)
 
+            # ── A1: Fetch real-time prices via provider ──
+            if executed_symbols:
+                try:
+                    from tradingagents.dataflows.interface import route_to_vendor
+                    quotes_csv = route_to_vendor(
+                        "get_realtime_quotes", executed_symbols
+                    )
+                    if quotes_csv:
+                        reader = csv.DictReader(io.StringIO(quotes_csv))
+                        price_map: Dict[str, float] = {}
+                        for row in reader:
+                            sym = row.get("symbol", "")
+                            price = float(row.get("price", 0) or 0)
+                            if sym and price > 0:
+                                price_map[sym] = price
+                        # Update positions with real-time prices
+                        for pos in positions:
+                            real_price = price_map.get(pos["symbol"])
+                            if real_price:
+                                pos["current_price"] = real_price
+                                logger.debug(
+                                    "Task %s: %s real-time price %.2f (entry %.2f)",
+                                    task_id, pos["symbol"], real_price,
+                                    pos["entry_price"],
+                                )
+                except Exception as e:
+                    logger.warning(
+                        "Task %s: Failed to fetch real-time prices: %s",
+                        task_id, e,
+                    )
+
+            # Store positions in state for downstream phases
+            state.positions = positions
+
+            # ── A2: Stop-loss / take-profit checks ──
+            for pos in positions:
+                entry = pos["entry_price"]
+                if not entry or entry <= 0:
+                    continue
+                pnl_pct = (pos["current_price"] - entry) / entry
+                if pnl_pct <= config.stop_loss_pct:
+                    state.position_alerts.append({
+                        "symbol": pos["symbol"],
+                        "type": "stop_loss",
+                        "action": "sell",
+                        "pnl_pct": round(pnl_pct, 4),
+                        "entry_price": entry,
+                        "current_price": pos["current_price"],
+                    })
+                    state.log(
+                        f"🔴 {pos['symbol']} 止损触发: PnL {pnl_pct:.2%} <= {config.stop_loss_pct:.0%}"
+                    )
+                    logger.warning(
+                        "Task %s: %s stop-loss triggered (PnL %.2f%%)",
+                        task_id, pos["symbol"], pnl_pct * 100,
+                    )
+                elif pnl_pct >= config.take_profit_pct:
+                    state.position_alerts.append({
+                        "symbol": pos["symbol"],
+                        "type": "take_profit",
+                        "action": "sell",
+                        "pnl_pct": round(pnl_pct, 4),
+                        "entry_price": entry,
+                        "current_price": pos["current_price"],
+                    })
+                    state.log(
+                        f"🟢 {pos['symbol']} 止盈触发: PnL {pnl_pct:.2%} >= {config.take_profit_pct:.0%}"
+                    )
+                    logger.info(
+                        "Task %s: %s take-profit triggered (PnL %.2f%%)",
+                        task_id, pos["symbol"], pnl_pct * 100,
+                    )
+
+            # Also run observer's built-in position checks
             alerts = self._observer.check_positions(positions, config.budget)
-            state.position_alerts = [a.to_dict() for a in alerts]
+            state.position_alerts.extend(
+                [a.to_dict() for a in alerts]
+            )
 
             # Check for critical alerts that should stop the loop
             critical = [a for a in alerts if a.severity == "critical"]
@@ -1427,6 +1512,58 @@ class AutonomousLoop:
         """Decide phase: Allocate capital and plan trades."""
         logger.debug("Task %s O%d: Decide phase", task_id, state.iteration)
 
+        # ── A3: Sell logic — process risk-control sells first ──
+        sell_symbols: set = set()
+
+        # 1. Stop-loss / take-profit triggered sells from Observe phase
+        sell_alerts = [
+            a for a in state.position_alerts
+            if a.get("action") == "sell"
+        ]
+        for alert in sell_alerts:
+            sym = alert["symbol"]
+            held_qty = self._get_held_quantity(state, sym)
+            if held_qty > 0:
+                state.trade_decisions.append({
+                    "symbol": sym,
+                    "action": "sell",
+                    "shares": held_qty,
+                    "source": "risk_control",
+                    "reason": f"{alert.get('type', 'risk')}: PnL {alert.get('pnl_pct', 0):.2%}",
+                })
+                sell_symbols.add(sym)
+                state.log(
+                    f"🔴 {sym} 风控卖出 {held_qty}股 ({alert.get('type', 'risk')})"
+                )
+                logger.info(
+                    "Task %s: %s risk-control sell %d shares (%s)",
+                    task_id, sym, held_qty, alert.get("type"),
+                )
+
+        # 2. TradingGraph SELL verdict — sell held positions
+        for c in state.candidates:
+            if c.get("tg_verdict") == "SELL":
+                sym = c.get("symbol", "")
+                if sym in sell_symbols:
+                    continue  # Already queued for sell
+                held_qty = self._get_held_quantity(state, sym)
+                if held_qty > 0:
+                    state.trade_decisions.append({
+                        "symbol": sym,
+                        "action": "sell",
+                        "shares": held_qty,
+                        "source": "trading_graph",
+                        "reason": f"TG verdict=SELL, confidence={c.get('tg_confidence', 0):.2f}",
+                    })
+                    sell_symbols.add(sym)
+                    state.log(
+                        f"📉 {sym} TradingGraph卖出 {held_qty}股"
+                    )
+                    logger.info(
+                        "Task %s: %s TradingGraph SELL — selling %d shares",
+                        task_id, sym, held_qty,
+                    )
+
         if not state.candidates:
             logger.info("Task %s: No candidates to allocate", task_id)
             state.log("⚠️ 无候选股票，跳过决策")
@@ -1488,8 +1625,9 @@ class AutonomousLoop:
         state.log(f"💰 资金分配: {alloc_count} 只股票获得配置")
 
         # Build trade decisions from allocation
+        # A3: Skip buying stocks that are already queued for sell
         for alloc in allocation.allocations:
-            if alloc.shares > 0:
+            if alloc.shares > 0 and alloc.symbol not in sell_symbols:
                 state.trade_decisions.append({
                     "symbol": alloc.symbol,
                     "action": "buy",
@@ -1517,10 +1655,24 @@ class AutonomousLoop:
                 executor = SimExecutor(confidence_threshold=0.6)
 
                 for decision in state.trade_decisions:
+                    symbol = decision["symbol"]
+                    # ── A4: Use actual confidence from analysis reports ──
+                    report = next(
+                        (r for r in state.analysis_reports if r.get("symbol") == symbol),
+                        None,
+                    )
+                    if report:
+                        confidence = report.get("confidence", 0.6)
+                    elif decision.get("source") == "risk_control":
+                        # Stop-loss / take-profit: high confidence to execute
+                        confidence = 0.9
+                    else:
+                        confidence = 0.6
+
                     signal = TradeSignal(
-                        symbol=decision["symbol"],
+                        symbol=symbol,
                         signal=decision["action"],
-                        confidence=0.7,  # Would come from analysis
+                        confidence=confidence,
                         metadata={"autonomous_task": task_id},
                     )
                     result = executor.execute(signal)
@@ -1560,6 +1712,24 @@ class AutonomousLoop:
             })
 
     # ── Helpers ───────────────────────────────────────────────────────────
+
+    def _get_held_quantity(self, state: OODAState, symbol: str) -> int:
+        """Get the held quantity for a symbol from positions tracked in state.
+
+        Looks at state.positions (built in Observe phase) to find how many
+        shares of the given symbol are currently held.
+
+        Args:
+            state: Current OODA state with positions.
+            symbol: Stock symbol to look up.
+
+        Returns:
+            Number of shares held (0 if not found).
+        """
+        for pos in state.positions:
+            if pos.get("symbol") == symbol:
+                return int(pos.get("quantity", 0))
+        return 0
 
     def _should_continue(self, task_id: str) -> bool:
         """Check if the loop should continue."""
