@@ -3875,7 +3875,7 @@ async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[s
         query = args.get("query", "")
         # Search stock database
         try:
-            from tradingagents.dataflows.stock_resolver import search_by_name, resolve_ticker, to_display
+            from tradingagents.dataflows.stock_resolver import search_by_name, search_by_name_multi, resolve_ticker, to_display
             # Try direct ticker resolution first
             entry = resolve_ticker(query)
             if entry:
@@ -3890,7 +3890,7 @@ async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[s
                     "message": f"找到: {name} ({code}) [{market}]",
                 }
             # Try name search
-            results = search_by_name(query, limit=5)
+            results = search_by_name_multi(query, limit=5)
             if results:
                 return {
                     "action": "resolve",
