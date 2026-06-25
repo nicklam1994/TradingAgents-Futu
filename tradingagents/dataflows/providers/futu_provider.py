@@ -329,8 +329,10 @@ class FutuProvider(BaseMarketDataProvider):
                 "volume": DataFrame(index=DatetimeIndex, columns=symbol),
             }
 
-        Includes in-memory cache with same-day TTL to avoid redundant API calls
-        when multiple strategies request the same data.
+        Data source priority (P1-5 SQLite cache):
+            1. In-memory cache (_PanelCache) — same-day TTL
+            2. SQLite cache (tradingagents/data/database.py) — persistent
+            3. Futu API — only for missing date ranges
 
         Args:
             symbols: List of stock symbols (e.g., ["HK.00700", "AAPL"]).
@@ -341,12 +343,98 @@ class FutuProvider(BaseMarketDataProvider):
         Returns:
             Panel dict with OHLCV DataFrames. Missing symbols are silently skipped.
         """
-        # Check cache first
+        # Check in-memory cache first (same-day TTL)
         symbols_tuple = tuple(symbols)
         cached = _panel_cache.get(symbols_tuple, start_date, end_date, autype)
         if cached is not None:
             return cached
 
+        # Try SQLite cache for each symbol
+        frames: Dict[str, pd.DataFrame] = {}
+        symbols_to_fetch: List[str] = []
+
+        for symbol in symbols:
+            canonical = self._to_canonical_symbol(symbol)
+            try:
+                from tradingagents.data.database import get_bars_as_dataframe, is_cached
+                if is_cached(canonical, start_date, end_date):
+                    df = get_bars_as_dataframe(canonical, start_date, end_date)
+                    if not df.empty:
+                        frames[canonical] = df
+                        logger.debug("SQLite cache hit for %s (%d bars)", canonical, len(df))
+                        continue
+            except Exception as e:
+                logger.debug("SQLite cache check failed for %s: %s", symbol, e)
+
+            symbols_to_fetch.append(symbol)
+
+        # Fetch missing symbols from Futu API
+        if symbols_to_fetch:
+            api_frames = self._fetch_from_api(symbols_to_fetch, start_date, end_date, autype)
+            frames.update(api_frames)
+
+            # Write fetched data to SQLite cache
+            try:
+                from tradingagents.data.database import upsert_bars
+                for canonical, df in api_frames.items():
+                    bars = []
+                    for idx, row in df.iterrows():
+                        date_str = idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)
+                        bars.append({
+                            "date": date_str,
+                            "open": float(row["open"]) if row["open"] is not None else 0.0,
+                            "high": float(row["high"]) if row["high"] is not None else 0.0,
+                            "low": float(row["low"]) if row["low"] is not None else 0.0,
+                            "close": float(row["close"]) if row["close"] is not None else 0.0,
+                            "volume": float(row["volume"]) if row["volume"] is not None else 0.0,
+                        })
+                    if bars:
+                        upsert_bars(canonical, bars, source="futu")
+                        logger.debug("Cached %d bars for %s in SQLite", len(bars), canonical)
+            except Exception as e:
+                logger.warning("Failed to cache data in SQLite: %s", e)
+
+        if not frames:
+            return {}
+
+        # Pivot into panel format
+        panel: Dict[str, pd.DataFrame] = {}
+        for col in ("open", "high", "low", "close", "volume"):
+            panel[col] = pd.DataFrame(
+                {sym: frames[sym][col] for sym in frames},
+                index=frames[list(frames.keys())[0]].index,
+            )
+
+        # Cache in memory
+        _panel_cache.put(symbols_tuple, start_date, end_date, autype, panel)
+
+        # Validate OHLC data quality (warn on issues, don't block)
+        for sym, close_df in panel.get("close", pd.DataFrame()).items():
+            sym_df = pd.DataFrame({col: panel[col][sym] for col in panel if sym in panel[col]})
+            self._validate_ohlc(sym_df, strategy="warn")
+
+        return panel
+
+    def _to_canonical_symbol(self, symbol: str) -> str:
+        """Convert any symbol format to TAF canonical (e.g., 'HK.00700' → '00700.HK').
+
+        Uses stock_resolver for proper normalization.
+        """
+        from tradingagents.dataflows.stock_resolver import to_canonical
+        return to_canonical(symbol)
+
+    def _fetch_from_api(
+        self,
+        symbols: List[str],
+        start_date: str,
+        end_date: str,
+        autype: Optional[str],
+    ) -> Dict[str, pd.DataFrame]:
+        """Fetch OHLCV data from Futu API for given symbols.
+
+        Returns:
+            Dict mapping canonical_symbol → DataFrame with OHLCV columns.
+        """
         from futu import KLType, RET_OK, AuType
 
         autype_map = {
@@ -359,7 +447,6 @@ class FutuProvider(BaseMarketDataProvider):
         }
         futu_autype = autype_map.get(autype, AuType.NONE)
 
-        # Collect per-symbol DataFrames
         frames: Dict[str, pd.DataFrame] = {}
         ctx = self._get_quote_ctx()
         try:
@@ -387,39 +474,15 @@ class FutuProvider(BaseMarketDataProvider):
                     })
                     df["Date"] = pd.to_datetime(df["Date"])
                     df = df.set_index("Date").sort_index()
-                    # Use canonical symbol as column key
-                    canonical = symbol.replace("HK.", "").replace("US.", "")
-                    if symbol.startswith("HK.") or self._to_futu_code(symbol)[0].name == "HK":
-                        canonical = f"{canonical}.HK" if not canonical.endswith(".HK") else canonical
-                    elif symbol.startswith("US.") or not canonical.endswith(".HK"):
-                        canonical = f"{canonical}" if not canonical.endswith(".US") else canonical
+                    canonical = self._to_canonical_symbol(symbol)
                     frames[canonical] = df[["open", "high", "low", "close", "volume"]].astype(float)
                 except Exception as e:
-                    logger.debug("Panel data fetch failed for %s: %s", symbol, e)
+                    logger.debug("API fetch failed for %s: %s", symbol, e)
                     continue
         finally:
             ctx.close()
 
-        if not frames:
-            return {}
-
-        # Pivot into panel format
-        panel: Dict[str, pd.DataFrame] = {}
-        for col in ("open", "high", "low", "close", "volume"):
-            panel[col] = pd.DataFrame(
-                {sym: frames[sym][col] for sym in frames},
-                index=frames[list(frames.keys())[0]].index,
-            )
-
-        # Cache the result
-        _panel_cache.put(symbols_tuple, start_date, end_date, autype, panel)
-
-        # Validate OHLC data quality (warn on issues, don't block)
-        for sym, close_df in panel.get("close", pd.DataFrame()).items():
-            sym_df = pd.DataFrame({col: panel[col][sym] for col in panel if sym in panel[col]})
-            self._validate_ohlc(sym_df, strategy="warn")
-
-        return panel
+        return frames
 
     # ── OHLC Data Validation ──
 

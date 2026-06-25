@@ -11,7 +11,7 @@ def build_data_trace(agent_name: str, entries: list) -> str:
     Returns:
         Markdown string for the trace section
     """
-    lines = ["\n\n---\n### 📊 数据来源追溯\n"]
+    lines = ["\n\n\n### 📊 数据来源追溯\n"]
     lines.append("| 工具 | 数据源 | 返回内容 |")
     lines.append("|------|--------|----------|")
     for tool, source, summary in entries:
