@@ -664,12 +664,15 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 }
 
                 if (result.ok && result.data) {
-                    const { response: reply, tool_call } = result.data
+                    const { response: reply, tool_call, tool_calls } = result.data
 
-                    // If tool was called and it's analyze, trigger the analysis pipeline
-                    if (tool_call?.name === 'analyze_stock') {
-                        const symbol = tool_call.args.symbol as string
-                        const horizon = (tool_call.args.horizon as string) || 'short'
+                    // Check if analyze_stock was called in the tool chain
+                    const analyzeCall = (tool_calls || []).find((tc: { name: string }) => tc.name === 'analyze_stock')
+                        || (tool_call?.name === 'analyze_stock' ? tool_call : null)
+
+                    if (analyzeCall) {
+                        const symbol = analyzeCall.args.symbol as string
+                        const horizon = (analyzeCall.args.horizon as string) || 'short'
                         onSymbolDetected?.(symbol)
                         setThinkingPhase('analyzing')
                         // Show LLM response first

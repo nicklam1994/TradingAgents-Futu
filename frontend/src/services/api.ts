@@ -113,7 +113,7 @@ class ApiService {
         return response
     }
 
-    async functionCall(message: string): Promise<{ ok: boolean; data?: { response: string; tool_call?: { name: string; args: Record<string, unknown>; result: Record<string, unknown> } | null } }> {
+    async functionCall(message: string): Promise<{ ok: boolean; data?: { response: string; tool_calls?: Array<{ name: string; args: Record<string, unknown>; result: Record<string, unknown> }>; tool_call?: { name: string; args: Record<string, unknown>; result: Record<string, unknown> } | null } }> {
         const response = await fetch(`${getBaseUrl()}/v1/chat/function-call`, {
             method: 'POST',
             headers: {
