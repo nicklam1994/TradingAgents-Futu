@@ -163,37 +163,30 @@ class FunctionCallingHandler:
             yield chunk
 
 
-def get_llm_config_from_db() -> Dict[str, str]:
-    """Get LLM config from database."""
+def create_handler_from_runtime_config(user_id: str) -> Optional[FunctionCallingHandler]:
+    """Create a FunctionCallingHandler using the same config as other analysis agents.
+
+    Uses _build_runtime_config from main.py which reads DB + env vars + overrides,
+    exactly the same way the 7-agent analysis pipeline does.
+    """
     try:
-        from api.database import SessionLocal, UserLLMConfigDB
-        from api.services.auth_service import decrypt_secret
+        from api.main import _build_runtime_config
 
-        db = SessionLocal()
-        try:
-            row = db.query(UserLLMConfigDB).first()
-            if row:
-                api_key = decrypt_secret(row.api_key_encrypted) if row.api_key_encrypted else ""
-                return {
-                    "api_key": api_key,
-                    "base_url": row.backend_url or "https://api.openai.com/v1",
-                    "model": row.quick_think_llm or "gpt-4o-mini",
-                }
-        finally:
-            db.close()
+        config = _build_runtime_config({}, user_id=user_id)
+        api_key = config.get("api_key", "")
+        base_url = config.get("backend_url", "https://api.openai.com/v1")
+        model = config.get("quick_think_llm", "gpt-4o-mini")
+
+        if not api_key:
+            logger.warning("No API key in runtime config for user %s", user_id)
+            return None
+
+        logger.info("[FunctionCalling] Using model=%s, base_url=%s", model, base_url)
+        return FunctionCallingHandler(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
     except Exception as e:
-        logger.error("Failed to get LLM config: %s", e)
-    return {}
-
-
-def create_handler_from_db() -> Optional[FunctionCallingHandler]:
-    """Create a FunctionCallingHandler from database config."""
-    config = get_llm_config_from_db()
-    if not config.get("api_key"):
-        logger.warning("No API key found in DB")
+        logger.error("Failed to create handler from runtime config: %s", e)
         return None
-    return FunctionCallingHandler(
-        api_key=config["api_key"],
-        base_url=config["base_url"],
-        model=config["model"],
-    )

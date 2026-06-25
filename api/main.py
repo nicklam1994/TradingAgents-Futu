@@ -3702,7 +3702,7 @@ async def chat_function_call(
     """LLM Function Calling 模式 — 自然语言对话 + 工具调用"""
     from api.services.function_calling_service import (
         FunctionCallingHandler, TOOLS, SYSTEM_PROMPT, HELP_TEXT,
-        create_handler_from_db,
+        create_handler_from_runtime_config,
     )
 
     body = await request.json()
@@ -3710,7 +3710,7 @@ async def chat_function_call(
     if not messages:
         return {"ok": False, "error": "No messages provided"}
 
-    handler = create_handler_from_db()
+    handler = create_handler_from_runtime_config(current_user.id)
     if not handler:
         return {"ok": False, "error": "LLM not configured"}
 
