@@ -321,6 +321,9 @@ class FutuProvider(BaseMarketDataProvider):
                 "volume": DataFrame(index=DatetimeIndex, columns=symbol),
             }
 
+        Includes in-memory cache with same-day TTL to avoid redundant API calls
+        when multiple strategies request the same data.
+
         Args:
             symbols: List of stock symbols (e.g., ["HK.00700", "AAPL"]).
             start_date: Start date in YYYY-MM-DD format.
@@ -330,6 +333,12 @@ class FutuProvider(BaseMarketDataProvider):
         Returns:
             Panel dict with OHLCV DataFrames. Missing symbols are silently skipped.
         """
+        # Check cache first
+        symbols_tuple = tuple(symbols)
+        cached = _panel_cache.get(symbols_tuple, start_date, end_date, autype)
+        if cached is not None:
+            return cached
+
         from futu import KLType, RET_OK, AuType
 
         autype_map = {
@@ -393,7 +402,161 @@ class FutuProvider(BaseMarketDataProvider):
                 {sym: frames[sym][col] for sym in frames},
                 index=frames[list(frames.keys())[0]].index,
             )
+
+        # Cache the result
+        _panel_cache.put(symbols_tuple, start_date, end_date, autype, panel)
+
         return panel
+
+    # ── OHLC Data Validation ──
+
+    @staticmethod
+    def _validate_ohlc(
+        df: pd.DataFrame,
+        *,
+        strategy: str = "warn",
+        price_jump_threshold: float = 0.5,
+    ) -> Dict[str, Any]:
+        """Validate OHLC data quality and return diagnostics.
+
+        Checks for common data issues that can corrupt backtest results:
+        - Missing values (NaN)
+        - Invalid prices (close <= 0, high < low)
+        - Zero volume bars (may indicate delisted/suspended stocks)
+        - Price jumps > threshold (vs previous day, default 50%)
+
+        Args:
+            df: DataFrame with columns [open, high, low, close, volume].
+                Index should be DatetimeIndex for time-series analysis.
+            strategy: How to handle violations:
+                - "warn": Log warnings, return diagnostics (default)
+                - "drop": Return cleaned DataFrame with violations removed
+                - "raise": Raise ValueError on any violation
+            price_jump_threshold: Max allowed daily price change ratio (default 0.5 = 50%)
+
+        Returns:
+            Dict with keys:
+                - "is_valid": bool, True if no violations found
+                - "violations": dict mapping violation type -> list of affected dates
+                - "stats": dict with summary stats (total_bars, nan_count, etc.)
+                - "cleaned_df": DataFrame with violations handled per strategy
+                - "repair_suggestions": list of human-readable repair suggestions
+
+        Example:
+            >>> result = FutuProvider._validate_ohlc(df)
+            >>> if not result["is_valid"]:
+            ...     print(f"Found {len(result['violations'])} issues")
+            ...     for vtype, dates in result["violations"].items():
+            ...         print(f"  {vtype}: {len(dates)} bars")
+        """
+        required_cols = ("open", "high", "low", "close")
+        if df.empty or not all(col in df.columns for col in required_cols):
+            return {
+                "is_valid": True,
+                "violations": {},
+                "stats": {"total_bars": 0},
+                "cleaned_df": df,
+                "repair_suggestions": [],
+            }
+
+        violations: Dict[str, list] = {}
+        repair_suggestions = []
+        mask_valid = pd.Series(True, index=df.index)
+
+        # 1. Missing values (NaN)
+        nan_mask = df[list(required_cols)].isnull().any(axis=1)
+        if "volume" in df.columns:
+            nan_mask = nan_mask | df["volume"].isnull()
+        nan_dates = df.index[nan_mask].tolist()
+        if nan_dates:
+            violations["nan_values"] = [str(d) for d in nan_dates]
+            repair_suggestions.append(
+                f"Found {len(nan_dates)} bars with NaN values. "
+                "Consider forward-fill (ffill) or interpolation for gaps."
+            )
+            if strategy == "drop":
+                mask_valid = mask_valid & ~nan_mask
+
+        # 2. Invalid prices (close <= 0 or high < low)
+        price_cols = ["open", "high", "low", "close"]
+        invalid_price_mask = (
+            (df["close"] <= 0)
+            | (df["open"] <= 0)
+            | (df["high"] <= 0)
+            | (df["low"] <= 0)
+            | (df["high"] < df["low"])
+        )
+        invalid_price_dates = df.index[invalid_price_mask].tolist()
+        if invalid_price_dates:
+            violations["invalid_prices"] = [str(d) for d in invalid_price_dates]
+            repair_suggestions.append(
+                f"Found {len(invalid_price_dates)} bars with invalid prices "
+                "(close<=0 or high<low). These are likely data errors — consider removing."
+            )
+            if strategy == "drop":
+                mask_valid = mask_valid & ~invalid_price_mask
+
+        # 3. Zero volume bars
+        if "volume" in df.columns:
+            zero_vol_mask = df["volume"] == 0
+            zero_vol_dates = df.index[zero_vol_mask].tolist()
+            if zero_vol_dates:
+                violations["zero_volume"] = [str(d) for d in zero_vol_dates]
+                repair_suggestions.append(
+                    f"Found {len(zero_vol_dates)} bars with zero volume. "
+                    "May indicate suspension or delisting — verify manually."
+                )
+                # Don't auto-drop zero volume bars (they may be valid for suspended stocks)
+
+        # 4. Price jumps (> threshold vs previous day)
+        if len(df) > 1:
+            close_series = df["close"].astype(float)
+            pct_change = close_series.pct_change().abs()
+            jump_mask = pct_change > price_jump_threshold
+            jump_dates = df.index[jump_mask].tolist()
+            if jump_dates:
+                violations["price_jumps"] = [str(d) for d in jump_dates]
+                repair_suggestions.append(
+                    f"Found {len(jump_dates)} bars with price jumps > {price_jump_threshold*100:.0f}%. "
+                    "May indicate stock splits, dividends, or data errors."
+                )
+                if strategy == "drop":
+                    mask_valid = mask_valid & ~jump_mask
+
+        # Build result
+        is_valid = len(violations) == 0
+        cleaned_df = df[mask_valid] if strategy == "drop" else df
+
+        stats = {
+            "total_bars": len(df),
+            "nan_count": len(violations.get("nan_values", [])),
+            "invalid_price_count": len(violations.get("invalid_prices", [])),
+            "zero_volume_count": len(violations.get("zero_volume", [])),
+            "price_jump_count": len(violations.get("price_jumps", [])),
+            "valid_bars": int(mask_valid.sum()),
+            "dropped_bars": len(df) - int(mask_valid.sum()) if strategy == "drop" else 0,
+        }
+
+        if not is_valid:
+            total_issues = sum(len(v) for v in violations.values())
+            if strategy == "raise":
+                raise ValueError(
+                    f"OHLC validation failed: {total_issues} violations found. "
+                    f"Types: {list(violations.keys())}"
+                )
+            elif strategy == "warn":
+                logger.warning(
+                    "OHLC validation: %d violations in %d bars (%s)",
+                    total_issues, len(df), list(violations.keys())
+                )
+
+        return {
+            "is_valid": is_valid,
+            "violations": violations,
+            "stats": stats,
+            "cleaned_df": cleaned_df,
+            "repair_suggestions": repair_suggestions,
+        }
 
     # ── 1.4 get_indicators — 技术指标 ──
 
