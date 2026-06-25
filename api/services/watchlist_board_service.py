@@ -34,7 +34,7 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
     symbols: list[str] = [str(row.symbol) for row in rows]
 
     # 2. Convert symbols to Futu-compatible format for quotes
-    from tradingagents.models.code_format import to_futu, to_display, to_canonical
+    from tradingagents.dataflows.stock_resolver import to_futu, to_display
     futu_symbols = []
     symbol_map = {}  # futu_code -> canonical
     for sym in symbols:
