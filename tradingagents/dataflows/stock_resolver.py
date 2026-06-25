@@ -312,6 +312,10 @@ def to_futu(code: str) -> str:
 
     if canonical.endswith(".HK"):
         return f"HK.{canonical[:-3]}"
+    if canonical.endswith(".US"):
+        return f"US.{canonical[:-3]}"
+    if canonical.startswith("HK."):
+        return canonical
     if canonical.startswith("US."):
         return canonical
     # Bare ticker → assume US
