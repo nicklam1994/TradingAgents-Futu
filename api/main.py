@@ -208,6 +208,31 @@ async def _run_manual_trigger(
 _bot_manager: Optional[BotManager] = None
 
 
+def _find_bot_owner_user_id() -> Optional[str]:
+    """Find the user_id that owns the currently active Telegram bot token."""
+    import json
+    try:
+        with get_db_ctx() as db:
+            from api.database import UserLLMConfigDB
+            rows = db.query(UserLLMConfigDB).filter(
+                UserLLMConfigDB.notification_config.isnot(None),
+                UserLLMConfigDB.notification_config != "",
+            ).all()
+            bot_token = os.environ.get("telegram_bot_token", "")
+            for row in rows:
+                try:
+                    cfg = json.loads(row.notification_config)
+                    ch = cfg.get("channels", {}).get("telegram", {})
+                    token = ch.get("bot_token", "") or ch.get("telegram_bot_token", "")
+                    if token and token == bot_token:
+                        return row.user_id
+                except (json.JSONDecodeError, AttributeError):
+                    continue
+    except Exception:
+        pass
+    return None
+
+
 def _bot_analyze_fn_factory(telegram_bot=None):
     """Create the analyze coroutine for the bot command handler.
 
@@ -260,8 +285,8 @@ def _bot_analyze_fn_factory(telegram_bot=None):
         store = get_job_store()
         store.set_job(job_id, status="running", symbol=symbol, source="bot")
 
-        # Start the analysis job (non-blocking)
-        asyncio.create_task(_run_job(job_id, req, user_id="bot", request_source="bot"))
+        # Start the analysis job (non-blocking) with bot owner's user_id
+        asyncio.create_task(_run_job(job_id, req, user_id=_find_bot_owner_user_id() or "bot", request_source="bot"))
 
         # Subscribe to job events for disambiguation + completion
         disambiguation_symbol = None
@@ -310,7 +335,7 @@ def _bot_analyze_fn_factory(telegram_bot=None):
                                 )
                                 job_id2 = f"bot-{uuid4().hex[:8]}"
                                 store.set_job(job_id2, status="running", symbol=disambiguation_symbol, source="bot")
-                                await _run_job(job_id2, req2, user_id="bot", request_source="bot")
+                                await _run_job(job_id2, req2, user_id=_find_bot_owner_user_id() or "bot", request_source="bot")
                                 # Wait for new job completion
                                 for _ in range(600):
                                     state = store.get_job(job_id2)
@@ -1350,13 +1375,6 @@ def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None)
 
     def _query(sess: Session) -> Dict[str, Any]:
         user_cfg = auth_service.get_user_llm_config(sess, user_id)
-        # Bot or missing user → fall back to most recently configured user with a valid API key
-        if not user_cfg and user_id in ("bot", None):
-            from api.database import UserLLMConfigDB
-            user_cfg = sess.query(UserLLMConfigDB).filter(
-                UserLLMConfigDB.api_key_encrypted.isnot(None),
-                UserLLMConfigDB.api_key_encrypted != "",
-            ).order_by(UserLLMConfigDB.updated_at.desc()).first()
         if not user_cfg:
             return {}
         result: Dict[str, Any] = {}
