@@ -443,7 +443,8 @@ class FutuProvider(BaseMarketDataProvider):
                 - "warn": Log warnings, return diagnostics (default)
                 - "drop": Return cleaned DataFrame with violations removed
                 - "raise": Raise ValueError on any violation
-            price_jump_threshold: Max allowed daily price change ratio (default 0.5 = 50%)
+            price_jump_threshold: Max allowed daily price change ratio (default 0.5 = 50%).
+                Set lower (e.g. 20%) for penny stocks or pre-split scenarios.
 
         Returns:
             Dict with keys:
@@ -489,7 +490,6 @@ class FutuProvider(BaseMarketDataProvider):
                 mask_valid = mask_valid & ~nan_mask
 
         # 2. Invalid prices (close <= 0 or high < low)
-        price_cols = ["open", "high", "low", "close"]
         invalid_price_mask = (
             (df["close"] <= 0)
             | (df["open"] <= 0)
