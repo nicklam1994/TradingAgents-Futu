@@ -352,6 +352,82 @@ def universe_size() -> int:
     return len(_load())
 
 
+# ── Pure format utilities (from code_format.py) ──────────────────────────────
+
+def to_pure(code: str) -> str:
+    """Extract pure code without market suffix/prefix.
+
+    Examples:
+        "00700.HK" -> "00700"
+        "HK.00700" -> "00700"
+        "AAPL.US"  -> "AAPL"
+        "US.AAPL"  -> "AAPL"
+        "AAPL"     -> "AAPL"
+    """
+    if not code:
+        return code
+    s = code.strip().upper()
+    for prefix in ("HK.", "US.", "SH.", "SZ."):
+        if s.startswith(prefix):
+            return s[len(prefix):]
+    if "." in s:
+        parts = s.split(".")
+        if len(parts) == 2 and len(parts[1]) == 2 and parts[1].isalpha():
+            return parts[0]
+    return s
+
+
+def detect_market(code: str) -> str | None:
+    """Detect market from any code format.
+
+    Returns: "HK", "US", "SH", "SZ", or None if unknown.
+
+    Examples:
+        "00700.HK" -> "HK"
+        "HK.00700" -> "HK"
+        "AAPL.US"  -> "US"
+        "AAPL"     -> "US"  (inferred)
+        "00700"    -> "HK"  (inferred)
+    """
+    if not code:
+        return None
+    s = code.strip().upper()
+
+    # Futu format: MARKET.CODE
+    for prefix in ("HK.", "US.", "SH.", "SZ."):
+        if s.startswith(prefix):
+            return prefix[:2]
+
+    # Canonical format: CODE.MARKET
+    if "." in s:
+        parts = s.split(".")
+        if len(parts) == 2 and len(parts[1]) == 2 and parts[1].isalpha():
+            return parts[1]
+
+    # Pure code — infer
+    if s.isdigit():
+        return "HK"
+    if s.isalpha():
+        return "US"
+    return None
+
+
+def is_valid_code(code: str) -> bool:
+    """Check if code is a valid stock code in any format."""
+    if not code:
+        return False
+    s = code.strip().upper()
+    # Futu or canonical format
+    if s.startswith(("HK.", "US.", "SH.", "SZ.")):
+        return len(s) > 3
+    if "." in s:
+        parts = s.split(".")
+        if len(parts) == 2 and len(parts[1]) == 2 and parts[1].isalpha():
+            return len(parts[0]) > 0
+    # Pure code
+    return s.isalnum() and len(s) >= 4
+
+
 # ── Cache management ──────────────────────────────────────────────────────────
 
 def reload() -> None:

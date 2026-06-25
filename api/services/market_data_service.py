@@ -39,16 +39,16 @@ def _opend_port() -> int:
     return int(os.getenv("FUTU_OPEND_PORT", "11111"))
 
 
-from tradingagents.models.code_format import to_canonical as _to_canonical, to_futu as _to_futu
+from tradingagents.dataflows.stock_resolver import to_canonical as _to_canonical, to_futu as _to_futu
 
 
 def _futu_to_canonical(futu_code: str) -> str:
-    """Convert Futu format to canonical. DEPRECATED: use code_format.to_canonical()."""
+    """Convert Futu format to canonical. Use stock_resolver.to_canonical() directly."""
     return _to_canonical(futu_code)
 
 
 def _canonical_to_futu(canonical: str) -> str:
-    """Convert canonical to Futu format. DEPRECATED: use code_format.to_futu()."""
+    """Convert canonical to Futu format. Use stock_resolver.to_futu() directly."""
     return _to_futu(canonical)
 
 

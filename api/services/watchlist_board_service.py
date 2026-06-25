@@ -63,7 +63,7 @@ def get_watchlist_board(db: Session, user_id: str) -> dict[str, Any]:
     if uncached_symbols:
         uncached_futu = [to_futu(s) for s in uncached_symbols]
         # Convert to FutuProvider format (canonical -> futu)
-        from tradingagents.models.code_format import to_futu as _to_futu_fmt
+        from tradingagents.dataflows.stock_resolver import to_futu as _to_futu_fmt
         futu_provider_codes = []
         sym_to_futu = {}
         for sym in uncached_symbols:

@@ -683,14 +683,13 @@ class FutuProvider(BaseMarketDataProvider):
                 ctx.close()
 
 
-from tradingagents.models.code_format import to_futu as _to_futu_format
+from tradingagents.dataflows.stock_resolver import to_futu as _to_futu_format
 
 
 def _canonical_to_futu(code: str) -> str:
     """Convert any code format to Futu format (MARKET.CODE).
-    
-    DEPRECATED: Use tradingagents.models.code_format.to_futu() directly.
-    This wrapper kept for backward compatibility.
+
+    Use stock_resolver.to_futu() directly for new code.
     """
     return _to_futu_format(code)
 
