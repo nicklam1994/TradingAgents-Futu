@@ -3853,18 +3853,40 @@ async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[s
         }
     elif name == "get_quote":
         symbol = args.get("symbol", "")
-        # Get quote from stock_resolver + Futu
         try:
+            from tradingagents.dataflows.providers.futu_provider import FutuProvider
             from tradingagents.dataflows.stock_resolver import resolve_input
             resolved = resolve_input(symbol)
-            return {
-                "action": "quote",
-                "symbol": symbol,
-                "resolved": resolved,
-                "message": f"正在查询 {resolved} 的实时行情...",
-            }
+            provider = FutuProvider()
+            result = provider.get_realtime_quotes([resolved])
+            if result and isinstance(result, str):
+                lines = result.strip().split('\n')
+                if len(lines) >= 2:
+                    headers = lines[0].split(',')
+                    values = lines[1].split(',')
+                    data = dict(zip(headers, values))
+                    price = data.get("price", "N/A")
+                    change = data.get("change", "0")
+                    change_pct = data.get("change_pct", "0")
+                    volume = data.get("volume", "0")
+                    high = data.get("high", "N/A")
+                    low = data.get("low", "N/A")
+                    name_val = data.get("name", resolved)
+                    return {
+                        "action": "quote",
+                        "symbol": resolved,
+                        "name": name_val,
+                        "price": price,
+                        "change": change,
+                        "change_pct": change_pct,
+                        "volume": volume,
+                        "high": high,
+                        "low": low,
+                        "message": f"{name_val} ({resolved}): 现价 {price}, 涨跌 {change} ({change_pct}%), 成交量 {volume}, 最高 {high}, 最低 {low}",
+                    }
+            return {"action": "quote", "symbol": resolved, "message": f"无法获取 {resolved} 的实时行情数据"}
         except Exception as e:
-            return {"action": "error", "message": f"无法解析股票代码: {e}"}
+            return {"action": "error", "message": f"查询行情失败: {e}"}
     elif name == "resolve_stock":
         query = args.get("query", "")
         # Search stock database
