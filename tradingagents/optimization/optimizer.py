@@ -548,6 +548,17 @@ def run_ga_optimization(
             )
         )
 
+    # Ensure best_ever is in the results (it might have been replaced in population)
+    best_key = tuple(sorted(best_ever.genes.items()))
+    if best_key not in seen:
+        results.append(
+            OptimizationResult(
+                params=best_ever.genes,
+                target_value=best_ever.fitness,
+                metrics=best_ever.metrics or {},
+            )
+        )
+
     results.sort(key=lambda r: r.target_value, reverse=is_higher_better)
 
     logger.info(
