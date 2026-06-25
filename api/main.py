@@ -218,7 +218,7 @@ def _find_bot_owner_user_id() -> Optional[str]:
                 UserLLMConfigDB.notification_config.isnot(None),
                 UserLLMConfigDB.notification_config != "",
             ).all()
-            bot_token = os.environ.get("telegram_bot_token", "")
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
             for row in rows:
                 try:
                     cfg = json.loads(row.notification_config)
