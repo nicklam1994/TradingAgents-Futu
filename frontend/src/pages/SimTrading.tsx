@@ -375,8 +375,7 @@ export default function SimTrading() {
                                     <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('qty')}>持仓数量{sortIcon('qty')}</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('val')}>市值/成本市值{sortIcon('val')}</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('pnl')}>持仓盈亏{sortIcon('pnl')}</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('pnl_pct')}>盈亏%{sortIcon('pnl_pct')}</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('pnl')}>持仓盈亏/盈亏比{sortIcon('pnl')}</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('today')}>今日盈亏{sortIcon('today')}</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
                                 </tr>
