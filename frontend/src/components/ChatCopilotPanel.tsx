@@ -136,6 +136,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
     const [chatMode, setChatMode] = useState<'command' | 'function'>(() => {
         return (localStorage.getItem('ta-chat-mode') as 'command' | 'function') || 'command'
     })
+    const [thinkingPhase, setThinkingPhase] = useState<'thinking' | 'analyzing'>('thinking')
     const [disambiguation, setDisambiguation] = useState<{
         query: string
         candidates: Array<{ code: string; name: string; market: string }>
@@ -642,6 +643,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         // Function Calling 模式
         if (chatMode === 'function') {
             setStreaming(true)
+            setThinkingPhase('thinking')
             const typingId = `typing-${Date.now()}`
             typingIndicatorIdRef.current = typingId
             addChatMessage({
@@ -669,6 +671,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         const symbol = tool_call.args.symbol as string
                         const horizon = (tool_call.args.horizon as string) || 'short'
                         onSymbolDetected?.(symbol)
+                        setThinkingPhase('analyzing')
                         // Show LLM response first
                         addChatMessage({
                             id: `${Date.now()}-${Math.random()}`,
@@ -848,7 +851,7 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                     {streaming && (
                         <span className="badge-blue inline-flex items-center gap-1">
                             <Loader2 className="w-3 h-3 animate-spin" />
-                            分析中
+                            {chatMode === 'function' && thinkingPhase === 'thinking' ? '思考中' : '分析中'}
                         </span>
                     )}
                 </div>
