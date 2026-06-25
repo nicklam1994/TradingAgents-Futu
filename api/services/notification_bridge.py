@@ -84,74 +84,134 @@ _CHANNEL_ADVANCED_KEYS: Dict[str, List[str]] = {
 }
 
 
+# DB channel 短字段名 -> 完整 config key（小写）
+# 前端发 { channels: { telegram: { bot_token, chat_id } } }，需要映射为 telegram_bot_token / telegram_chat_id
+_CHANNEL_SHORT_KEY_MAP: Dict[str, Dict[str, str]] = {
+    "telegram": {
+        "bot_token": "telegram_bot_token",
+        "chat_id": "telegram_chat_id",
+        "message_thread_id": "telegram_message_thread_id",
+    },
+    "wechat": {
+        "webhook_url": "wechat_webhook_url",
+        "msg_type": "wechat_msg_type",
+    },
+    "feishu": {
+        "webhook_url": "feishu_webhook_url",
+        "webhook_secret": "feishu_webhook_secret",
+        "webhook_keyword": "feishu_webhook_keyword",
+    },
+    "email": {
+        "sender": "email_sender",
+        "password": "email_password",
+        "receivers": "email_receivers",
+        "sender_name": "email_sender_name",
+    },
+    "discord": {
+        "webhook_url": "discord_webhook_url",
+    },
+    "slack": {
+        "webhook_url": "slack_webhook_url",
+    },
+    "pushover": {
+        "user_key": "pushover_user_key",
+        "api_token": "pushover_api_token",
+    },
+    "ntfy": {
+        "url": "ntfy_url",
+    },
+    "gotify": {
+        "url": "gotify_url",
+        "token": "gotify_token",
+    },
+    "pushplus": {
+        "token": "pushplus_token",
+    },
+    "serverchan3": {
+        "sendkey": "serverchan3_sendkey",
+    },
+    "custom": {
+        "webhook_urls": "custom_webhook_urls",
+    },
+    "astrbot": {
+        "url": "astrbot_url",
+    },
+}
+
+
 def _build_config_from_db_and_env(
     db_config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """从 DB 存储的 notification_config 和环境变量合并构建配置字典。
 
     DB config 优先级高于环境变量。
+    key 统一用小写格式（telegram_bot_token），与 Sender 读取的 key 一致。
 
     Args:
         db_config: 从 user_llm_configs.notification_config 解析的 JSON 字典。
 
     Returns:
-        合并后的配置字典，key 为大写环境变量名。
+        合并后的配置字典，key 为小写格式。
     """
     config: Dict[str, Any] = {}
 
-    # 1. 从环境变量读取默认值
-    all_keys: List[str] = []
+    # 1. 从环境变量读取默认值（大写 env var -> 存为小写 config key）
+    all_env_keys: List[str] = []
     for keys in _CHANNEL_CONFIG_KEYS.values():
-        all_keys.extend(keys)
+        all_env_keys.extend(keys)
     for keys in _CHANNEL_ADVANCED_KEYS.values():
-        all_keys.extend(keys)
-    # 噪音控制相关
-    all_keys.extend([
+        all_env_keys.extend(keys)
+    all_env_keys.extend([
         "NOTIFICATION_DEDUP_TTL_SECONDS",
         "NOTIFICATION_COOLDOWN_SECONDS",
         "NOTIFICATION_QUIET_HOURS",
         "NOTIFICATION_TIMEZONE",
         "NOTIFICATION_MIN_SEVERITY",
     ])
-    # 路由相关
     for route_config in NOTIFICATION_ROUTE_CONFIGS.values():
-        all_keys.append(route_config["env_key"])
+        all_env_keys.append(route_config["env_key"])
 
-    for key in all_keys:
-        val = os.environ.get(key)
+    for env_key in all_env_keys:
+        val = os.environ.get(env_key)
         if val:
-            config[key] = val
+            config[env_key.lower()] = val
 
-    # 2. 从 DB config 覆盖（小写 key -> 大写映射）
+    # 2. 从 DB channel config 覆盖
+    #    DB 存短字段名（bot_token），需要映射为完整名（telegram_bot_token）
     channels_cfg = db_config.get("channels", {})
     for channel_name, ch_cfg in channels_cfg.items():
         if not isinstance(ch_cfg, dict):
             continue
-        # enabled + channel-specific fields
-        for key_name in _CHANNEL_CONFIG_KEYS.get(channel_name, []):
-            lower_key = key_name.lower()
-            if lower_key in ch_cfg and ch_cfg[lower_key]:
-                config[key_name] = ch_cfg[lower_key]
-        for key_name in _CHANNEL_ADVANCED_KEYS.get(channel_name, []):
-            lower_key = key_name.lower()
-            if lower_key in ch_cfg and ch_cfg[lower_key]:
-                config[key_name] = ch_cfg[lower_key]
+        # 用短 key 映射表转换
+        short_map = _CHANNEL_SHORT_KEY_MAP.get(channel_name, {})
+        for short_key, full_key in short_map.items():
+            if short_key in ch_cfg and ch_cfg[short_key]:
+                config[full_key] = ch_cfg[short_key]
+        # 也支持 DB 直接存完整 key（telegram_bot_token）的情况
+        for key_list in [
+            _CHANNEL_CONFIG_KEYS.get(channel_name, []),
+            _CHANNEL_ADVANCED_KEYS.get(channel_name, []),
+        ]:
+            for env_key in key_list:
+                lower_key = env_key.lower()
+                if lower_key in ch_cfg and ch_cfg[lower_key]:
+                    config[lower_key] = ch_cfg[lower_key]
 
     # 3. 路由配置
     routes_cfg = db_config.get("routes", {})
     for route_type, route_def in NOTIFICATION_ROUTE_CONFIGS.items():
         env_key = route_def["env_key"]
         if route_type in routes_cfg and routes_cfg[route_type]:
-            config[env_key] = routes_cfg[route_type]
+            config[env_key.lower()] = routes_cfg[route_type]
 
     # 4. 噪音控制
     noise_cfg = db_config.get("noise", {})
     noise_key_map = {
-        "dedup_ttl_seconds": "NOTIFICATION_DEDUP_TTL_SECONDS",
-        "cooldown_seconds": "NOTIFICATION_COOLDOWN_SECONDS",
-        "quiet_hours": "NOTIFICATION_QUIET_HOURS",
-        "timezone": "NOTIFICATION_TIMEZONE",
-        "min_severity": "NOTIFICATION_MIN_SEVERITY",
+        "dedup_ttl_seconds": "notification_dedup_ttl_seconds",
+        "cooldown_seconds": "notification_cooldown_seconds",
+        "quiet_hours": "notification_quiet_hours",
+        "timezone": "notification_timezone",
+        "min_severity": "notification_min_severity",
     }
     for db_key, env_key in noise_key_map.items():
         if db_key in noise_cfg and noise_cfg[db_key]:
@@ -220,17 +280,31 @@ def get_notification_config_response(
         is_enabled = ch_cfg.get("enabled", channel_name in detected_names)
 
         # 构建返回的 key 状态（不暴露实际值）
+        # 也用短 key 映射表查找 DB 值
+        short_map = _CHANNEL_SHORT_KEY_MAP.get(channel_name, {})
+        reverse_short_map = {v: k for k, v in short_map.items()}  # telegram_bot_token -> bot_token
         key_status: Dict[str, Any] = {}
         for key in keys:
             lower_key = key.lower()
-            has_val = bool(ch_cfg.get(lower_key)) or bool(os.environ.get(key))
+            # 查 DB: 先查完整 key (telegram_bot_token)，再查短 key (bot_token)
+            db_val = ch_cfg.get(lower_key)
+            if not db_val:
+                short_key = reverse_short_map.get(lower_key)
+                if short_key:
+                    db_val = ch_cfg.get(short_key)
+            has_val = bool(db_val) or bool(os.environ.get(key))
             key_status[lower_key] = {
                 "configured": has_val,
                 "display": "***" if has_val else None,
             }
         for key in _CHANNEL_ADVANCED_KEYS.get(channel_name, []):
             lower_key = key.lower()
-            has_val = bool(ch_cfg.get(lower_key)) or bool(os.environ.get(key))
+            db_val = ch_cfg.get(lower_key)
+            if not db_val:
+                short_key = reverse_short_map.get(lower_key)
+                if short_key:
+                    db_val = ch_cfg.get(short_key)
+            has_val = bool(db_val) or bool(os.environ.get(key))
             key_status[lower_key] = {
                 "configured": has_val,
                 "display": "***" if has_val else None,

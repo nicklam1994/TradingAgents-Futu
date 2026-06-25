@@ -16,7 +16,7 @@ const CHANNEL_META: Record<string, { label: string; icon: string; color: string;
         icon: '💬',
         color: 'emerald',
         fields: [
-            { key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...' },
+            { key: 'wechat_webhook_url', label: 'Webhook URL', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...' },
         ],
     },
     feishu: {
@@ -24,7 +24,7 @@ const CHANNEL_META: Record<string, { label: string; icon: string; color: string;
         icon: '🐦',
         color: 'blue',
         fields: [
-            { key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...' },
+            { key: 'feishu_webhook_url', label: 'Webhook URL', placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...' },
             { key: 'feishu_webhook_secret', label: '签名密钥（可选）', placeholder: '留空则不验签' },
         ],
     },
@@ -33,8 +33,8 @@ const CHANNEL_META: Record<string, { label: string; icon: string; color: string;
         icon: '✈️',
         color: 'sky',
         fields: [
-            { key: 'bot_token', label: 'Bot Token', placeholder: '123456:ABC-DEF...' },
-            { key: 'chat_id', label: 'Chat ID', placeholder: '-1001234567890' },
+            { key: 'telegram_bot_token', label: 'Bot Token', placeholder: '123456:ABC-DEF...' },
+            { key: 'telegram_chat_id', label: 'Chat ID', placeholder: '-1001234567890' },
         ],
     },
     email: {
@@ -51,7 +51,7 @@ const CHANNEL_META: Record<string, { label: string; icon: string; color: string;
         icon: '🎮',
         color: 'indigo',
         fields: [
-            { key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://discord.com/api/webhooks/...' },
+            { key: 'discord_webhook_url', label: 'Webhook URL', placeholder: 'https://discord.com/api/webhooks/...' },
         ],
     },
     slack: {
@@ -59,7 +59,7 @@ const CHANNEL_META: Record<string, { label: string; icon: string; color: string;
         icon: '📱',
         color: 'purple',
         fields: [
-            { key: 'webhook_url', label: 'Webhook URL', placeholder: 'https://hooks.slack.com/services/...' },
+            { key: 'slack_webhook_url', label: 'Webhook URL', placeholder: 'https://hooks.slack.com/services/...' },
         ],
     },
 }

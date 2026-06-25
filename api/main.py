@@ -4876,23 +4876,40 @@ async def warmup_wecom_webhook(
 class NotificationChannelUpdate(BaseModel):
     """单个通知渠道的配置更新。"""
     enabled: Optional[bool] = None
-    # 通用字段
+    # 通用字段（旧名保留兼容）
     webhook_url: Optional[str] = None
     bot_token: Optional[str] = None
     chat_id: Optional[str] = None
+    # Telegram 统一用完整 key
+    telegram_bot_token: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_message_thread_id: Optional[str] = None
+    # Wechat 统一用完整 key
+    wechat_webhook_url: Optional[str] = None
+    wechat_msg_type: Optional[str] = None
+    # Feishu 统一用完整 key
+    feishu_webhook_url: Optional[str] = None
+    feishu_webhook_secret: Optional[str] = None
+    feishu_webhook_keyword: Optional[str] = None
+    # Email
     email_sender: Optional[str] = None
     email_password: Optional[str] = None
     email_receivers: Optional[List[str]] = None
     email_sender_name: Optional[str] = None
-    # 飞书高级
-    feishu_webhook_secret: Optional[str] = None
-    feishu_webhook_keyword: Optional[str] = None
-    # Telegram 高级
-    telegram_message_thread_id: Optional[str] = None
+    # Discord / Slack
+    discord_webhook_url: Optional[str] = None
+    slack_webhook_url: Optional[str] = None
     # Pushover
     pushover_user_key: Optional[str] = None
     pushover_api_token: Optional[str] = None
     # ntfy / gotify / pushplus / serverchan3 / custom / astrbot
+    ntfy_url: Optional[str] = None
+    gotify_url: Optional[str] = None
+    gotify_token: Optional[str] = None
+    pushplus_token: Optional[str] = None
+    serverchan3_sendkey: Optional[str] = None
+    custom_webhook_urls: Optional[str] = None
+    astrbot_url: Optional[str] = None
     url: Optional[str] = None
     token: Optional[str] = None
     sendkey: Optional[str] = None
