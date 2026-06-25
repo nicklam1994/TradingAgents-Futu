@@ -412,6 +412,11 @@ class FutuProvider(BaseMarketDataProvider):
         # Cache the result
         _panel_cache.put(symbols_tuple, start_date, end_date, autype, panel)
 
+        # Validate OHLC data quality (warn on issues, don't block)
+        for sym, close_df in panel.get("close", pd.DataFrame()).items():
+            sym_df = pd.DataFrame({col: panel[col][sym] for col in panel if sym in panel[col]})
+            self._validate_ohlc(sym_df, strategy="warn")
+
         return panel
 
     # ── OHLC Data Validation ──
