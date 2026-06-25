@@ -258,7 +258,7 @@ def _bot_analyze_fn_factory(telegram_bot=None):
         )
 
         store = get_job_store()
-        store.create(job_id, {"status": "running", "symbol": symbol, "source": "bot"})
+        store.set_job(job_id, status="running", symbol=symbol, source="bot")
 
         # Start the analysis job (non-blocking)
         asyncio.create_task(_run_job(job_id, req, user_id="bot", request_source="bot"))
@@ -309,15 +309,15 @@ def _bot_analyze_fn_factory(telegram_bot=None):
                                     },
                                 )
                                 job_id2 = f"bot-{uuid4().hex[:8]}"
-                                store.create(job_id2, {"status": "running", "symbol": disambiguation_symbol, "source": "bot"})
+                                store.set_job(job_id2, status="running", symbol=disambiguation_symbol, source="bot")
                                 await _run_job(job_id2, req2, user_id="bot", request_source="bot")
                                 # Wait for new job completion
                                 for _ in range(600):
-                                    state = store.get(job_id2)
+                                    state = store.get_job(job_id2)
                                     if state and state.get("status") in ("completed", "failed"):
                                         break
                                     await asyncio.sleep(0.5)
-                                state = store.get(job_id2) or {}
+                                state = store.get_job(job_id2) or {}
                                 break
                             except asyncio.TimeoutError:
                                 return "⏰ 等待选择超时，请重新发起分析。"
@@ -338,11 +338,11 @@ def _bot_analyze_fn_factory(telegram_bot=None):
             logger.error("[BotAnalyze] Event subscription error: %s", exc)
             # Fallback to polling
             for _ in range(600):
-                state = store.get(job_id)
+                state = store.get_job(job_id)
                 if state and state.get("status") in ("completed", "failed"):
                     break
                 await asyncio.sleep(0.5)
-            state = store.get(job_id) or {}
+            state = store.get_job(job_id) or {}
 
         if state.get("status") == "completed":
             report = state.get("report") or state.get("result", {})
