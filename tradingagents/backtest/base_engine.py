@@ -100,12 +100,8 @@ class BaseEngine(ABC):
       - apply_slippage: slippage model
       - on_bar: per-bar hooks (funding fees, liquidation, etc.)
 
-    The 5-step pipeline exposed via ``run()``:
-      1. load_data()  — fetch OHLCV via loader
-      2. generate_signals() — produce signal map via signal engine
-      3. execute_trades()  — bar-by-bar execution with market rules
-      4. calculate_metrics() — Sharpe, Sortino, Drawdown, WinRate, ProfitFactor
-      5. run() — orchestrates 1-4 and returns metrics dict
+    3-step engine pipeline (align → execute → metrics); data loading
+    and signal generation are caller responsibilities.
     """
 
     def __init__(self, config: dict):
@@ -209,7 +205,7 @@ class BaseEngine(ABC):
         """Convert target notional exposure to number of units/contracts."""
         return target_notional / price
 
-    # ── 5-step pipeline ─────────────────────────────────────────────────────
+    # ── 3-step pipeline ─────────────────────────────────────────────────────
 
     def run(
         self,
