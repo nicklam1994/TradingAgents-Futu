@@ -5413,6 +5413,9 @@ async def websocket_quotes(ws: WebSocket, token: str = Query("")):
                     quote_ws_manager.update_symbols(symbols)
                 else:
                     quote_ws_manager.add_symbols(symbols)
+            elif msg.get("type") == "replace":
+                symbols = msg.get("symbols", [])
+                quote_ws_manager.replace_extra_symbols(symbols)
     except WebSocketDisconnect:
         quote_ws_manager.disconnect(user_id)
     except Exception as exc:

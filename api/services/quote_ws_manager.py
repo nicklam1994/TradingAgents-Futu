@@ -152,6 +152,14 @@ class QuoteWSManager:
         self._extra_symbols = new_set
         self._resync_subscriptions()
 
+    def replace_extra_symbols(self, symbols: list[str]):
+        """Replace extra symbols (e.g. SimTrading stock switch)."""
+        new_set = set(symbols)
+        if new_set == self._extra_symbols:
+            return
+        self._extra_symbols = new_set
+        self._resync_subscriptions()
+
     def _resync_subscriptions(self):
         """Merge base + extra and re-subscribe if changed."""
         merged = self._base_symbols | self._extra_symbols

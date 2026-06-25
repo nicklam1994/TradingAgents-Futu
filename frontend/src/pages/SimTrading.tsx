@@ -173,7 +173,7 @@ export default function SimTrading() {
         positions.forEach(p => symbols.add(p.code))
         if (selectedStockRef.current) symbols.add(selectedStockRef.current.code)
         if (symbols.size > 0) {
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'replace', symbols: Array.from(symbols) }))
         }
     }, [positions])
 
@@ -204,10 +204,10 @@ export default function SimTrading() {
         setSearchQuery(''); setShowDropdown(false); setSearchResults([])
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: r.name })
 
-        // Subscribe to selected stock + all positions
+        // Subscribe to selected stock + all positions (replace previous extra)
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             const symbols = new Set([r.symbol, ...positions.map(p => p.code)])
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'replace', symbols: Array.from(symbols) }))
         }
 
         // Fallback: fetch quote via HTTP API immediately
@@ -273,6 +273,8 @@ export default function SimTrading() {
                 if (res.ok) {
                     setOrderMsg({ type: 'ok', text: `订单已提交 #${res.data?.order_id ?? ''}` })
                     setOrderPrice(''); setOrderQty(''); setTriggerPrice('')
+                    // Add to watchlist so it gets permanent real-time subscription
+                    api.addToWatchlist(selectedStock.code).catch(() => {})
                 }
                 else setOrderMsg({ type: 'err', text: '下单失败' })
             }
