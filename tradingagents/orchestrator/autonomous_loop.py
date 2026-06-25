@@ -797,6 +797,118 @@ class AutonomousLoop:
         except Exception as e:
             logger.warning("Shadow trade recording failed: %s", e)
 
+    def _apply_shadow_lessons(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """C2: Shadow Account lessons — adjust candidate scores from historical patterns.
+
+        Uses the Shadow Account scanner to find signals that match current candidates
+        based on extracted trading rules from historical profitable trades.
+
+        For each matching signal:
+          - Positive match (rule aligns with candidate direction) → score +5%
+          - Negative match (rule contradicts candidate) → score -10%
+
+        Non-critical: failures are logged and skipped silently.
+        """
+        if not state.candidates:
+            return
+
+        try:
+            from tradingagents.shadow import scan_today_signals, extract_shadow_profile
+            from tradingagents.shadow.models import ShadowProfile
+            import pandas as pd
+
+            # Build trades DataFrame from stored shadow trades in checkpoint
+            checkpoint = self._store.get_checkpoint(task_id)
+            shadow_trades = checkpoint.get("shadow_trades", [])
+
+            if not shadow_trades or len(shadow_trades) < 3:
+                logger.debug(
+                    "Task %s: Insufficient shadow trades (%d) for pattern extraction",
+                    task_id, len(shadow_trades),
+                )
+                return
+
+            # Convert to DataFrame for profile extraction
+            trades_df = pd.DataFrame(shadow_trades)
+
+            # Ensure required columns exist
+            required_cols = {"symbol", "side", "price", "timestamp"}
+            if not required_cols.issubset(set(trades_df.columns)):
+                logger.debug(
+                    "Task %s: Shadow trades missing columns: %s",
+                    task_id, required_cols - set(trades_df.columns),
+                )
+                return
+
+            # Extract shadow profile (trading rules from history)
+            profile = extract_shadow_profile(trades_df)
+            if not profile or not profile.rules:
+                logger.debug("Task %s: No shadow rules extracted", task_id)
+                return
+
+            logger.info(
+                "Task %s: Shadow profile has %d rules — scanning for matches",
+                task_id, len(profile.rules),
+            )
+
+            # Scan today's signals
+            signals = scan_today_signals(profile)
+            if not signals:
+                logger.debug("Task %s: No shadow signals today", task_id)
+                return
+
+            state.log(f"📚 獲取 {len(signals)} 條 Shadow 信號")
+
+            # Map signals to candidate symbols and adjust scores
+            candidate_symbols = {
+                c.get("symbol", "").upper(): c for c in state.candidates
+            }
+
+            for signal in signals:
+                signal_sym = signal.get("symbol", "").upper()
+                if not signal_sym:
+                    continue
+
+                candidate = candidate_symbols.get(signal_sym)
+                if not candidate:
+                    continue
+
+                reason = signal.get("reason", "")
+                rule_id = signal.get("rule_id", "")
+
+                # Positive signal from shadow pattern matching
+                old_score = candidate.get("composite_score", 0)
+                adjustment = 0.05  # +5% for shadow pattern match
+
+                new_score = max(0, old_score * (1 + adjustment))
+                candidate["composite_score"] = round(new_score, 4)
+
+                state.log(
+                    f"📈 {signal_sym} Shadow 正面匹配 (+5%) [{rule_id}]"
+                )
+                logger.info(
+                    "Task %s: Shadow adjustment for %s: %.4f → %.4f (+5%%) — %s",
+                    task_id, signal_sym, old_score, new_score, reason[:80],
+                )
+
+                # Store shadow metadata on candidate
+                if "shadow_signals" not in candidate:
+                    candidate["shadow_signals"] = []
+                candidate["shadow_signals"].append({
+                    "rule_id": rule_id,
+                    "reason": reason,
+                    "adjustment": adjustment,
+                })
+
+                break  # Apply only one shadow signal per candidate
+
+        except ImportError:
+            logger.debug("Shadow module not available — skipping shadow lessons")
+        except Exception as e:
+            logger.debug("Shadow lesson application failed (non-critical): %s", e)
+
     def _phase_orient(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
     ) -> None:
@@ -1830,6 +1942,9 @@ class AutonomousLoop:
                     # BUY with low confidence: keep original score unchanged
                 adjusted.append(c)
             state.candidates = adjusted
+
+        # ── C2: Shadow Account lessons — adjust scores from historical patterns ──
+        self._apply_shadow_lessons(task_id, config, state)
 
         # L-5~6: adjust strategy weights when Sharpe ratio is low
         adjusted_candidates = self._adjust_strategy_weights(state.candidates)
