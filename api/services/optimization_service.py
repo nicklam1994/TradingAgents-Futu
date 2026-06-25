@@ -18,6 +18,47 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+# ── Picklable helpers for multiprocessing ──────────────────────────────────
+
+class _EngineFactory:
+    """Picklable engine factory that binds market at construction time.
+
+    ``functools.partial`` would also work, but a class makes the intent
+    clearer and is easier to debug in stack traces.
+    """
+
+    def __init__(self, market: str) -> None:
+        self.market = market
+
+    def __call__(self, config: dict):
+        from tradingagents.backtest.global_equity_engine import GlobalEquityEngine
+        return GlobalEquityEngine(config, market=self.market)
+
+
+def _default_signal_fn(params: dict, data_map: dict) -> dict:
+    """Module-level (picklable) signal function for MA crossover strategy.
+
+    Used as the default signal generator when no custom strategy is specified.
+    """
+    signals: Dict[str, pd.Series] = {}
+    for sym, df in data_map.items():
+        close = df["close"]
+        fast_period = int(params.get("fast_period", 10))
+        slow_period = int(params.get("slow_period", 30))
+        threshold = float(params.get("threshold", 0.0))
+
+        fast_ma = close.rolling(fast_period).mean()
+        slow_ma = close.rolling(slow_period).mean()
+
+        raw_signal = pd.Series(0.0, index=close.index)
+        raw_signal[fast_ma > slow_ma * (1 + threshold)] = 1.0
+        raw_signal[fast_ma < slow_ma * (1 - threshold)] = -1.0
+
+        signals[sym] = raw_signal.fillna(0.0)
+
+    return signals
+
+
 # ── In-memory job store (mirrors backtest_service pattern) ──────────────────
 
 _opt_jobs: Dict[str, Dict[str, Any]] = {}
@@ -36,7 +77,10 @@ def _set(job_id: str, **kwargs: Any) -> None:
 
 
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
-    return _opt_jobs.get(job_id)
+    # Return a copy to prevent concurrent mutation from background threads
+    with _lock:
+        job = _opt_jobs.get(job_id)
+        return dict(job) if job is not None else None
 
 
 def list_jobs() -> List[Dict[str, Any]]:
@@ -151,11 +195,10 @@ def _run_optimization(
             )
         setting.set_target(target)
 
-        # Engine factory
-        def engine_factory(config: dict):
-            return GlobalEquityEngine(config, market=market)
+        # Engine factory — module-level picklable class
+        engine_factory = _EngineFactory(market)
 
-        # Generate synthetic data + signal function for the strategy
+        # Generate data + signal function for the strategy
         data_map, signal_fn = _build_strategy_context(strategy_name, market)
 
         base_config = {"initial_cash": initial_capital}
@@ -248,47 +291,18 @@ def _build_strategy_context(
 
     Returns:
         (data_map, signal_fn) where signal_fn(params, data_map) -> signal_map
+
+    Raises:
+        NotImplementedError: Real data integration is not yet implemented.
+            The synthetic data path was removed to avoid silent use of
+            fake data in production. Integrate FutuProvider here when
+            ready.
     """
-    # Generate synthetic OHLCV data for backtesting
-    # In production this would load real data from FutuProvider
-    dates = pd.date_range("2024-01-01", periods=252, freq="B")
-    rng = np.random.default_rng(42)
-
-    # Generate realistic price series
-    base_price = 100.0
-    returns = rng.normal(0.0003, 0.015, len(dates))
-    prices = base_price * np.cumprod(1 + returns)
-
-    data_map = {
-        f"{'HK.00700' if market == 'hk' else 'US.AAPL'}": pd.DataFrame({
-            "open": prices * (1 + rng.uniform(-0.005, 0.005, len(dates))),
-            "high": prices * (1 + rng.uniform(0.001, 0.02, len(dates))),
-            "low": prices * (1 - rng.uniform(0.001, 0.02, len(dates))),
-            "close": prices,
-            "volume": rng.integers(10000, 1000000, len(dates)),
-        }, index=dates),
-    }
-
-    def signal_fn(params: dict, data_map: dict) -> dict:
-        """Generate trading signals based on strategy parameters."""
-        signals = {}
-        for sym, df in data_map.items():
-            close = df["close"]
-            # Default: momentum strategy with configurable MA periods
-            fast_period = int(params.get("fast_period", 10))
-            slow_period = int(params.get("slow_period", 30))
-            threshold = float(params.get("threshold", 0.0))
-
-            fast_ma = close.rolling(fast_period).mean()
-            slow_ma = close.rolling(slow_period).mean()
-
-            # Signal: fast > slow → long, else flat
-            raw_signal = pd.Series(0.0, index=close.index)
-            raw_signal[fast_ma > slow_ma * (1 + threshold)] = 1.0
-            raw_signal[fast_ma < slow_ma * (1 - threshold)] = -1.0
-
-            signals[sym] = raw_signal.fillna(0.0)
-
-        return signals
-
-    return data_map, signal_fn
+    # TODO: Integrate FutuProvider to load real OHLCV data for the
+    # requested strategy and market.  Until then, raise so callers
+    # cannot accidentally run optimisations on fabricated prices.
+    raise NotImplementedError(
+        f"Optimisation for strategy '{strategy_name}' on market '{market}' "
+        "requires real market data. FutuProvider integration is pending — "
+        "synthetic data was removed to prevent silent misuse in production."
+    )
