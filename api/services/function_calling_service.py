@@ -167,12 +167,15 @@ def get_llm_config_from_db() -> Dict[str, str]:
     """Get LLM config from database."""
     try:
         from api.database import SessionLocal, UserLLMConfigDB
+        from api.services.auth_service import decrypt_secret
+
         db = SessionLocal()
         try:
             row = db.query(UserLLMConfigDB).first()
             if row:
+                api_key = decrypt_secret(row.api_key_encrypted) if row.api_key_encrypted else ""
                 return {
-                    "api_key": row.api_key_encrypted or "",
+                    "api_key": api_key,
                     "base_url": row.backend_url or "https://api.openai.com/v1",
                     "model": row.quick_think_llm or "gpt-4o-mini",
                 }
