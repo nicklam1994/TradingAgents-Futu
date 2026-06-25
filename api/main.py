@@ -5524,6 +5524,67 @@ def delete_from_watchlist(
         raise HTTPException(404, "未找到该自选股")
 
 
+@app.post("/v1/watchlist/sync-holdings")
+def sync_holdings_to_watchlist(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    """Sync real + simulated holdings into the watchlist.
+
+    Fetches current positions from Futu (real) and local DB (sim),
+    then adds any missing symbols to the user's watchlist.
+    Returns the count of newly added symbols.
+    """
+    from collections import defaultdict
+    from tradingagents.dataflows.providers.futu_provider import FutuProvider
+
+    # Current watchlist symbols
+    existing_items = watchlist_service.list_watchlist(db, current_user.id)
+    existing = set(item["symbol"] for item in existing_items)
+
+    all_symbols: set[str] = set()
+
+    # Real holdings from Futu
+    try:
+        fp = FutuProvider()
+        for p in fp.get_positions():
+            all_symbols.add(p["symbol"])
+    except Exception as e:
+        logger.warning("sync-holdings: Futu get_positions failed: %s", e)
+
+    # Simulated holdings from local deals
+    try:
+        deals = _sim_get_deals(trd_env="SIMULATE")
+        net: dict[str, float] = defaultdict(float)
+        for d in deals:
+            if d.side.lower() == "buy":
+                net[d.code] += d.qty
+            elif d.side.lower() == "sell":
+                net[d.code] -= d.qty
+        for code, qty in net.items():
+            if qty <= 0.001:
+                continue
+            if code.startswith("US."):
+                all_symbols.add(code[3:] + ".US")
+            elif code.startswith("HK."):
+                all_symbols.add(code[3:] + ".HK")
+            else:
+                all_symbols.add(code)
+    except Exception as e:
+        logger.warning("sync-holdings: sim get_deals failed: %s", e)
+
+    missing = sorted(all_symbols - existing)
+    added = 0
+    for sym in missing:
+        try:
+            watchlist_service.add_watchlist_item(db, current_user.id, sym)
+            added += 1
+        except Exception:
+            pass  # duplicate or limit
+
+    return {"added": added, "total": len(existing) + added, "symbols_added": missing}
+
+
 # ── Scheduled Analysis ────────────────────────────────────────────────────────
 
 @app.get("/v1/scheduled")

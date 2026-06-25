@@ -110,8 +110,10 @@ export default function WatchlistBoard() {
     useEffect(() => {
         if (!user?.id) return
 
-        // Initial load via REST
-        void loadBoard(false)
+        // Sync holdings to watchlist first, then load board
+        void api.syncHoldingsToWatchlist().catch(() => {}).finally(() => {
+            void loadBoard(false)
+        })
 
         // Connect WebSocket for real-time updates
         const token = localStorage.getItem('ta-access-token') || ''

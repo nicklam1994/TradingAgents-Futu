@@ -170,6 +170,9 @@ class ApiService {
     async removeFromWatchlist(id: string): Promise<void> {
         await this.request('/v1/watchlist/' + id, { method: 'DELETE' })
     }
+    async syncHoldingsToWatchlist(): Promise<{ added: number; total: number; symbols_added: string[] }> {
+        return this.request('/v1/watchlist/sync-holdings', { method: 'POST' })
+    }
 
     // Scheduled Analysis
     async getScheduled(): Promise<{ items: ScheduledAnalysis[] }> {
