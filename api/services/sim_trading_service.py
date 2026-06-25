@@ -1237,6 +1237,7 @@ def position_to_dict(p: Position) -> Dict[str, Any]:
         "unrealized_pnl_pct": p.unrealized_pnl_pct,
         "today_pnl": p.today_pnl,
         "currency": p.currency,
+        "market_state": p.market_state,
     }
 
 
