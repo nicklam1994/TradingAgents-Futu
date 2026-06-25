@@ -375,6 +375,7 @@ def get_positions(
                 pass  # prev_close stays 0
 
         positions = []
+        codes_for_state = []
         for row in raw_rows:
             qty = int(row.get("qty", 0))
             code = str(row.get("code", ""))
@@ -384,6 +385,7 @@ def get_positions(
             unrealized_pnl = float(row.get("pl_val", 0))
             pl_ratio = float(row.get("pl_ratio", 0))
             prev_close = prev_close_map.get(code, 0.0)
+            codes_for_state.append(_symbol_from_futu_code(code))
 
             positions.append(Position(
                 code=code,
@@ -400,6 +402,16 @@ def get_positions(
                 today_pnl=round((current_price - prev_close) * qty, 2) if prev_close else 0.0,
                 currency=str(row.get("currency", "HKD")),
             ))
+
+        # Fetch market states for all position codes
+        if codes_for_state:
+            try:
+                from tradingagents.dataflows.providers.futu_provider import get_market_state
+                states = get_market_state(codes_for_state)
+                for p in positions:
+                    p.market_state = states.get(p.symbol, "")
+            except Exception:
+                pass  # market_state stays empty
 
         return positions
     finally:

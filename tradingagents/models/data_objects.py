@@ -45,6 +45,7 @@ class Position:
     unrealized_pnl_pct: float = 0.0 # 持仓盈亏%
     today_pnl: float = 0.0          # 今日盈亏
     currency: str = "HKD"
+    market_state: str = ""          # 市场状态 (TRADING, CLOSED, etc.)
 
 
 # ── Order & Trade ────────────────────────────────────────────────────────────

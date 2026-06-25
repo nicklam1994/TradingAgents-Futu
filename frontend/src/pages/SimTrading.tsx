@@ -350,6 +350,7 @@ export default function SimTrading() {
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
+                                    <th className="px-3 py-2 text-center font-medium text-slate-500">市场/状态</th>
                                     <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
@@ -364,6 +365,9 @@ export default function SimTrading() {
                                     const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
                                     return (
                                         <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
+                                            <td className="px-3 py-2 text-center">
+                                                <MarketStateBadge state={p.market_state} symbol={p.code} />
+                                            </td>
                                             <td className="px-3 py-2">
                                                 <div className="font-medium text-slate-900 dark:text-slate-100">{p.stock_name || '--'}</div>
                                                 <div className="text-xs text-slate-400">{displayCode(p.code)}</div>
@@ -615,3 +619,49 @@ function displayCode(code: string): string {
 }
 function r3(v: number): number { return Math.round(v * 1000) / 1000 }
 function r2(v: number): number { return Math.round(v * 100) / 100 }
+
+/* ── Market State Badge (from WatchlistBoard) ─────────────────────────── */
+
+const STATE_MAP: Record<string, { label: string; color: string }> = {
+    NONE:              { label: '无交易',   color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AUCTION:           { label: '竞价',     color: 'bg-amber-400 text-white' },
+    WAITING_OPEN:      { label: '等待开盘', color: 'bg-amber-400 text-white' },
+    MORNING:           { label: '早盘',     color: 'bg-emerald-500 text-white' },
+    REST:              { label: '午休',     color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AFTERNOON:         { label: '午盘',     color: 'bg-emerald-500 text-white' },
+    HK_CAS:            { label: '盘后竞价', color: 'bg-amber-400 text-white' },
+    CLOSED:            { label: '休市',     color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    PRE_MARKET_BEGIN:  { label: '盘前',     color: 'bg-amber-400 text-white' },
+    PRE_MARKET_END:    { label: '盘前结束', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    AFTER_HOURS_BEGIN: { label: '盘后',     color: 'bg-amber-400 text-white' },
+    AFTER_HOURS_END:   { label: '盘后收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    NIGHT_OPEN:        { label: '夜盘',     color: 'bg-indigo-400 text-white' },
+    NIGHT_END:         { label: '夜盘收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    OVERNIGHT:         { label: '夜盘',     color: 'bg-indigo-400 text-white' },
+    FUTURE_DAY_OPEN:      { label: '期指开盘', color: 'bg-emerald-500 text-white' },
+    FUTURE_DAY_BREAK:     { label: '期指休市', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    FUTURE_DAY_CLOSE:     { label: '期指收盘', color: 'bg-slate-400 text-white dark:bg-slate-600' },
+    FUTURE_DAY_WAIT_OPEN: { label: '期指待开', color: 'bg-amber-400 text-white' },
+}
+
+function MarketStateBadge({ state, symbol }: { state?: string | null; symbol?: string }) {
+    const market = symbol?.endsWith('.HK') || symbol?.startsWith('HK.') ? 'HK' : symbol ? 'US' : null
+    const marketLabel = market === 'HK' ? '🇭🇰' : market === 'US' ? '🇺🇸' : null
+    if (!state) return (
+        <div className="self-center text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
+            <div className="text-xs text-slate-400">--</div>
+        </div>
+    )
+    const info = STATE_MAP[state]
+    const label = info?.label ?? state
+    const color = info?.color ?? 'bg-slate-300 text-slate-600 dark:bg-slate-700 dark:text-slate-300'
+    return (
+        <div className="self-center text-center">
+            {marketLabel && <div className="text-xs">{marketLabel}</div>}
+            <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-medium leading-tight ${color}`}>
+                {label}
+            </span>
+        </div>
+    )
+}

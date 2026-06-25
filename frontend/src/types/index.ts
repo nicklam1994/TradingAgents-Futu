@@ -759,6 +759,7 @@ export interface SimPosition {
     unrealized_pnl_pct: number
     today_pnl: number
     currency: string
+    market_state?: string
 }
 
 export interface SimOrder {
