@@ -878,6 +878,9 @@ class AutonomousLoop:
         # ── Disconnection #7: Query BM25 lessons from past reflections ──
         self._apply_bm25_lessons(task_id, config, state)
 
+        # ── C1: Alpha Zoo factor scoring ──
+        self._apply_alpha_zoo_factors(task_id, config, state)
+
     def _apply_bm25_lessons(self, task_id: str, config: AutonomousTaskConfig, state: OODAState) -> None:
         """Retrieve BM25 lessons from past trade reflections and apply to candidates.
 
@@ -991,6 +994,212 @@ class AutonomousLoop:
 
         except Exception as e:
             logger.debug("BM25 lesson retrieval failed (non-critical): %s", e)
+
+    def _apply_alpha_zoo_factors(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """C1: Alpha Zoo factor scoring — compute key factors for each candidate.
+
+        Uses the Alpha Zoo factor registry to compute momentum, volume, volatility,
+        and value factors from recent OHLCV data. Adjusts composite_score by a
+        weighted factor_score (±15% max influence).
+
+        Factor weights:
+            momentum:    0.35  (20d price momentum)
+            volume:      0.25  (volume momentum / surge)
+            volatility:  0.20  (inverse — lower vol preferred)
+            value:       0.20  (inverse P/E — cheaper preferred)
+
+        Non-critical: failures are logged and skipped silently.
+        """
+        if not state.candidates:
+            return
+
+        try:
+            from tradingagents.factors.registry import Registry
+
+            registry = Registry()
+            available = registry.list()
+            if not available:
+                logger.debug("Task %s: Alpha Zoo registry empty — skipping", task_id)
+                return
+
+            logger.info(
+                "Task %s: Alpha Zoo has %d registered factors", task_id, len(available)
+            )
+
+            # Identify key factor themes from registry
+            momentum_ids = registry.list(theme="momentum")
+            volume_ids = registry.list(theme="volume")
+            volatility_ids = registry.list(theme="volatility")
+            value_ids = registry.list(theme="value")
+
+        except Exception as e:
+            logger.debug("Alpha Zoo registry init failed (non-critical): %s", e)
+            return
+
+        # Fetch OHLCV panel for candidates via data vendor
+        try:
+            from tradingagents.dataflows.interface import route_to_vendor
+            import io
+            import csv as _csv
+
+            symbols = [c.get("symbol", "") for c in state.candidates if c.get("symbol")]
+            if not symbols:
+                return
+
+            # Build a panel dict: {column_name: DataFrame(index=date, columns=symbols)}
+            panel: dict = {}
+            for sym in symbols:
+                try:
+                    kline_csv = route_to_vendor(
+                        "get_kline", sym, count=30, ktype="day"
+                    )
+                    if not kline_csv:
+                        continue
+
+                    reader = _csv.DictReader(io.StringIO(kline_csv))
+                    rows = list(reader)
+                    if len(rows) < 5:
+                        continue
+
+                    for row in rows:
+                        date_key = row.get("time_key", row.get("date", ""))
+                        if not date_key:
+                            continue
+
+                        for col_name, csv_key in [
+                            ("open", "open"),
+                            ("high", "high"),
+                            ("low", "low"),
+                            ("close", "close"),
+                            ("volume", "volume"),
+                        ]:
+                            val = float(row.get(csv_key, 0) or 0)
+                            if col_name not in panel:
+                                panel[col_name] = {}
+                            if date_key not in panel[col_name]:
+                                panel[col_name][date_key] = {}
+                            panel[col_name][date_key][sym] = val
+
+                except Exception as e:
+                    logger.debug("Task %s: kline fetch failed for %s: %s", task_id, sym, e)
+                    continue
+
+            # Convert to DataFrames
+            import pandas as pd
+
+            panel_dfs = {}
+            for col_name, date_sym_map in panel.items():
+                df = pd.DataFrame(date_sym_map).T  # index=date, columns=symbols
+                df.index = pd.to_datetime(df.index)
+                df = df.sort_index()
+                panel_dfs[col_name] = df
+
+            if "close" not in panel_dfs or panel_dfs["close"].empty:
+                logger.debug("Task %s: No OHLCV data for factor computation", task_id)
+                return
+
+        except Exception as e:
+            logger.debug("Alpha Zoo panel construction failed (non-critical): %s", e)
+            return
+
+        # Compute factors per candidate
+        for candidate in state.candidates:
+            sym = candidate.get("symbol", "")
+            if not sym:
+                continue
+
+            try:
+                # Compute a few representative factors from each theme
+                factor_values: dict[str, float] = {}
+
+                # Momentum: compute from close prices directly
+                close_df = panel_dfs.get("close")
+                if close_df is not None and sym in close_df.columns:
+                    closes = close_df[sym].dropna()
+                    if len(closes) >= 20:
+                        momentum_20d = (closes.iloc[-1] / closes.iloc[-20]) - 1
+                        factor_values["momentum_20d"] = float(momentum_20d)
+                    elif len(closes) >= 5:
+                        momentum_5d = (closes.iloc[-1] / closes.iloc[-5]) - 1
+                        factor_values["momentum_20d"] = float(momentum_5d)
+
+                # Volatility: 20d rolling std of returns
+                if close_df is not None and sym in close_df.columns:
+                    closes = close_df[sym].dropna()
+                    if len(closes) >= 20:
+                        returns = closes.pct_change().dropna()
+                        vol_20d = returns.tail(20).std()
+                        factor_values["volatility_20d"] = float(vol_20d)
+
+                # Volume momentum: recent 5d avg vs 20d avg
+                vol_df = panel_dfs.get("volume")
+                if vol_df is not None and sym in vol_df.columns:
+                    volumes = vol_df[sym].dropna()
+                    if len(volumes) >= 20:
+                        avg_5 = volumes.tail(5).mean()
+                        avg_20 = volumes.tail(20).mean()
+                        if avg_20 > 0:
+                            factor_values["volume_momentum"] = float(avg_5 / avg_20 - 1)
+
+                # Try registry-computed factors for additional signals
+                for fid in (momentum_ids[:2] + volume_ids[:1] + volatility_ids[:1]):
+                    try:
+                        result_df = registry.compute(fid, panel_dfs)
+                        if result_df is not None and sym in result_df.columns:
+                            last_val = result_df[sym].dropna().iloc[-1] if not result_df[sym].dropna().empty else None
+                            if last_val is not None and not pd.isna(last_val):
+                                factor_values[f"zoo_{fid}"] = float(last_val)
+                    except Exception:
+                        pass  # Skip individual factor failures
+
+                if not factor_values:
+                    continue
+
+                # Compute weighted factor_score
+                momentum = factor_values.get("momentum_20d", 0)
+                volatility = factor_values.get("volatility_20d", 0)
+                volume = factor_values.get("volume_momentum", 0)
+
+                # Normalize components to roughly [-1, 1] range
+                mom_score = max(-1, min(1, momentum * 5))  # 20% move → ±1
+                vol_score = max(-1, min(1, (0.03 - volatility) / 0.03))  # Low vol → positive
+                volume_score = max(-1, min(1, volume * 2))  # 50% surge → ±1
+
+                factor_score = (
+                    mom_score * 0.35 +
+                    volume_score * 0.25 +
+                    vol_score * 0.20 +
+                    0.0  # value placeholder (PE not available from OHLCV)
+                )
+
+                # Clamp factor influence to ±15%
+                factor_score = max(-0.15, min(0.15, factor_score))
+
+                old_score = candidate.get("composite_score", 0)
+                candidate["composite_score"] = round(old_score * (1 + factor_score), 4)
+                candidate["alpha_factors"] = {
+                    "factor_score": round(factor_score, 4),
+                    "momentum_20d": factor_values.get("momentum_20d", 0),
+                    "volatility_20d": factor_values.get("volatility_20d", 0),
+                    "volume_momentum": factor_values.get("volume_momentum", 0),
+                    "registry_factors": {
+                        k: v for k, v in factor_values.items() if k.startswith("zoo_")
+                    },
+                }
+
+                logger.info(
+                    "Task %s: %s alpha_factor_score=%.4f (mom=%.4f, vol=%.4f, vmom=%.4f) → %.4f",
+                    task_id, sym, factor_score,
+                    factor_values.get("momentum_20d", 0),
+                    factor_values.get("volatility_20d", 0),
+                    factor_values.get("volume_momentum", 0),
+                    candidate["composite_score"],
+                )
+
+            except Exception as e:
+                logger.debug("Task %s: Alpha Zoo factor failed for %s: %s", task_id, sym, e)
 
     def _get_select_count_from_dag(self, config: AutonomousTaskConfig) -> int:
         """Extract top_n count from DAG select task params."""
