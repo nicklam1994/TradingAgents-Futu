@@ -51,6 +51,11 @@ def create_fundamentals_analyst(llm, data_collector=None):
             _safe(get_fundamentals, {"ticker": ticker, "curr_date": current_date}),
         )
 
+        # Save original Futu values before fallback (for DataTrace source detection)
+        futu_income_orig = futu_income
+        futu_balance_orig = futu_balance
+        futu_cashflow_orig = futu_cashflow
+
         # yfinance fallback only when Futu fails
         if not _has_data(futu_income):
             from tradingagents.agents.utils.agent_utils import get_income_statement
@@ -110,11 +115,20 @@ def create_fundamentals_analyst(llm, data_collector=None):
 
         # ── 数据来源追溯 ──────────────────
         from tradingagents.agents.utils.data_trace import build_data_trace, summarize_data
+        # Detect actual source for financial reports (Futu primary, yfinance fallback)
+        def _src(futu_val, pool_key=None):
+            if _has_data(futu_val):
+                return "Futu"
+            pool_val = pool.get(pool_key, "") if pool and pool_key else ""
+            if _has_data(pool_val):
+                return "DataPool"
+            return "yfinance"
+
         trace = build_data_trace("基本面分析师", [
             ("get_fundamentals", "Futu snapshot", summarize_data(fundamentals)),
-            ("get_financial_report(income)", "Futu", summarize_data(income)),
-            ("get_financial_report(balance)", "Futu", summarize_data(balance)),
-            ("get_financial_report(cashflow)", "Futu", summarize_data(cashflow)),
+            ("get_financial_report(income)", _src(futu_income_orig, "income_statement"), summarize_data(income)),
+            ("get_financial_report(balance)", _src(futu_balance_orig, "balance_sheet"), summarize_data(balance)),
+            ("get_financial_report(cashflow)", _src(futu_cashflow_orig, "cashflow"), summarize_data(cashflow)),
             ("get_revenue_breakdown", "Futu", summarize_data(revenue)),
             ("get_morningstar_report", "Futu", summarize_data(morningstar)),
             ("get_analyst_consensus", "Futu", summarize_data(consensus)),

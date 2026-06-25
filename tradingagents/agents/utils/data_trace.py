@@ -31,9 +31,12 @@ def summarize_data(data, max_len: int = 50) -> str:
         data = str(data)
     if not data:
         return "无数据"
-    if "error" in data.lower() or "调用失败" in data:
+    # Only treat as failure if it's a real error/failure, not informational messages
+    if "调用失败" in data:
         return "❌ 获取失败"
     if "无数据" in data or "缺失" in data:
+        return "⚠ 数据缺失"
+    if "no data" in data.lower() and len(data) < 80:
         return "⚠ 数据缺失"
     lines = [l for l in data.split("\n") if l.strip() and not l.startswith("#")]
     if len(lines) > 3:
