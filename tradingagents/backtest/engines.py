@@ -177,14 +177,7 @@ class CompositeEngine(BaseEngine):
 
     def _get_engine(self, symbol: str) -> GlobalEquityEngine:
         """Get the appropriate engine for a symbol."""
-        symbol = symbol.upper()
-        if symbol.startswith("HK."):
-            return self._engines["hk"]
-        elif symbol.startswith("US."):
-            return self._engines["us"]
-        else:
-            # Default to US for ambiguous symbols
-            return self._engines["us"]
+        return self._engines[_detect_market(symbol)]
 
     def can_execute(self, symbol: str, direction: int, price: float) -> bool:
         """Delegate to market-specific engine."""
