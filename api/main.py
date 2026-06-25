@@ -5064,6 +5064,83 @@ def strategy_shadow(req: ShadowRequest):
         raise HTTPException(500, detail=str(e))
 
 
+# ─── Parameter Optimisation Endpoints ──────────────────────────────────────
+
+class OptimizationParameter(BaseModel):
+    """单个参数的搜索范围"""
+    name: str = Field(..., description="参数名称")
+    start: float = Field(..., description="起始值（包含）")
+    end: float = Field(..., description="结束值（包含）")
+    step: float = Field(1.0, description="步长（BF 模式使用）")
+
+
+class OptimizationRequest(BaseModel):
+    """参数优化请求"""
+    strategy_name: str = Field(..., description="策略名称")
+    parameters: List[OptimizationParameter] = Field(..., description="参数搜索范围列表")
+    target: str = Field("sharpe_ratio", description="优化目标：sharpe_ratio/max_drawdown/win_rate/total_return/annual_return/calmar/sortino/profit_factor")
+    method: str = Field("bf", description="优化方法：bf（暴力搜索）或 ga（遗传算法）")
+    market: str = Field("us", description="市场：us 或 hk")
+    initial_capital: float = Field(1_000_000.0, description="初始资金")
+    # GA-specific
+    population_size: int = Field(50, description="GA 种群大小")
+    n_generations: int = Field(50, description="GA 迭代代数")
+    crossover_rate: float = Field(0.8, description="GA 交叉概率")
+    mutation_rate: float = Field(0.1, description="GA 变异概率")
+    seed: Optional[int] = Field(None, description="随机种子（GA 可复现）")
+
+
+@app.post("/v1/optimization")
+def submit_optimization(req: OptimizationRequest):
+    """提交参数优化任务，返回 job_id."""
+    try:
+        from api.services.optimization_service import submit_optimization as _submit
+        params = [p.model_dump() for p in req.parameters]
+        job_id = _submit(
+            strategy_name=req.strategy_name,
+            parameters=params,
+            target=req.target,
+            method=req.method,
+            market=req.market,
+            initial_capital=req.initial_capital,
+            population_size=req.population_size,
+            n_generations=req.n_generations,
+            crossover_rate=req.crossover_rate,
+            mutation_rate=req.mutation_rate,
+            seed=req.seed,
+        )
+        return {"job_id": job_id, "status": "pending"}
+    except Exception as e:
+        logger.error(f"optimization submit error: {e}")
+        raise HTTPException(400, detail=str(e))
+
+
+@app.get("/v1/optimization")
+def list_optimizations():
+    """列出所有优化任务."""
+    from api.services.optimization_service import list_jobs
+    jobs = list_jobs()
+    return {"jobs": jobs, "total": len(jobs)}
+
+
+@app.get("/v1/optimization/{job_id}")
+def get_optimization(job_id: str):
+    """获取优化任务状态和结果."""
+    from api.services.optimization_service import get_job
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, detail="优化任务不存在")
+    return job
+
+
+@app.delete("/v1/optimization/{job_id}")
+def delete_optimization(job_id: str):
+    """删除优化任务."""
+    from api.services.optimization_service import delete_job
+    if not delete_job(job_id):
+        raise HTTPException(404, detail="优化任务不存在")
+    return {"message": "已删除"}
+
 
 @app.get("/v1/models")
 def list_models(
