@@ -360,6 +360,7 @@ async def lifespan(app: FastAPI):
 
     # ── Inject API keys from DB into os.environ ────────────────────────
     await asyncio.to_thread(_inject_search_config_to_env)
+    await asyncio.to_thread(_inject_bot_config_to_env)
 
     # Trade calendar: using Futu OpenD on-demand (no pre-load needed)
     _log("Trade calendar: using Futu OpenD on-demand.")
@@ -578,6 +579,54 @@ def _inject_search_config_to_env():
             db.close()
     except Exception as e:
         _log(f"[EnvInject] Failed: {e}")
+
+
+def _inject_bot_config_to_env():
+    """Read notification_config from DB and inject bot tokens into os.environ.
+
+    Bot platforms (Telegram, DingTalk, etc.) read their tokens from env vars
+    at startup. This function bridges the DB-stored notification config to
+    those env vars so users only need to configure tokens in the Settings page.
+    """
+    try:
+        from api.database import SessionLocal
+        import json
+
+        db = SessionLocal()
+        try:
+            from api.database import UserLLMConfigDB
+            user_cfg = db.query(UserLLMConfigDB).filter(
+                UserLLMConfigDB.notification_config.isnot(None),
+                UserLLMConfigDB.notification_config != "",
+            ).first()
+            if not user_cfg or not user_cfg.notification_config:
+                _log("[BotInject] No notification_config found in DB.")
+                return
+
+            cfg = json.loads(user_cfg.notification_config)
+            channels = cfg.get("channels", {})
+
+            # Mapping: (channel, config_key) -> env_var
+            _BOT_ENV_MAP = [
+                ("telegram", "telegram_bot_token", "TELEGRAM_BOT_TOKEN"),
+                ("telegram", "telegram_chat_id", "TELEGRAM_CHAT_ID"),
+            ]
+
+            injected = []
+            for channel, config_key, env_var in _BOT_ENV_MAP:
+                val = channels.get(channel, {}).get(config_key, "").strip()
+                if val and not os.environ.get(env_var):
+                    os.environ[env_var] = val
+                    injected.append(f"{channel}.{config_key}")
+
+            if injected:
+                _log(f"[BotInject] Injected {len(injected)} bot configs from DB: {', '.join(injected)}")
+            else:
+                _log("[BotInject] No bot configs to inject (all empty or already set).")
+        finally:
+            db.close()
+    except Exception as e:
+        _log(f"[BotInject] Failed: {e}")
 
 
 def _load_stock_resolver():

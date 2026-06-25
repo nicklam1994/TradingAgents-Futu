@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 
 import pandas as pd
 from stockstats import wrap
@@ -16,6 +16,59 @@ from stockstats import wrap
 from .base import BaseMarketDataProvider
 
 logger = logging.getLogger(__name__)
+
+
+# ── Request Cache for get_panel_data() ──
+
+class _PanelCache:
+    """In-memory cache for get_panel_data() with trading-day TTL.
+
+    Cache key: (frozenset(symbols), start_date, end_date, autype)
+    Cache validity: same trading day (expires at market close ~16:00 ET / 16:00 HK)
+    This avoids redundant API calls when multiple strategies request the same data.
+    """
+
+    def __init__(self):
+        self._cache: Dict[tuple, tuple] = {}  # key -> (panel_dict, cache_date)
+        self._today: Optional[date_type] = None
+
+    def _get_cache_date(self) -> date_type:
+        """Get current date in trading timezone (simplified: use local date)."""
+        return date_type.today()
+
+    def _is_valid(self, cache_date: date_type) -> bool:
+        """Check if cache is still valid (same trading day)."""
+        return cache_date == self._get_cache_date()
+
+    def get(self, symbols: tuple, start_date: str, end_date: str,
+            autype: Optional[str]) -> Optional[Dict[str, pd.DataFrame]]:
+        """Retrieve cached panel data if valid."""
+        key = (frozenset(symbols), start_date, end_date, autype)
+        if key in self._cache:
+            panel, cache_date = self._cache[key]
+            if self._is_valid(cache_date):
+                logger.debug("Panel cache hit for %s", symbols)
+                return panel
+            else:
+                # Expired — remove stale entry
+                del self._cache[key]
+                logger.debug("Panel cache expired for %s (was %s)", symbols, cache_date)
+        return None
+
+    def put(self, symbols: tuple, start_date: str, end_date: str,
+            autype: Optional[str], panel: Dict[str, pd.DataFrame]) -> None:
+        """Store panel data in cache."""
+        key = (frozenset(symbols), start_date, end_date, autype)
+        self._cache[key] = (panel, self._get_cache_date())
+        logger.debug("Panel cache stored for %s", symbols)
+
+    def clear(self) -> None:
+        """Clear all cached data."""
+        self._cache.clear()
+
+
+# Module-level cache instance
+_panel_cache = _PanelCache()
 
 
 def _opend_host() -> str:
