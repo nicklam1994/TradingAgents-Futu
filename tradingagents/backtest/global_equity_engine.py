@@ -12,7 +12,7 @@ Market rules:
     - Low slippage (high liquidity)
   HK:
     - T+0, long/short allowed
-    - Stamp tax 0.13% bilateral + levies
+    - Stamp tax 0.1% bilateral + levies (post-Nov 2023)
     - Lot-size rounding (simplified to 100 shares)
     - Higher slippage than US
 """
@@ -30,7 +30,7 @@ class GlobalEquityEngine(BaseEngine):
     Config keys:
       - slippage_us: default 0.0005
       - slippage_hk: default 0.001
-      - hk_stamp_tax: default 0.0013 (0.13% bilateral)
+      - hk_stamp_tax: default 0.001 (0.1% bilateral, post-Nov 2023)
       - hk_commission: default 0.00015 (万1.5)
       - hk_levy: default 0.0000565 (SFC + FRC)
       - hk_settlement: default 0.00002 (CCASS)
@@ -45,7 +45,7 @@ class GlobalEquityEngine(BaseEngine):
         self.slippage_us: float = config.get("slippage_us", 0.0005)
         # HK defaults
         self.slippage_hk: float = config.get("slippage_hk", 0.001)
-        self.hk_stamp_tax: float = config.get("hk_stamp_tax", 0.0013)
+        self.hk_stamp_tax: float = config.get("hk_stamp_tax", 0.001)
         self.hk_commission: float = config.get("hk_commission", 0.00015)
         self.hk_levy: float = config.get("hk_levy", 0.0000565)
         self.hk_settlement: float = config.get("hk_settlement", 0.00002)
