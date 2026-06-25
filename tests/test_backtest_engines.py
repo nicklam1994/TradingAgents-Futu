@@ -96,7 +96,7 @@ class TestGlobalEquityEngineHK:
         notional = size * price  # 100,000
         expected = (
             notional * 0.00015   # commission
-            + notional * 0.0013  # stamp tax
+            + notional * 0.001  # stamp tax
             + notional * 0.0000565  # levy
             + notional * 0.00002    # settlement
         )
@@ -158,26 +158,35 @@ class TestCompositeEngine:
 
     def test_route_hk(self):
         """HK. prefix routes to HK engine."""
+        # Set routing via can_execute
+        self.engine.can_execute("HK.00700", 1, 100.0)
         # HK lot-size rounding
-        assert self.engine.round_size(150, 100.0, "HK.00700") == 100
+        assert self.engine.round_size(150, 100.0) == 100
         # HK commission non-zero
-        assert self.engine.calc_commission(100, 100.0, 1, True, "HK.00700") > 0
+        assert self.engine.calc_commission(100, 100.0, 1, True) > 0
 
     def test_route_us(self):
         """US. prefix routes to US engine."""
+        # Set routing via can_execute
+        self.engine.can_execute("US.AAPL", 1, 100.0)
         # US fractional
-        assert self.engine.round_size(150.456, 100.0, "US.AAPL") == 150.46
+        assert self.engine.round_size(150.456, 100.0) == 150.46
         # US zero commission
-        assert self.engine.calc_commission(100, 100.0, 1, True, "US.AAPL") == 0.0
+        assert self.engine.calc_commission(100, 100.0, 1, True) == 0.0
 
     def test_default_to_us(self):
         """Ambiguous symbols default to US."""
-        assert self.engine.calc_commission(100, 100.0, 1, True, "AAPL") == 0.0
+        self.engine.can_execute("AAPL", 1, 100.0)
+        assert self.engine.calc_commission(100, 100.0, 1, True) == 0.0
 
     def test_apply_slippage_routing(self):
         """Slippage routes to correct market."""
-        hk_slip = self.engine.apply_slippage(100.0, 1, "HK.00700")
-        us_slip = self.engine.apply_slippage(100.0, 1, "US.AAPL")
+        # Route HK first
+        self.engine.can_execute("HK.00700", 1, 100.0)
+        hk_slip = self.engine.apply_slippage(100.0, 1)
+        # Route US
+        self.engine.can_execute("US.AAPL", 1, 100.0)
+        us_slip = self.engine.apply_slippage(100.0, 1)
         # HK slippage > US slippage
         assert hk_slip > us_slip
 
@@ -235,7 +244,7 @@ class TestGetCommissionRate:
     def test_hk_rates(self):
         rates = get_commission_rate("hk")
         assert rates["commission"] == 0.00015
-        assert rates["stamp_tax"] == 0.0013
+        assert rates["stamp_tax"] == 0.001
         assert rates["levy"] == pytest.approx(0.0000565)
         assert rates["settlement"] == 0.00002
         assert rates["total_pct"] > 0
@@ -487,7 +496,7 @@ class TestGlobalEquityEngineV2:
         comm = engine.calc_commission(1000, 100.0, 1, True)
         notional = 100_000
         expected = (
-            notional * 0.00015 + notional * 0.0013
+            notional * 0.00015 + notional * 0.001  # stamp tax
             + notional * 0.0000565 + notional * 0.00002
         )
         assert abs(comm - expected) < 0.01
