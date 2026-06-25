@@ -4134,6 +4134,92 @@ def delete_backtest(job_id: str) -> Dict:
     return {"message": "已删除"}
 
 
+# ─── Optimization Endpoints ─────────────────────────────────────────────────
+
+from api.services import optimization_service as _opt
+
+
+class OptimizationParameterRange(BaseModel):
+    """Single parameter range for optimisation."""
+    name: str = Field(..., description="参数名（需匹配策略配置中的 key）")
+    start: float = Field(..., description="下界（含）")
+    end: float = Field(..., description="上界（含）")
+    step: float = Field(1.0, description="步长（BF 网格搜索用）")
+
+
+class OptimizationRequest(BaseModel):
+    """参数优化请求。"""
+    strategy_name: str = Field(..., description="策略名称")
+    parameters: List[OptimizationParameterRange] = Field(..., description="参数搜索范围列表")
+    target: str = Field("sharpe_ratio", description="优化目标指标")
+    method: str = Field("bf", description="优化方法: bf（暴力搜索）或 ga（遗传算法）")
+    market: str = Field("us", description="市场: us 或 hk")
+    initial_capital: float = Field(1_000_000.0, description="初始资金")
+    n_processes: Optional[int] = Field(None, description="BF 并行进程数（None=自动）")
+    # GA-specific
+    population_size: int = Field(50, description="GA 种群大小")
+    n_generations: int = Field(50, description="GA 迭代代数")
+    crossover_rate: float = Field(0.8, description="GA 交叉概率")
+    mutation_rate: float = Field(0.1, description="GA 变异概率")
+    seed: Optional[int] = Field(None, description="GA 随机种子")
+
+
+@app.post("/v1/optimization")
+def submit_optimization(
+    request: OptimizationRequest,
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict:
+    """提交参数优化任务，返回 job_id."""
+    params_list = [p.model_dump() for p in request.parameters]
+    job_id = _opt.submit_optimization(
+        strategy_name=request.strategy_name,
+        parameters=params_list,
+        target=request.target,
+        method=request.method,
+        market=request.market,
+        initial_capital=request.initial_capital,
+        n_processes=request.n_processes,
+        population_size=request.population_size,
+        n_generations=request.n_generations,
+        crossover_rate=request.crossover_rate,
+        mutation_rate=request.mutation_rate,
+        seed=request.seed,
+    )
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/v1/optimization")
+def list_optimizations(
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict:
+    """列出所有优化任务."""
+    jobs = _opt.list_jobs()
+    return {"jobs": jobs, "total": len(jobs)}
+
+
+@app.get("/v1/optimization/{job_id}")
+def get_optimization(
+    job_id: str,
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict:
+    """获取优化任务状态和结果."""
+    job = _opt.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="优化任务不存在")
+    return job
+
+
+@app.delete("/v1/optimization/{job_id}")
+def delete_optimization(
+    job_id: str,
+    current_user: UserDB = Depends(_require_web_user),
+) -> Dict:
+    """删除优化任务."""
+    if not _opt.delete_job(job_id):
+        raise HTTPException(status_code=404, detail="优化任务不存在")
+    return {"message": "已删除"}
+
+
 # ─── Runtime Config Endpoints ────────────────────────────────────────────────
 
 _CONFIG_ALLOWED_KEYS = {
