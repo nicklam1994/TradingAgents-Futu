@@ -83,8 +83,11 @@ export default function WatchlistBoard() {
     })
 
     // Send subscribe message when items change OR WebSocket reconnects
+    const lastSubscribedRef = useRef('')
     useEffect(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN && items.length > 0) {
+        const key = items.map(i => i.symbol).sort().join(',')
+        if (wsRef.current?.readyState === WebSocket.OPEN && items.length > 0 && key !== lastSubscribedRef.current) {
+            lastSubscribedRef.current = key
             wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'watchlist', symbols: items.map(i => i.symbol) }))
         }
     }, [items.map(i => i.symbol).join(','), wsConnected])

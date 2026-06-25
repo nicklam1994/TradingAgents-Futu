@@ -788,7 +788,7 @@ def _get_local_deals(
 
     db = SessionLocal()
     try:
-        query = db.query(SimDealDB).order_by(SimDealDB.create_time.desc())
+        query = db.query(SimDealDB).order_by(SimDealDB.create_time.asc())
         if symbol:
             # Normalize symbol for matching
             query = query.filter(SimDealDB.code == symbol)
