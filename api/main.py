@@ -408,7 +408,9 @@ def _init_bot_manager() -> BotManager:
         manager.register(telegram_bot)
         _log("Telegram bot registered.")
 
-    # Create the command handler with disambiguation support
+    # Create analyze function first so _bot_function_call_fn can invoke it
+    _bot_analyze_fn = _bot_analyze_fn_factory(telegram_bot=telegram_bot)
+
     async def _bot_function_call_fn(text: str, user_id: str) -> dict:
         """Wrapper for function calling from bot."""
         from api.services.function_calling_service import (
@@ -442,7 +444,14 @@ def _init_bot_manager() -> BotManager:
                 db = SessionLocal()
                 try:
                     user = db.query(UserDB).filter(UserDB.id == user_id).first()
-                    tool_result = await _execute_tool(func_name, func_args, user)
+                    # For analyze_stock, invoke the real analysis pipeline
+                    if func_name == "analyze_stock":
+                        symbol = func_args.get("symbol", "")
+                        horizon = func_args.get("horizon", "short")
+                        result_text = await _bot_analyze_fn(symbol, horizon=horizon)
+                        tool_result = {"action": "analyze", "symbol": symbol, "message": result_text}
+                    else:
+                        tool_result = await _execute_tool(func_name, func_args, user)
                 finally:
                     db.close()
 
@@ -468,7 +477,7 @@ def _init_bot_manager() -> BotManager:
         }
 
     handler = BotCommandHandler(
-        analyze_fn=_bot_analyze_fn_factory(telegram_bot=telegram_bot),
+        analyze_fn=_bot_analyze_fn,
         function_call_fn=_bot_function_call_fn,
     )
     manager.on_message(handler.handle)

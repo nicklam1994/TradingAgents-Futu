@@ -86,8 +86,9 @@ class BotCommandHandler:
                 chat_id=message.chat_id,
             )
 
-        # ── Function calling mode ─────────────────────────────────────────
-        if self._user_mode.get(message.user_id) == 'function' and self._function_call_fn:
+        # ── Function calling mode (default when available) ─────────────
+        user_mode = self._user_mode.get(message.user_id)
+        if user_mode != 'command' and self._function_call_fn:
             # Still allow explicit slash commands
             parsed = CommandParser.parse(text)
             if parsed and parsed.command in ('help', 'status'):
