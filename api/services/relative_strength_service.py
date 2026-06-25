@@ -134,22 +134,9 @@ def get_relative_strength(symbol: str) -> RelativeStrengthResult | None:
         return None
 
 def _to_futu_code(symbol: str) -> str:
-    """Convert canonical symbol to Futu format.
-    
-    "00700.HK" -> "HK.00700"
-    "AAPL" -> "US.AAPL"
-    """
-    if symbol.endswith(".HK"):
-        return f"HK.{symbol[:-3]}"
-    elif symbol.endswith(".US"):
-        return f"US.{symbol[:-3]}"
-    elif symbol.endswith(".SH"):
-        return f"SH.{symbol[:-3]}"
-    elif symbol.endswith(".SZ"):
-        return f"SZ.{symbol[:-3]}"
-    else:
-        # Assume US stock
-        return f"US.{symbol}"
+    """Convert canonical symbol to Futu format using stock_resolver."""
+    from tradingagents.dataflows.stock_resolver import to_futu
+    return to_futu(symbol)
 
 def _safe_float(val: Any) -> float | None:
     """Safely convert to float, return None on failure."""

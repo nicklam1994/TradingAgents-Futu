@@ -14,6 +14,12 @@ from langchain_core.tools import tool
 from typing import Annotated
 
 
+def _to_futu(symbol: str) -> str:
+    """Convert canonical symbol to Futu format (US.AAPL / HK.00700)."""
+    from tradingagents.dataflows.stock_resolver import to_futu
+    return to_futu(symbol)
+
+
 @tool
 def get_sector_performance(
     market: Annotated[str, "市场: US 或 HK"] = "US",
@@ -166,11 +172,7 @@ def get_capital_flow(
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         # Convert canonical (00020.HK) to Futu format (HK.00020)
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif symbol.endswith(".US"):
-            futu_code = f"US.{symbol[:-3]}"
+        futu_code = _to_futu(symbol)
         ctx = OpenQuoteContext(host=host, port=port)
         try:
             ret, data = ctx.get_capital_flow(futu_code)
@@ -240,9 +242,7 @@ def get_top_ten_broker(
         import os
 
         # Convert canonical (00020.HK) to Futu format (HK.00020)
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -309,11 +309,7 @@ def get_stock_concept_tags(
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         # Convert canonical (00020.HK) to Futu format (HK.00020)
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif symbol.endswith(".US"):
-            futu_code = f"US.{symbol[:-3]}"
+        futu_code = _to_futu(symbol)
         ctx = OpenQuoteContext(host=host, port=port)
         try:
             ret, data = ctx.get_owner_plate(futu_code)
@@ -451,11 +447,7 @@ def get_morningstar_report(
         from futu import OpenQuoteContext
         import os
 
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -521,11 +513,7 @@ def get_analyst_consensus(
         from futu import OpenQuoteContext
         import os
 
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -602,11 +590,7 @@ def get_financial_report(
         from futu import OpenQuoteContext
         import os
 
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
 
         # financial_type: 5=H1, 7=FY (full year)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
@@ -705,11 +689,7 @@ def get_capital_distribution(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -763,11 +743,7 @@ def get_revenue_breakdown(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -825,11 +801,7 @@ def get_institutional_holders(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -879,11 +851,7 @@ def get_holder_changes(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -930,11 +898,7 @@ def get_dividend_history(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -977,11 +941,7 @@ def get_financial_alerts(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -1017,11 +977,7 @@ def get_technical_alerts(
     try:
         from futu import OpenQuoteContext
         import os
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
-        elif not symbol.startswith("US."):
-            futu_code = f"US.{symbol}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
@@ -1054,9 +1010,7 @@ def get_hk_social_sentiment(symbol: str) -> str:
         from futu import OpenQuoteContext, RET_OK
         import os
 
-        futu_code = symbol
-        if symbol.endswith(".HK"):
-            futu_code = f"HK.{symbol[:-3]}"
+        futu_code = _to_futu(symbol)
         host = os.getenv("FUTU_OPEND_HOST", "127.0.0.1")
         port = int(os.getenv("FUTU_OPEND_PORT", "11111"))
         ctx = OpenQuoteContext(host=host, port=port)
