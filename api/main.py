@@ -3523,6 +3523,7 @@ async def chat_completions(
     current_user: UserDB = Depends(_require_api_user),
 ):
     text = _extract_chat_text(request.messages)
+    _log(f"[Chat] User ({current_user.id[:8]}): {text[:120]}")
     config = await asyncio.to_thread(_build_runtime_config, request.config_overrides, user_id=current_user.id)
 
     # ── 流式模式：立刻返回 SSE 流，在后台异步提取意图再启动任务 ──────────────────
@@ -3544,6 +3545,8 @@ async def chat_completions(
                     symbol, trade_date, horizons, focus_areas, specific_questions, inferred_user_context = \
                         await _ai_extract_symbol_and_date_streaming(text, config, job_id)
 
+                _log(f"[Chat] Extracted: symbol={symbol}, horizons={horizons}, job={job_id[:8]}")
+
                 if not symbol:
                     _emit_job_event(job_id, "job.failed", {
                         "error": "抱歉，我没能从您的消息中识别出股票。请输入代码（如 000700.HK 或 AAPL）或可识别的公司名称。"
@@ -3556,6 +3559,7 @@ async def chat_completions(
                 if not request.resolved_symbol:
                     candidates = _check_disambiguation(text, symbol)
                     if candidates:
+                        _log(f"[Chat] Disambiguation: {len(candidates)} candidates for '{symbol}'")
                         _emit_job_event(job_id, "job.disambiguation", {
                             "query": text,
                             "candidates": candidates,
@@ -3623,6 +3627,7 @@ async def chat_completions(
                     "job.created",
                     {"job_id": job_id, "symbol": analyze_req.symbol, "trade_date": analyze_req.trade_date},
                 )
+                _log(f"[Chat] Starting analysis: symbol={analyze_req.symbol}, date={analyze_req.trade_date}, job={job_id[:8]}")
                 await _run_job(job_id, analyze_req, True, True, current_user.id, "chat")
             except Exception as exc:
                 _log(f"[chat] _extract_and_run failed: {exc}")
