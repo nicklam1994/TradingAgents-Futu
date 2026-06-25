@@ -1839,6 +1839,116 @@ class AutonomousLoop:
                     "state": state.to_dict(),
                 })
 
+        # ── C3: Strategy Analytics heatmap — enrich reports with factor analysis ──
+        self._apply_strategy_heatmap(task_id, config, state)
+
+    def _apply_strategy_heatmap(
+        self, task_id: str, config: AutonomousTaskConfig, state: OODAState
+    ) -> None:
+        """C3: Strategy Analytics heatmap — enrich analysis reports with factor data.
+
+        Uses StrategyAnalyticsService.generate_heatmap() to get regime suitability
+        scores for each candidate, then enriches analysis_reports with:
+          - top_factors: list of best-performing factor themes
+          - factor_performance: dict of factor → performance score
+          - market_regime: detected current regime
+
+        Non-critical: failures are logged and skipped silently.
+        """
+        if not state.analysis_reports:
+            return
+
+        try:
+            from api.services.strategy_analytics_service import get_strategy_analytics
+
+            analytics = get_strategy_analytics()
+
+            # Build strategies list from current analysis reports
+            # Each report's verdict maps to a strategy-like entry
+            strategies = []
+            for report in state.analysis_reports:
+                symbol = report.get("symbol", "")
+                if not symbol:
+                    continue
+                verdict = report.get("verdict", "HOLD")
+                confidence = report.get("confidence", 0.5)
+
+                # Map verdict to strategy metadata
+                market_regimes = []
+                if verdict == "BUY":
+                    market_regimes = ["trending_up"]
+                elif verdict == "SELL":
+                    market_regimes = ["trending_down"]
+                else:
+                    market_regimes = ["ranging", "volatile"]
+
+                strategies.append({
+                    "name": symbol,
+                    "market_regimes": market_regimes,
+                    "default_priority": int((1 - confidence) * 100),
+                })
+
+            if not strategies:
+                return
+
+            # Generate heatmap across all market regimes
+            heatmap_cells = analytics.generate_heatmap(strategies)
+
+            if not heatmap_cells:
+                logger.debug("Task %s: Empty heatmap result", task_id)
+                return
+
+            # Map heatmap cells back to analysis reports
+            # Group by strategy_name (= symbol) and extract top factors
+            symbol_heatmap: Dict[str, list] = {}
+            for cell in heatmap_cells:
+                name = cell.strategy_name
+                if name not in symbol_heatmap:
+                    symbol_heatmap[name] = []
+                symbol_heatmap[name].append({
+                    "regime": cell.market_regime,
+                    "suitability": cell.suitability_score,
+                    "recommendation": cell.current_recommendation,
+                    "historical_perf": cell.historical_performance,
+                })
+
+            for report in state.analysis_reports:
+                symbol = report.get("symbol", "")
+                cells = symbol_heatmap.get(symbol, [])
+                if not cells:
+                    continue
+
+                # Find best-performing regime for this symbol
+                best = max(cells, key=lambda c: c["suitability"])
+
+                # Determine top factors based on regime suitability
+                top_factors = []
+                for c in sorted(cells, key=lambda c: c["suitability"], reverse=True):
+                    if c["suitability"] >= 60:
+                        top_factors.append(c["regime"])
+
+                report["top_factors"] = top_factors[:3]
+                report["factor_performance"] = {
+                    c["regime"]: c["suitability"] for c in cells
+                }
+                report["best_regime"] = best["regime"]
+                report["regime_recommendation"] = best["recommendation"]
+
+                state.log(
+                    f"🔍 {symbol} 頂級因子: {top_factors[:3]} "
+                    f"(最佳: {best['regime']}={best['suitability']})"
+                )
+                logger.info(
+                    "Task %s: %s heatmap — top_factors=%s, best=%s (%d)",
+                    task_id, symbol, top_factors[:3],
+                    best["regime"], best["suitability"],
+                )
+
+        except ImportError:
+            logger.debug("StrategyAnalyticsService not available — skipping heatmap")
+        except Exception as e:
+            logger.debug("Strategy heatmap failed (non-critical): %s", e)
+
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
     ) -> None:
