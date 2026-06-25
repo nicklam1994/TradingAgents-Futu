@@ -120,6 +120,7 @@ class PortfolioRiskReport:
     generated_at: str = ""
     total_market_val: float = 0.0
     position_count: int = 0
+    currency: str = ""            # Portfolio currency (e.g., 'HKD', 'USD')
     concentration: Optional[ConcentrationResult] = None
     drawdown: Optional[DrawdownResult] = None
     var: Optional[VaRResult] = None
@@ -284,6 +285,7 @@ def calculate_var(
     price_history: Optional[Dict[str, List[float]]] = None,
     n_simulations: int = 10000,
     confidence_levels: tuple = (0.95, 0.99),
+    historical_annual_vol: Optional[float] = None,
 ) -> VaRResult:
     """Calculate Value at Risk using historical simulation.
 
@@ -296,6 +298,8 @@ def calculate_var(
         price_history: Optional {symbol: [daily_close_prices]}.
         n_simulations: Number of Monte Carlo runs (used when no history).
         confidence_levels: Tuple of confidence levels (default 95%, 99%).
+        historical_annual_vol: Optional historical annual volatility (e.g., from
+            FutuProvider). Falls back to 20% if not provided and no price_history.
 
     Returns:
         VaRResult with VaR and CVaR at specified confidence levels.
@@ -311,7 +315,7 @@ def calculate_var(
         return _var_from_history(positions, price_history, total_mv, confidence_levels)
 
     # Monte Carlo simulation (no history available)
-    return _var_monte_carlo(positions, total_mv, n_simulations, confidence_levels)
+    return _var_monte_carlo(positions, total_mv, n_simulations, confidence_levels, historical_annual_vol)
 
 
 def _var_from_history(
@@ -376,14 +380,16 @@ def _var_monte_carlo(
     total_mv: float,
     n_simulations: int,
     confidence_levels: tuple,
+    historical_annual_vol: Optional[float] = None,
 ) -> VaRResult:
     """Monte Carlo VaR when no historical data is available.
 
-    Uses assumed annual volatility of 20% (converted to daily).
+    Uses historical_annual_vol if provided (e.g., from FutuProvider),
+    otherwise falls back to a conservative 20% assumption.
     Simulates 1-day portfolio P&L.
     """
-    # Assume annual vol 20% → daily vol = 20% / sqrt(252)
-    annual_vol = 0.20
+    # Use provided historical volatility, or fall back to conservative 20%
+    annual_vol = historical_annual_vol if historical_annual_vol and historical_annual_vol > 0 else 0.20
     daily_vol = annual_vol / math.sqrt(252)
 
     # Simulate daily returns (normal distribution)
@@ -493,7 +499,11 @@ def _beta_from_regression(
     benchmark_history: List[float],
     total_mv: float,
 ) -> BetaResult:
-    """Compute beta from OLS regression of portfolio returns vs benchmark."""
+    """Compute beta from OLS regression of portfolio returns vs benchmark.
+
+    For single-stock portfolios, returns the computed regression beta directly.
+    For multi-stock portfolios, distributes the portfolio beta uniformly.
+    """
     symbols = [p.symbol for p in positions if p.symbol in price_history]
     if not symbols:
         return BetaResult()
@@ -522,13 +532,24 @@ def _beta_from_regression(
     else:
         port_beta = 1.0
 
-    # Per-position contribution (simplified: assume same beta for all)
-    qty_map_local = {p.symbol: p.qty for p in positions}
-    total_mv_local = sum(p.market_val for p in positions if p.market_val > 0)
+    # Single-stock case: return the regression beta directly
+    active_positions = [p for p in positions if p.market_val > 0]
+    if len(active_positions) == 1:
+        p = active_positions[0]
+        return BetaResult(
+            portfolio_beta=round(port_beta, 4),
+            per_position=[{
+                "symbol": p.symbol,
+                "beta": round(port_beta, 4),
+                "weight_pct": 100.0,
+                "contribution": round(port_beta, 4),
+            }],
+        )
+
+    # Multi-stock: distribute portfolio beta uniformly
+    total_mv_local = sum(p.market_val for p in active_positions)
     per_pos = []
-    for p in positions:
-        if p.market_val <= 0:
-            continue
+    for p in active_positions:
         w = p.market_val / total_mv_local if total_mv_local > 0 else 0
         per_pos.append({
             "symbol": p.symbol,
@@ -684,6 +705,7 @@ def generate_risk_report(
     benchmark_history: Optional[List[float]] = None,
     stock_betas: Optional[Dict[str, float]] = None,
     risk_free_rate: float = 0.04,
+    historical_annual_vol: Optional[float] = None,
 ) -> PortfolioRiskReport:
     """Generate a complete portfolio risk report.
 
@@ -696,6 +718,8 @@ def generate_risk_report(
         benchmark_history: Optional [daily_close_prices] for benchmark (e.g., HSI, SPY).
         stock_betas: Optional {symbol: beta_value} lookup.
         risk_free_rate: Annual risk-free rate (default 4%).
+        historical_annual_vol: Optional historical annual volatility from FutuProvider.
+            Used for Monte Carlo VaR when no price_history is available.
 
     Returns:
         PortfolioRiskReport with all risk metrics populated.
@@ -708,13 +732,21 @@ def generate_risk_report(
 
     total_mv = sum(p.market_val for p in positions if p.market_val > 0)
 
+    # Derive currency from the first position with a non-empty currency field
+    currency = ""
+    for p in positions:
+        if p.currency:
+            currency = p.currency
+            break
+
     report = PortfolioRiskReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         total_market_val=round(total_mv, 2),
         position_count=len([p for p in positions if p.qty > 0]),
+        currency=currency,
         concentration=calculate_concentration(positions),
         drawdown=calculate_drawdown(positions, price_history),
-        var=calculate_var(positions, price_history),
+        var=calculate_var(positions, price_history, historical_annual_vol=historical_annual_vol),
         beta=calculate_beta(positions, stock_betas, price_history, benchmark_history),
         sharpe=calculate_sharpe(positions, price_history, risk_free_rate),
         cost_basis=calculate_cost_basis(positions),
