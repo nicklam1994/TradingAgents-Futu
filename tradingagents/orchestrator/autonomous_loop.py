@@ -257,6 +257,7 @@ class AutonomousLoop:
             self._observer = observer
         self._on_iteration = on_iteration
         self._running_tasks: Dict[str, bool] = {}  # task_id → should_continue
+        self._alpha_zoo_registry = None  # Cached Alpha Zoo Registry (W1)
 
     # ── Task lifecycle ────────────────────────────────────────────────────
 
@@ -776,7 +777,7 @@ class AutonomousLoop:
                 "symbol": decision.get("symbol", ""),
                 "side": decision.get("action", "buy"),
                 "price": result.price if hasattr(result, "price") else 0,
-                "quantity": result.quantity if hasattr(result, "quantity") else 0,
+                "qty": result.quantity if hasattr(result, "quantity") else 0,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "strategy": self._strategy_params.get("display_name", "") if self._strategy_params else "",
                 "reasoning": decision.get("reasoning", ""),
@@ -833,8 +834,16 @@ class AutonomousLoop:
             # Convert to DataFrame for profile extraction
             trades_df = pd.DataFrame(shadow_trades)
 
+            # Normalize checkpoint column names to match extractor expectations
+            # (checkpoint may store "timestamp" but extractor expects "datetime",
+            #  and "quantity" but extractor expects "qty")
+            if "timestamp" in trades_df.columns and "datetime" not in trades_df.columns:
+                trades_df = trades_df.rename(columns={"timestamp": "datetime"})
+            if "quantity" in trades_df.columns and "qty" not in trades_df.columns:
+                trades_df = trades_df.rename(columns={"quantity": "qty"})
+
             # Ensure required columns exist
-            required_cols = {"symbol", "side", "price", "timestamp"}
+            required_cols = {"symbol", "side", "price", "datetime", "qty"}
             if not required_cols.issubset(set(trades_df.columns)):
                 logger.debug(
                     "Task %s: Shadow trades missing columns: %s",
@@ -853,7 +862,10 @@ class AutonomousLoop:
                 task_id, len(profile.rules),
             )
 
-            # Scan today's signals
+            # W5: Scanner requires price_frames or fetcher for OHLCV data.
+            # Without either, only rule metadata is available — entry-condition
+            # feature matching will return no matches. Pass a fetcher here if
+            # live price data integration is needed.
             signals = scan_today_signals(profile)
             if not signals:
                 logger.debug("Task %s: No shadow signals today", task_id)
@@ -861,53 +873,97 @@ class AutonomousLoop:
 
             state.log(f"📚 獲取 {len(signals)} 條 Shadow 信號")
 
-            # Map signals to candidate symbols and adjust scores
+            # W4: Evaluate rules against candidates for both positive and
+            # negative adjustments. Scanner returns entry-condition matches
+            # (positive). We also check exit conditions for negative signals.
             candidate_symbols = {
                 c.get("symbol", "").upper(): c for c in state.candidates
             }
 
-            for signal in signals:
-                signal_sym = signal.get("symbol", "").upper()
-                if not signal_sym:
-                    continue
+            # Build a set of matched (symbol, rule_id) pairs from scanner
+            matched_keys = {
+                (s.get("symbol", "").upper(), s.get("rule_id", ""))
+                for s in signals
+            }
 
-                candidate = candidate_symbols.get(signal_sym)
-                if not candidate:
-                    continue
+            # Scan all rules against all candidate symbols for exit-condition
+            # negative signals (entry not matched but exit IS matched)
+            from tradingagents.shadow.scanner import (
+                _get_price_frame,
+                _entry_condition_matches,
+            )
+            from datetime import date as _date
 
-                reason = signal.get("reason", "")
-                rule_id = signal.get("rule_id", "")
+            for rule in profile.rules:
+                for sym_upper, candidate in candidate_symbols.items():
+                    if not sym_upper:
+                        continue
 
-                # Positive signal from shadow pattern matching
-                old_score = candidate.get("composite_score", 0)
-                adjustment = 0.05  # +5% for shadow pattern match
+                    # Already handled as positive match above
+                    if (sym_upper, rule.rule_id) in matched_keys:
+                        # W11: Use base score to avoid order dependency with C1
+                        base = candidate.get("base_composite_score")
+                        old_score = base if base is not None else candidate.get("composite_score", 0)
+                        adjustment = 0.05  # +5% for entry-condition match
+                        new_score = max(0, old_score * (1 + adjustment))
+                        candidate["composite_score"] = round(new_score, 4)
 
-                new_score = max(0, old_score * (1 + adjustment))
-                candidate["composite_score"] = round(new_score, 4)
+                        state.log(
+                            f"📈 {sym_upper} Shadow 正面教訓 (+5%) [{rule.rule_id}]"
+                        )
+                        logger.info(
+                            "Task %s: Shadow +%s: %.4f → %.4f (+5%%)",
+                            task_id, sym_upper, old_score, new_score,
+                        )
+                        if "shadow_signals" not in candidate:
+                            candidate["shadow_signals"] = []
+                        candidate["shadow_signals"].append({
+                            "rule_id": rule.rule_id,
+                            "adjustment": adjustment,
+                            "type": "positive",
+                        })
+                        continue
 
-                state.log(
-                    f"📈 {signal_sym} Shadow 正面匹配 (+5%) [{rule_id}]"
-                )
-                logger.info(
-                    "Task %s: Shadow adjustment for %s: %.4f → %.4f (+5%%) — %s",
-                    task_id, signal_sym, old_score, new_score, reason[:80],
-                )
+                    # Check exit condition for negative signal
+                    market = rule.entry_condition.get("market", "other")
+                    frame = _get_price_frame(
+                        sym_upper, market, _date.today(), None, None
+                    )
+                    if frame is None:
+                        continue
 
-                # Store shadow metadata on candidate
-                if "shadow_signals" not in candidate:
-                    candidate["shadow_signals"] = []
-                candidate["shadow_signals"].append({
-                    "rule_id": rule_id,
-                    "reason": reason,
-                    "adjustment": adjustment,
-                })
+                    # Entry NOT matched + exit condition met → negative signal
+                    if not _entry_condition_matches(frame, rule, _date.today()):
+                        # Exit condition check: if holding_days or stop criteria
+                        # suggest the pattern would have lost money
+                        exit_cond = rule.exit_condition
+                        if exit_cond and exit_cond.get("stop_loss_pct"):
+                            # W11: Use base score to avoid order dependency with C1
+                            base = candidate.get("base_composite_score")
+                            old_score = base if base is not None else candidate.get("composite_score", 0)
+                            adjustment = -0.10  # -10% for exit-condition signal
+                            new_score = max(0, old_score * (1 + adjustment))
+                            candidate["composite_score"] = round(new_score, 4)
 
-                break  # Apply only one shadow signal per candidate
+                            state.log(
+                                f"📉 {sym_upper} Shadow 負面教訓 (-10%) [{rule.rule_id}]"
+                            )
+                            logger.info(
+                                "Task %s: Shadow -%s: %.4f → %.4f (-10%%)",
+                                task_id, sym_upper, old_score, new_score,
+                            )
+                            if "shadow_signals" not in candidate:
+                                candidate["shadow_signals"] = []
+                            candidate["shadow_signals"].append({
+                                "rule_id": rule.rule_id,
+                                "adjustment": adjustment,
+                                "type": "negative",
+                            })
 
         except ImportError:
             logger.debug("Shadow module not available — skipping shadow lessons")
         except Exception as e:
-            logger.debug("Shadow lesson application failed (non-critical): %s", e)
+            logger.warning("Shadow lesson application failed: %s", e, exc_info=True)
 
     def _phase_orient(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
@@ -1130,7 +1186,10 @@ class AutonomousLoop:
         try:
             from tradingagents.factors.registry import Registry
 
-            registry = Registry()
+            # W1: Use cached registry to avoid repeated filesystem scans
+            if self._alpha_zoo_registry is None:
+                self._alpha_zoo_registry = Registry()
+            registry = self._alpha_zoo_registry
             available = registry.list()
             if not available:
                 logger.debug("Task %s: Alpha Zoo registry empty — skipping", task_id)
@@ -1147,14 +1206,12 @@ class AutonomousLoop:
             value_ids = registry.list(theme="value")
 
         except Exception as e:
-            logger.debug("Alpha Zoo registry init failed (non-critical): %s", e)
+            logger.warning("Alpha Zoo registry init failed: %s", e, exc_info=True)
             return
 
         # Fetch OHLCV panel for candidates via data vendor
         try:
             from tradingagents.dataflows.interface import route_to_vendor
-            import io
-            import csv as _csv
 
             symbols = [c.get("symbol", "") for c in state.candidates if c.get("symbol")]
             if not symbols:
@@ -1170,7 +1227,7 @@ class AutonomousLoop:
                     if not kline_csv:
                         continue
 
-                    reader = _csv.DictReader(io.StringIO(kline_csv))
+                    reader = csv.DictReader(io.StringIO(kline_csv))
                     rows = list(reader)
                     if len(rows) < 5:
                         continue
@@ -1213,7 +1270,7 @@ class AutonomousLoop:
                 return
 
         except Exception as e:
-            logger.debug("Alpha Zoo panel construction failed (non-critical): %s", e)
+            logger.warning("Alpha Zoo panel construction failed: %s", e, exc_info=True)
             return
 
         # Compute factors per candidate
@@ -1289,7 +1346,11 @@ class AutonomousLoop:
                 # Clamp factor influence to ±15%
                 factor_score = max(-0.15, min(0.15, factor_score))
 
-                old_score = candidate.get("composite_score", 0)
+                # W11: Save original score before adjustment so downstream
+                # methods (e.g. Shadow lessons) use the same base.
+                if "base_composite_score" not in candidate:
+                    candidate["base_composite_score"] = candidate.get("composite_score", 0)
+                old_score = candidate["base_composite_score"]
                 candidate["composite_score"] = round(old_score * (1 + factor_score), 4)
                 candidate["alpha_factors"] = {
                     "factor_score": round(factor_score, 4),
@@ -1311,7 +1372,7 @@ class AutonomousLoop:
                 )
 
             except Exception as e:
-                logger.debug("Task %s: Alpha Zoo factor failed for %s: %s", task_id, sym, e)
+                logger.warning("Task %s: Alpha Zoo factor failed for %s: %s", task_id, sym, e, exc_info=True)
 
     def _get_select_count_from_dag(self, config: AutonomousTaskConfig) -> int:
         """Extract top_n count from DAG select task params."""
@@ -1860,7 +1921,11 @@ class AutonomousLoop:
 
         try:
             from api.services.strategy_analytics_service import get_strategy_analytics
+        except ImportError:
+            logger.debug("StrategyAnalyticsService not available — skipping heatmap")
+            return
 
+        try:
             analytics = get_strategy_analytics()
 
             # Build strategies list from current analysis reports
@@ -1873,12 +1938,20 @@ class AutonomousLoop:
                 verdict = report.get("verdict", "HOLD")
                 confidence = report.get("confidence", 0.5)
 
-                # Map verdict to strategy metadata
-                market_regimes = []
+                # W8: Map verdict + confidence to regime list.
+                # High-confidence BUY → trending + breakout; low → ranging
+                # High-confidence SELL → trending_down + breakdown; low → volatile
+                # HOLD → ranging + volatile (uncertainty)
                 if verdict == "BUY":
-                    market_regimes = ["trending_up"]
+                    if confidence > 0.7:
+                        market_regimes = ["trending_up", "breakout"]
+                    else:
+                        market_regimes = ["trending_up", "ranging"]
                 elif verdict == "SELL":
-                    market_regimes = ["trending_down"]
+                    if confidence > 0.7:
+                        market_regimes = ["trending_down", "breakdown"]
+                    else:
+                        market_regimes = ["trending_down", "volatile"]
                 else:
                     market_regimes = ["ranging", "volatile"]
 
@@ -1947,7 +2020,7 @@ class AutonomousLoop:
         except ImportError:
             logger.debug("StrategyAnalyticsService not available — skipping heatmap")
         except Exception as e:
-            logger.debug("Strategy heatmap failed (non-critical): %s", e)
+            logger.warning("Strategy heatmap failed: %s", e, exc_info=True)
 
     def _phase_decide(
         self, task_id: str, config: AutonomousTaskConfig, state: OODAState
