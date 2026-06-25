@@ -173,6 +173,7 @@ class CompositeEngine(BaseEngine):
             "hk": GlobalEquityEngine(config, market="hk"),
             "us": GlobalEquityEngine(config, market="us"),
         }
+        self._last_symbol: str = ""
 
     def _get_engine(self, symbol: str) -> GlobalEquityEngine:
         """Get the appropriate engine for a symbol."""
@@ -187,19 +188,20 @@ class CompositeEngine(BaseEngine):
 
     def can_execute(self, symbol: str, direction: int, price: float) -> bool:
         """Delegate to market-specific engine."""
+        self._last_symbol = symbol
         return self._get_engine(symbol).can_execute(symbol, direction, price)
 
-    def round_size(self, raw_size: float, price: float, symbol: str = "") -> float:
+    def round_size(self, raw_size: float, price: float) -> float:
         """Delegate to market-specific engine."""
-        return self._get_engine(symbol).round_size(raw_size, price)
+        return self._get_engine(self._last_symbol).round_size(raw_size, price)
 
-    def calc_commission(self, size: float, price: float, direction: int, is_open: bool, symbol: str = "") -> float:
+    def calc_commission(self, size: float, price: float, direction: int, is_open: bool) -> float:
         """Delegate to market-specific engine."""
-        return self._get_engine(symbol).calc_commission(size, price, direction, is_open)
+        return self._get_engine(self._last_symbol).calc_commission(size, price, direction, is_open)
 
-    def apply_slippage(self, price: float, direction: int, symbol: str = "") -> float:
+    def apply_slippage(self, price: float, direction: int) -> float:
         """Delegate to market-specific engine."""
-        return self._get_engine(symbol).apply_slippage(price, direction)
+        return self._get_engine(self._last_symbol).apply_slippage(price, direction)
 
 
 # ── Convenience functions ────────────────────────────────────────────────────
