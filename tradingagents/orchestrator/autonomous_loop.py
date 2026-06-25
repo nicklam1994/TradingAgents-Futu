@@ -860,8 +860,28 @@ class AutonomousLoop:
                 task_id, len(profile.rules),
             )
 
-            # Scan today's signals
-            signals = scan_today_signals(profile)
+            # Create Futu fetcher for scan_today_signals
+            # Without a fetcher, _get_price_frame returns None and signals are always empty
+            def _futu_fetcher(symbol, market=None, target_date=None):
+                """Fetch OHLCV bars from FutuOpenD for the shadow scanner."""
+                from datetime import timedelta
+                from tradingagents.data.futu_loader import FutuLoader
+
+                end = target_date or datetime.now().date()
+                if isinstance(end, datetime):
+                    end = end.date()
+                start = end - timedelta(days=30)
+
+                loader = FutuLoader()
+                result = loader.fetch(
+                    [symbol],
+                    start.strftime("%Y-%m-%d"),
+                    end.strftime("%Y-%m-%d"),
+                )
+                return result.get(symbol)
+
+            # Scan today's signals with Futu fetcher
+            signals = scan_today_signals(profile, fetcher=_futu_fetcher)
             if not signals:
                 logger.debug("Task %s: No shadow signals today", task_id)
                 return
