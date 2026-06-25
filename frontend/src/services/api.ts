@@ -113,6 +113,23 @@ class ApiService {
         return response
     }
 
+    async functionCall(message: string): Promise<{ ok: boolean; data?: { response: string; tool_call?: { name: string; args: Record<string, unknown>; result: Record<string, unknown> } | null } }> {
+        const response = await fetch(`${getBaseUrl()}/v1/chat/function-call`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(getAuthToken() ? { Authorization: `Bearer ${getAuthToken()}` } : {}),
+            },
+            body: JSON.stringify({
+                messages: [{ role: 'user', content: message }],
+            }),
+        })
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`)
+        }
+        return response.json()
+    }
+
     // Report API Methods
     async getReports(symbol?: string, skip = 0, limit = 100): Promise<ReportListResponse> {
         const params = new URLSearchParams()

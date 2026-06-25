@@ -133,6 +133,9 @@ function ReportCard({
 export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initialInput }: ChatCopilotPanelProps) {
     const [input, setInput] = useState(initialInput || '')
     const [streaming, setStreaming] = useState(false)
+    const [chatMode, setChatMode] = useState<'command' | 'function'>(() => {
+        return (localStorage.getItem('ta-chat-mode') as 'command' | 'function') || 'command'
+    })
     const [disambiguation, setDisambiguation] = useState<{
         query: string
         candidates: Array<{ code: string; name: string; market: string }>
@@ -628,10 +631,6 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         const prompt = input.trim()
         if (!prompt || streaming) return
 
-        // Inject custom analysis prompt from settings if set
-        const customPrompt = localStorage.getItem('ta-custom-prompt')?.trim() || ''
-        const fullPrompt = customPrompt ? `${prompt}\n\n[分析要求] ${customPrompt}` : prompt
-
         setInput('')
         addChatMessage({
             id: `${Date.now()}-${Math.random()}`,
@@ -639,6 +638,83 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             content: prompt,
             timestamp: new Date().toISOString(),
         })
+
+        // Function Calling 模式
+        if (chatMode === 'function') {
+            setStreaming(true)
+            const typingId = `typing-${Date.now()}`
+            typingIndicatorIdRef.current = typingId
+            addChatMessage({
+                id: typingId,
+                role: 'assistant',
+                content: '__typing__',
+                timestamp: new Date().toISOString(),
+            })
+
+            try {
+                const result = await api.functionCall(prompt)
+                // Remove typing indicator
+                if (typingIndicatorIdRef.current) {
+                    useAnalysisStore.setState(state => ({
+                        chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                    }))
+                    typingIndicatorIdRef.current = null
+                }
+
+                if (result.ok && result.data) {
+                    const { response: reply, tool_call } = result.data
+
+                    // If tool was called and it's analyze, trigger the analysis pipeline
+                    if (tool_call?.name === 'analyze_stock') {
+                        const symbol = tool_call.args.symbol as string
+                        const horizon = (tool_call.args.horizon as string) || 'short'
+                        onSymbolDetected?.(symbol)
+                        // Show LLM response first
+                        addChatMessage({
+                            id: `${Date.now()}-${Math.random()}`,
+                            role: 'assistant',
+                            content: reply,
+                            timestamp: new Date().toISOString(),
+                        })
+                        // Then trigger the full analysis pipeline
+                        setTimeout(() => {
+                            streamChat(`分析 ${symbol} ${horizon === 'short' ? '今日走势' : horizon === 'medium' ? '本周走势' : '本月走势'}`)
+                        }, 500)
+                    } else {
+                        // Normal response (help, quote, or direct answer)
+                        addChatMessage({
+                            id: `${Date.now()}-${Math.random()}`,
+                            role: 'assistant',
+                            content: reply,
+                            timestamp: new Date().toISOString(),
+                        })
+                    }
+                }
+            } catch (error) {
+                // Remove typing indicator
+                if (typingIndicatorIdRef.current) {
+                    useAnalysisStore.setState(state => ({
+                        chatMessages: state.chatMessages.filter(m => m.id !== typingIndicatorIdRef.current)
+                    }))
+                    typingIndicatorIdRef.current = null
+                }
+                const errorMessage = error instanceof Error ? error.message : 'unknown error'
+                addChatMessage({
+                    id: `${Date.now()}-${Math.random()}`,
+                    role: 'assistant',
+                    content: `❌ 请求失败：${errorMessage}`,
+                    timestamp: new Date().toISOString(),
+                })
+            } finally {
+                setStreaming(false)
+            }
+            return
+        }
+
+        // 命令模式 (原有逻辑)
+        // Inject custom analysis prompt from settings if set
+        const customPrompt = localStorage.getItem('ta-custom-prompt')?.trim() || ''
+        const fullPrompt = customPrompt ? `${prompt}\n\n[分析要求] ${customPrompt}` : prompt
 
         reset()
         streamingReportIds.current.clear()
@@ -1015,8 +1091,34 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
             )}
 
             {/* 输入框 */}
-            <form onSubmit={handleSubmit} className="mt-3 shrink-0">
-                <div className="flex items-center gap-2">
+            <div className="mt-3 shrink-0">
+                {/* 对话模式切换 */}
+                <div className="flex items-center justify-between mb-2 px-1">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                            {chatMode === 'command' ? '⚡ 命令模式' : '🧠 对话模式'}
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const next = chatMode === 'command' ? 'function' : 'command'
+                                setChatMode(next)
+                                localStorage.setItem('ta-chat-mode', next)
+                            }}
+                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                                chatMode === 'function' ? 'bg-purple-500' : 'bg-slate-300 dark:bg-slate-600'
+                            }`}
+                        >
+                            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                                chatMode === 'function' ? 'translate-x-4.5' : 'translate-x-0.5'
+                            }`} />
+                        </button>
+                    </div>
+                    <span className="text-[10px] text-slate-400">
+                        {chatMode === 'command' ? '快速命令' : '自然语言'}
+                    </span>
+                </div>
+                <form onSubmit={handleSubmit} className="flex items-center gap-2">
                     <input
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
@@ -1038,8 +1140,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                         <Send className="w-4 h-4" />
                         发送
                     </button>
-                </div>
-            </form>
+                </form>
+            </div>
         </aside>
     )
 }

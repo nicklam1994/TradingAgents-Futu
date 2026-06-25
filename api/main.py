@@ -3693,6 +3693,115 @@ async def chat_completions(
     }
 
 
+# Function Calling Chat Endpoint
+@app.post("/v1/chat/function-call")
+async def chat_function_call(
+    request: Request,
+    current_user: UserDB = Depends(_require_api_user),
+):
+    """LLM Function Calling 模式 — 自然语言对话 + 工具调用"""
+    from api.services.function_calling_service import (
+        FunctionCallingHandler, TOOLS, SYSTEM_PROMPT, HELP_TEXT,
+        create_handler_from_db,
+    )
+
+    body = await request.json()
+    messages = body.get("messages", [])
+    if not messages:
+        return {"ok": False, "error": "No messages provided"}
+
+    handler = create_handler_from_db()
+    if not handler:
+        return {"ok": False, "error": "LLM not configured"}
+
+    # Build message history with system prompt
+    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    full_messages.extend(messages)
+
+    # First call: let LLM decide if it needs to call a tool
+    response = await handler.chat(full_messages, tools=TOOLS)
+    choice = response.choices[0]
+    message = choice.message
+
+    # Check if LLM wants to call a tool
+    if message.tool_calls:
+        tool_call = message.tool_calls[0]
+        func_name = tool_call.function.name
+        func_args = json.loads(tool_call.function.arguments)
+
+        # Execute the tool
+        tool_result = await _execute_tool(func_name, func_args, current_user)
+
+        # Add tool call and result to messages
+        full_messages.append({
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [tc.model_dump() for tc in message.tool_calls]
+        })
+        full_messages.append({
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "content": json.dumps(tool_result, ensure_ascii=False)
+        })
+
+        # Second call: let LLM generate natural language response
+        response2 = await handler.chat(full_messages)
+        final_message = response2.choices[0].message.content or ""
+
+        return {
+            "ok": True,
+            "data": {
+                "response": final_message,
+                "tool_call": {
+                    "name": func_name,
+                    "args": func_args,
+                    "result": tool_result,
+                }
+            }
+        }
+    else:
+        # LLM responded directly without tool call
+        return {
+            "ok": True,
+            "data": {
+                "response": message.content or "",
+                "tool_call": None,
+            }
+        }
+
+
+async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[str, Any]:
+    """Execute a function calling tool and return the result."""
+    if name == "analyze_stock":
+        symbol = args.get("symbol", "")
+        horizon = args.get("horizon", "short")
+        # Trigger analysis via existing pipeline
+        return {
+            "action": "analyze",
+            "symbol": symbol,
+            "horizon": horizon,
+            "message": f"正在启动 {symbol} 的多 Agent 分析，周期: {horizon}...",
+        }
+    elif name == "get_quote":
+        symbol = args.get("symbol", "")
+        # Get quote from stock_resolver + Futu
+        try:
+            from tradingagents.dataflows.stock_resolver import resolve_input
+            resolved = resolve_input(symbol)
+            return {
+                "action": "quote",
+                "symbol": symbol,
+                "resolved": resolved,
+                "message": f"正在查询 {resolved} 的实时行情...",
+            }
+        except Exception as e:
+            return {"action": "error", "message": f"无法解析股票代码: {e}"}
+    elif name == "get_help":
+        return {"action": "help", "message": HELP_TEXT}
+    else:
+        return {"action": "error", "message": f"未知工具: {name}"}
+
+
 # Report API Endpoints
 @app.post("/v1/reports", response_model=ReportResponse)
 def create_report_endpoint(
