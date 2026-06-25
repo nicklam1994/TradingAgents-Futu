@@ -1350,13 +1350,13 @@ def _user_config_overrides(user_id: Optional[str], db: Optional[Session] = None)
 
     def _query(sess: Session) -> Dict[str, Any]:
         user_cfg = auth_service.get_user_llm_config(sess, user_id)
-        # Bot or missing user → fall back to first user with a valid API key
+        # Bot or missing user → fall back to most recently configured user with a valid API key
         if not user_cfg and user_id in ("bot", None):
             from api.database import UserLLMConfigDB
             user_cfg = sess.query(UserLLMConfigDB).filter(
                 UserLLMConfigDB.api_key_encrypted.isnot(None),
                 UserLLMConfigDB.api_key_encrypted != "",
-            ).first()
+            ).order_by(UserLLMConfigDB.updated_at.desc()).first()
         if not user_cfg:
             return {}
         result: Dict[str, Any] = {}
