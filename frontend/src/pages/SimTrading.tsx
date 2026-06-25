@@ -33,6 +33,8 @@ export default function SimTrading() {
     const [accounts, setAccounts] = useState<SimAccount[]>([])
     const [activeMarket, setActiveMarket] = useState<string>('HK')
     const [positions, setPositions] = useState<SimPosition[]>([])
+    const [posSortKey, setPosSortKey] = useState<'name' | 'pnl' | 'pnl_pct' | 'qty' | 'val' | 'today'>('pnl')
+    const [posSortAsc, setPosSortAsc] = useState(false)
     const [orders, setOrders] = useState<SimOrder[]>([])
     const [deals, setDeals] = useState<SimDeal[]>([])
     const [loading, setLoading] = useState(true)
@@ -345,23 +347,42 @@ export default function SimTrading() {
             {/* Positions Table (full width) */}
             <div className="card">
                 <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">当前持仓</h2>
-                {positions.length === 0 ? <EmptyState text="暂无持仓" /> : (
+                {(() => {
+                    const sorted = [...positions].sort((a, b) => {
+                        const dir = posSortAsc ? 1 : -1
+                        switch (posSortKey) {
+                            case 'name': return dir * (a.stock_name || a.code).localeCompare(b.stock_name || b.code, 'zh')
+                            case 'pnl': return dir * (a.unrealized_pnl - b.unrealized_pnl)
+                            case 'pnl_pct': return dir * (a.unrealized_pnl_pct - b.unrealized_pnl_pct)
+                            case 'qty': return dir * (a.qty - b.qty)
+                            case 'val': return dir * (a.market_val - b.market_val)
+                            case 'today': return dir * (a.today_pnl - b.today_pnl)
+                            default: return 0
+                        }
+                    })
+                    const toggleSort = (key: typeof posSortKey) => {
+                        if (posSortKey === key) setPosSortAsc(!posSortAsc)
+                        else { setPosSortKey(key); setPosSortAsc(key === 'name') }
+                    }
+                    const sortIcon = (key: typeof posSortKey) => posSortKey === key ? (posSortAsc ? ' ↑' : ' ↓') : ''
+                    return positions.length === 0 ? <EmptyState text="暂无持仓" /> : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                             <thead>
                                 <tr className="border-b border-slate-200 dark:border-slate-700">
                                     <th className="px-3 py-2 text-center font-medium text-slate-500">市场/状态</th>
-                                    <th className="px-3 py-2 text-left font-medium text-slate-500">股票名称/代码</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓数量</th>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('name')}>股票名称/代码{sortIcon('name')}</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('qty')}>持仓数量{sortIcon('qty')}</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">现价/成本价</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">市值/成本市值</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">持仓盈亏/盈亏%</th>
-                                    <th className="px-3 py-2 text-right font-medium text-slate-500">今日盈亏</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('val')}>市值/成本市值{sortIcon('val')}</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('pnl')}>持仓盈亏{sortIcon('pnl')}</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('pnl_pct')}>盈亏%{sortIcon('pnl_pct')}</th>
+                                    <th className="px-3 py-2 text-right font-medium text-slate-500 cursor-pointer hover:text-slate-700 dark:hover:text-slate-300 select-none" onClick={() => toggleSort('today')}>今日盈亏{sortIcon('today')}</th>
                                     <th className="px-3 py-2 text-right font-medium text-slate-500">持仓%</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {positions.map(p => {
+                                {sorted.map(p => {
                                     const posPct = totalMarketVal > 0 ? (p.market_val / totalMarketVal * 100) : 0
                                     return (
                                         <tr key={p.code} className="border-b border-slate-100 last:border-0 dark:border-slate-800">
@@ -395,7 +416,7 @@ export default function SimTrading() {
                             </tbody>
                         </table>
                     </div>
-                )}
+                )})()}
             </div>
 
             {/* Bottom: Trading Panel + Orders/Deals */}
