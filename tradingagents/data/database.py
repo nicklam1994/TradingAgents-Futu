@@ -52,6 +52,15 @@ _DEFAULT_DB_PATH = _DEFAULT_DB_DIR / "tradingagents.db"
 
 DATABASE_URL = os.getenv("TAF_DATA_DB_URL", f"sqlite:///{_DEFAULT_DB_PATH}")
 
+# Dual-engine architecture:
+# - This module uses one engine for bar_data and data_overview tables
+# - The api.database module uses a separate engine for stock_resolver tables (plates/stocks)
+# - Both can coexist because they serve different purposes:
+#   * bar_data: high-frequency time-series writes (K-line data)
+#   * stock_resolver: low-frequency reference data (stock universe)
+# - WAL mode enables concurrent reads during writes
+# - Each engine manages its own connection pool independently
+
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
@@ -72,10 +81,17 @@ if DATABASE_URL.startswith("sqlite"):
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# Lazy init flag — tables are created on first DB access, not at import time
+_db_initialized = False
+
 
 @contextmanager
 def get_db_session():
     """Context manager for database sessions with auto-commit/rollback."""
+    global _db_initialized
+    if not _db_initialized:
+        init_db()
+        _db_initialized = True
     session = SessionLocal()
     try:
         yield session
@@ -163,6 +179,9 @@ def upsert_bars(
 ) -> int:
     """Insert or update OHLCV bars for a symbol.
 
+    Uses native SQL INSERT OR REPLACE for efficient upserts instead of
+    per-row query + update/insert pattern.
+
     Args:
         symbol: Canonical symbol (e.g. "00700.HK", "AAPL")
         bars: List of dicts with keys: date, open, high, low, close, volume
@@ -177,31 +196,24 @@ def upsert_bars(
 
     count = 0
     with get_db_session() as db:
+        # Use native SQL INSERT OR REPLACE for efficient batch upsert
         for bar in bars:
-            # Upsert: insert or update on conflict
-            existing = db.query(BarDataDB).filter(
-                BarDataDB.symbol == symbol,
-                BarDataDB.date == bar["date"],
-            ).first()
-
-            if existing:
-                existing.open = bar["open"]
-                existing.high = bar["high"]
-                existing.low = bar["low"]
-                existing.close = bar["close"]
-                existing.volume = bar.get("volume", 0.0)
-                existing.turnover = bar.get("turnover", 0.0)
-            else:
-                db.add(BarDataDB(
-                    symbol=symbol,
-                    date=bar["date"],
-                    open=bar["open"],
-                    high=bar["high"],
-                    low=bar["low"],
-                    close=bar["close"],
-                    volume=bar.get("volume", 0.0),
-                    turnover=bar.get("turnover", 0.0),
-                ))
+            db.execute(
+                text("""
+                    INSERT OR REPLACE INTO bar_data (symbol, date, open, high, low, close, volume, turnover)
+                    VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :turnover)
+                """),
+                {
+                    "symbol": symbol,
+                    "date": bar["date"],
+                    "open": bar["open"],
+                    "high": bar["high"],
+                    "low": bar["low"],
+                    "close": bar["close"],
+                    "volume": bar.get("volume", 0.0),
+                    "turnover": bar.get("turnover", 0.0),
+                },
+            )
             count += 1
 
         # Update data overview
@@ -281,6 +293,7 @@ def _update_overview(
     """Update data_overview after upserting bars.
 
     Merges with existing range if overlapping or adjacent.
+    Uses MIN/MAX aggregation instead of COUNT for O(1) performance.
     """
     if not bars:
         return
@@ -300,9 +313,20 @@ def _update_overview(
             existing.start_date = new_start
         if new_end > existing.end_date:
             existing.end_date = new_end
-        existing.bar_count = db.query(BarDataDB).filter(
-            BarDataDB.symbol == symbol,
-        ).count()
+        # Use MIN/MAX aggregation instead of COUNT for O(1) performance
+        result = db.execute(
+            text("SELECT MIN(date), MAX(date) FROM bar_data WHERE symbol = :symbol"),
+            {"symbol": symbol},
+        ).first()
+        if result and result[0] and result[1]:
+            existing.start_date = result[0]
+            existing.end_date = result[1]
+            # Estimate bar_count from date range (trading days ~ 252/year)
+            from datetime import datetime as dt
+            start_dt = dt.strptime(result[0], "%Y-%m-%d")
+            end_dt = dt.strptime(result[1], "%Y-%m-%d")
+            days_diff = (end_dt - start_dt).days
+            existing.bar_count = max(1, int(days_diff * 252 / 365))
         existing.last_updated = datetime.now(timezone.utc)
     else:
         db.add(DataOverview(
@@ -444,5 +468,5 @@ def clear_cache(symbol: Optional[str] = None) -> int:
 
 # ── Auto-init on import ───────────────────────────────────────────────────────
 
-# Create tables on first import (safe: CREATE TABLE IF NOT EXISTS)
-init_db()
+# Tables are created lazily on first DB access (via get_db_session)
+# to avoid import side effects. Call init_db() explicitly if needed.
