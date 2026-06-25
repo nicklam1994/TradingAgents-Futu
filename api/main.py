@@ -3710,8 +3710,12 @@ async def chat_function_call(
     if not messages:
         return {"ok": False, "error": "No messages provided"}
 
+    user_input = messages[-1].get("content", "") if messages else ""
+    _log(f"[FC] User ({current_user.id[:8]}): {user_input[:100]}")
+
     handler = create_handler_from_runtime_config(current_user.id)
     if not handler:
+        _log(f"[FC] ERROR: LLM not configured for user {current_user.id[:8]}")
         return {"ok": False, "error": "LLM not configured"}
 
     # Build message history with system prompt
@@ -3729,8 +3733,12 @@ async def chat_function_call(
         func_name = tool_call.function.name
         func_args = json.loads(tool_call.function.arguments)
 
+        _log(f"[FC] Tool call: {func_name}({json.dumps(func_args, ensure_ascii=False)[:200]})")
+
         # Execute the tool
         tool_result = await _execute_tool(func_name, func_args, current_user)
+
+        _log(f"[FC] Tool result: {json.dumps(tool_result, ensure_ascii=False)[:200]}")
 
         # Add tool call and result to messages
         full_messages.append({
@@ -3748,6 +3756,8 @@ async def chat_function_call(
         response2 = await handler.chat(full_messages)
         final_message = response2.choices[0].message.content or ""
 
+        _log(f"[FC] Response ({len(final_message)} chars): {final_message[:150]}...")
+
         return {
             "ok": True,
             "data": {
@@ -3761,10 +3771,12 @@ async def chat_function_call(
         }
     else:
         # LLM responded directly without tool call
+        direct_reply = message.content or ""
+        _log(f"[FC] Direct reply ({len(direct_reply)} chars): {direct_reply[:150]}...")
         return {
             "ok": True,
             "data": {
-                "response": message.content or "",
+                "response": direct_reply,
                 "tool_call": None,
             }
         }
@@ -5611,6 +5623,57 @@ def clear_portfolio_import_state(
     db: Session = Depends(get_db),
 ):
     portfolio_import_service.clear_imported_portfolio(db, current_user.id)
+
+
+@app.get("/v1/portfolio/risk")
+def get_portfolio_risk(
+    current_user: UserDB = Depends(_require_api_user),
+    db: Session = Depends(get_db),
+):
+    """Generate portfolio risk report from imported positions.
+
+    Returns concentration (HHI), drawdown, VaR, beta, sharpe, and cost basis
+    analysis for the user's current holdings.
+    """
+    from tradingagents.services.portfolio_risk_service import (
+        PositionSnapshot,
+        generate_risk_report,
+    )
+
+    # Load positions from DB (imported portfolio)
+    rows = (
+        db.query(ImportedPortfolioPositionDB)
+        .filter(ImportedPortfolioPositionDB.user_id == current_user.id)
+        .all()
+    )
+
+    if not rows:
+        return generate_risk_report([]).to_dict()
+
+    # Convert DB rows to PositionSnapshot
+    positions = []
+    for row in rows:
+        qty = row.current_position or 0
+        if qty <= 0:
+            continue
+        avg_cost = row.average_cost or 0
+        mv = row.market_value or 0
+        positions.append(PositionSnapshot(
+            symbol=row.symbol,
+            stock_name=row.security_name or "",
+            qty=float(qty),
+            cost_price=float(avg_cost),
+            average_cost=float(avg_cost),
+            market_val=float(mv),
+            nominal_price=float(mv / qty) if qty > 0 else 0.0,
+            pl_ratio=float((mv - qty * avg_cost) / (qty * avg_cost) * 100) if avg_cost > 0 and qty > 0 else 0.0,
+            pl_val=float(mv - qty * avg_cost) if qty > 0 else 0.0,
+            unrealized_pl=float(mv - qty * avg_cost) if qty > 0 else 0.0,
+            currency="",
+        ))
+
+    report = generate_risk_report(positions)
+    return report.to_dict()
 
 
 @app.post("/v1/portfolio/parse-image")
