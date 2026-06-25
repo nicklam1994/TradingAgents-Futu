@@ -125,48 +125,39 @@ async def _concurrency_slot(job_id: str, symbol: str):
 async def _send_scheduled_report_notifications(
     user_id: str, report_id: str, symbol: str
 ) -> None:
-    """Send configured scheduled report notifications (email & WeCom)."""
+    """Send configured scheduled report notifications via unified dispatch."""
     try:
-        from api.services.email_report_service import send_report_email_with_retry
-        from api.services.wecom_notification_service import send_report_message_with_retry
+        from api.services.notification_bridge import dispatch_notification
+        from api.services.notification.notification_builder import NotificationBuilder
 
-        def _load_notification_targets():
-            email_user = None
-            report_to_send = None
-            webhook_url = None
-            wecom_report_enabled = True
-            with get_db_ctx() as db:
-                user = db.query(UserDB).filter(UserDB.id == user_id).first()
-                report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
-                user_cfg = auth_service.get_user_llm_config(db, user_id)
-                webhook_url = auth_service.decrypt_secret(
-                    getattr(user_cfg, "wecom_webhook_encrypted", None)
-                )
-                if report:
-                    db.expunge(report)
-                    report_to_send = report
-                if user:
-                    wecom_report_enabled = getattr(user, "wecom_report_enabled", True)
-                    if getattr(user, "email_report_enabled", True):
-                        db.expunge(user)
-                        email_user = user
-            return email_user, report_to_send, webhook_url, wecom_report_enabled
+        report_to_send = None
+        stock_name = ""
+        with get_db_ctx() as db:
+            report = db.query(ReportDB).filter(ReportDB.id == report_id).first()
+            if report:
+                db.expunge(report)
+                report_to_send = report
 
-        email_user, report_to_send, webhook_url, wecom_report_enabled = (
-            await asyncio.to_thread(_load_notification_targets)
+        if not report_to_send:
+            _log(f"[Scheduler] Report {report_id} not found, skipping notification")
+            return
+
+        # Build message using NotificationBuilder
+        content = NotificationBuilder.build_plain(report_to_send, stock_name=stock_name)
+        title = f"投研报告 — {symbol} ({report_to_send.trade_date or ''})"
+
+        _log(f"[Scheduler] Dispatching notification for {symbol} (user={user_id})")
+        result = await asyncio.to_thread(
+            dispatch_notification,
+            content,
+            title=title,
+            route_type="report",
+            user_id=user_id,
         )
-        if email_user and report_to_send:
-            _log(f"[Scheduler] Sending email report for {symbol} to {email_user.email}")
-            _create_tracked_task(
-                send_report_email_with_retry(email_user, report_to_send),
-                label=f"Email notification task ({symbol})",
-            )
-        if report_to_send and webhook_url and wecom_report_enabled:
-            _log(f"[Scheduler] Sending WeCom report for {symbol}")
-            _create_tracked_task(
-                send_report_message_with_retry(report_to_send, webhook_url),
-                label=f"WeCom notification task ({symbol})",
-            )
+        if result.get("sent"):
+            _log(f"[Scheduler] Notification sent for {symbol} via {result.get('channels', [])}")
+        else:
+            _log(f"[Scheduler] Notification failed for {symbol}: {result.get('message', 'unknown')}")
     except Exception as e:
         logger.warning(f"[Scheduler] Notification send failed for {symbol}: {e}")
 

@@ -1,59 +1,17 @@
-"""Notification subsystem — channels, routing, senders, and deduplication.
+"""Notification subsystem — alert rules, message builder, and workers.
 
-Usage::
+The core notification framework (channels, senders, routing, noise control)
+lives in ``tradingagents.notification``. The API bridge is in
+``api.services.notification_bridge``.
 
-    from api.services.notification import notification_service
-    from api.services.notification.notification_channel import NotificationChannel
-    from api.services.notification.notification_routing import RouteType, load_notification_config
-
-    # Load user config from DB
-    config = load_notification_config(db, user_id)
-
-    # Dispatch a report
-    results = await notification_service.dispatch(
-        report, route_type=RouteType.REPORT.value, user_config=config,
-    )
+This package provides:
+- ``NotificationBuilder`` — renders ReportDB into plain/markdown/HTML text
+- ``AlertService`` / ``AlertWorker`` — alert rule evaluation and dispatch
+- ``markdown_to_image`` — Markdown-to-PNG rendering
 """
 
-from api.services.notification.notification_channel import (
-    NotificationChannel,
-    NotificationSender,
-    NotificationService,
-    NotificationBuilder,
-    notification_service,
-)
-
-from api.services.notification.notification_routing import (
-    RouteType,
-    get_channels_for_route,
-    get_default_routing,
-    load_notification_config,
-    save_notification_config,
-)
-
-from api.services.notification.notification_noise import (
-    should_send,
-    record_sent,
-    cleanup_expired,
-    get_dedup_stats,
-)
+from api.services.notification.notification_builder import NotificationBuilder
 
 __all__ = [
-    # Channel / Sender / Service
-    "NotificationChannel",
-    "NotificationSender",
-    "NotificationService",
     "NotificationBuilder",
-    "notification_service",
-    # Routing
-    "RouteType",
-    "get_channels_for_route",
-    "get_default_routing",
-    "load_notification_config",
-    "save_notification_config",
-    # Noise
-    "should_send",
-    "record_sent",
-    "cleanup_expired",
-    "get_dedup_stats",
 ]

@@ -467,3 +467,80 @@ def get_diagnostics(
         ],
         "text": format_notification_diagnostics(result),
     }
+
+
+# ---------------------------------------------------------------------------
+# Unified dispatch — replaces old email_report_service / wecom_notification_service
+# ---------------------------------------------------------------------------
+
+def _build_notification_service(
+    db_config: Optional[Dict[str, Any]] = None,
+) -> "NotificationService":
+    """Build a NotificationService with all registered senders from config."""
+    from tradingagents.notification.senders import (
+        EmailSender,
+        WechatSender,
+        FeishuSender,
+        TelegramSender,
+        DiscordSender,
+        SlackSender,
+    )
+
+    config = _build_config_from_db_and_env(db_config or {})
+    service = NotificationService(config)
+    for sender_cls in [EmailSender, WechatSender, FeishuSender, TelegramSender, DiscordSender, SlackSender]:
+        try:
+            service.register_sender(sender_cls(config))
+        except Exception as exc:
+            logger.debug("[notification] failed to register %s: %s", sender_cls.__name__, exc)
+    return service
+
+
+def dispatch_notification(
+    content: str,
+    *,
+    title: Optional[str] = None,
+    route_type: str = "report",
+    severity: Optional[str] = None,
+    user_id: Optional[str] = None,
+    skip_noise_check: bool = False,
+) -> Dict[str, Any]:
+    """统一通知调度 — 供 scheduler / alert_worker / 自主任务调用。
+
+    自动从 DB 加载用户通知配置，注册所有 sender，按路由分发。
+
+    Args:
+        content: 消息正文。
+        title: 可选标题。
+        route_type: 路由类型 (report / alert / system_error)。
+        severity: 消息级别 (info / warning / error / critical)。
+        user_id: 用户 ID（用于加载该用户的通知配置）。None 则用默认。
+        skip_noise_check: 跳过噪音控制（测试/紧急场景）。
+
+    Returns:
+        {"sent": bool, "message": str, "channels": [...]}
+    """
+    db_config: Dict[str, Any] = {}
+    if user_id:
+        try:
+            from api.database import get_db_ctx
+            with get_db_ctx() as db:
+                db_config = load_notification_config(db, user_id)
+        except Exception as exc:
+            logger.warning("[notification] failed to load config for user %s: %s", user_id, exc)
+
+    service = _build_notification_service(db_config)
+    result = service.send(
+        content,
+        title=title,
+        route_type=route_type,
+        severity=severity,
+        skip_noise_check=skip_noise_check,
+    )
+
+    ch_names = [cr.channel for cr in (result.channel_results or []) if cr.success]
+    return {
+        "sent": result.success,
+        "message": result.message or result.status,
+        "channels": ch_names,
+    }

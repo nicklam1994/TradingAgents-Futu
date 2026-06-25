@@ -220,15 +220,10 @@ class AlertWorker:
         return result
 
     def _send_notification(self, rule: AlertRule, result: AlertTriggerResult) -> bool:
-        """Send notification for a triggered alert.
-
-        Uses custom notifier if provided, otherwise falls back to
-        WeCom webhook + email via existing services.
-        """
+        """Send notification for a triggered alert via unified dispatch."""
         if self._custom_notifier:
             return self._custom_notifier(result)
 
-        # Build notification content
         title = f"⚠️ 交易预警 | {rule.symbol}"
         content = (
             f"{result.message}\n"
@@ -237,51 +232,24 @@ class AlertWorker:
             f"触发时间: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}"
         )
 
-        sent = False
-
-        # Try WeCom webhook (server-level fallback)
         try:
-            from api.services.wecom_notification_service import send_message
-            import os
-            webhook_url = os.getenv("WECOM_WEBHOOK_URL", "")
-            if webhook_url:
-                ok = send_message(f"{title}\n\n{content}", webhook_url)
-                if ok:
-                    sent = True
-                    logger.info("[AlertWorker] WeCom notification sent for %s", rule.symbol)
-        except Exception as exc:
-            logger.debug("[AlertWorker] WeCom send failed: %s", exc)
-
-        # Try user-specific WeCom webhook
-        if not sent:
-            try:
-                from api.services.auth_service import decrypt_secret
-                from api.database import UserLLMConfigDB, get_db_ctx
-                with get_db_ctx() as db:
-                    user_cfg = db.query(UserLLMConfigDB).filter(
-                        UserLLMConfigDB.user_id == rule.user_id
-                    ).first()
-                    if user_cfg and user_cfg.wecom_webhook_encrypted:
-                        user_webhook = decrypt_secret(user_cfg.wecom_webhook_encrypted)
-                        if user_webhook:
-                            from api.services.wecom_notification_service import send_message
-                            ok = send_message(f"{title}\n\n{content}", user_webhook)
-                            if ok:
-                                sent = True
-                                logger.info(
-                                    "[AlertWorker] User WeCom notification sent for %s",
-                                    rule.symbol,
-                                )
-            except Exception as exc:
-                logger.debug("[AlertWorker] User WeCom send failed: %s", exc)
-
-        if not sent:
-            logger.info(
-                "[AlertWorker] No notification channel available for rule %s (symbol=%s)",
-                rule.id, rule.symbol,
+            from api.services.notification_bridge import dispatch_notification
+            dispatch_result = dispatch_notification(
+                content,
+                title=title,
+                route_type="alert",
+                severity="warning",
+                user_id=str(rule.user_id),
             )
-
-        return sent
+            if dispatch_result.get("sent"):
+                logger.info("[AlertWorker] Alert notification sent for %s via %s", rule.symbol, dispatch_result.get("channels"))
+                return True
+            else:
+                logger.info("[AlertWorker] Alert notification failed for %s: %s", rule.symbol, dispatch_result.get("message"))
+                return False
+        except Exception as exc:
+            logger.warning("[AlertWorker] Notification failed for rule %s: %s", rule.id, exc)
+            return False
 
     # ── Market data fetching ────────────────────────────────────────────
 
