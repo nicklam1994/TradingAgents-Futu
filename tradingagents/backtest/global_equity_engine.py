@@ -32,7 +32,7 @@ class GlobalEquityEngine(BaseEngine):
       - slippage_hk: default 0.001
       - hk_stamp_tax: default 0.001 (0.1% bilateral, post-Nov 2023)
       - hk_commission: default 0.00015 (万1.5)
-      - hk_levy: default 0.0000565 (SFC + FRC)
+      - hk_levy: default 0.0000565 (HKEX trading fee)
       - hk_settlement: default 0.00002 (CCASS)
     """
 
@@ -72,7 +72,7 @@ class GlobalEquityEngine(BaseEngine):
             notional = size * price
             comm = notional * self.hk_commission       # broker commission
             comm += notional * self.hk_stamp_tax       # stamp tax bilateral
-            comm += notional * self.hk_levy            # SFC + FRC levies
+            comm += notional * self.hk_levy            # HKEX trading fee
             comm += notional * self.hk_settlement      # CCASS settlement
             return comm
         # US: zero commission (SEC fee negligible)
