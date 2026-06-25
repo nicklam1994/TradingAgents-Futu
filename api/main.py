@@ -3796,6 +3796,46 @@ async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[s
             }
         except Exception as e:
             return {"action": "error", "message": f"无法解析股票代码: {e}"}
+    elif name == "resolve_stock":
+        query = args.get("query", "")
+        # Search stock database
+        try:
+            from tradingagents.dataflows.stock_resolver import search_by_name, resolve_ticker, to_display
+            # Try direct ticker resolution first
+            entry = resolve_ticker(query)
+            if entry:
+                code = entry.get("code", query)
+                name = entry.get("name", "")
+                market = "HK" if code.endswith(".HK") else "US"
+                return {
+                    "action": "resolve",
+                    "query": query,
+                    "found": True,
+                    "results": [{"code": code, "name": name, "market": market}],
+                    "message": f"找到: {name} ({code}) [{market}]",
+                }
+            # Try name search
+            results = search_by_name(query, limit=5)
+            if results:
+                return {
+                    "action": "resolve",
+                    "query": query,
+                    "found": True,
+                    "results": [
+                        {"code": r.get("code", ""), "name": r.get("name", ""), "market": "HK" if r.get("code", "").endswith(".HK") else "US"}
+                        for r in results
+                    ],
+                    "message": f"找到 {len(results)} 个匹配: " + ", ".join(f"{r.get('name', '')} ({r.get('code', '')})" for r in results),
+                }
+            return {
+                "action": "resolve",
+                "query": query,
+                "found": False,
+                "results": [],
+                "message": f"未找到匹配「{query}」的股票",
+            }
+        except Exception as e:
+            return {"action": "error", "message": f"查询失败: {e}"}
     elif name == "get_help":
         return {"action": "help", "message": HELP_TEXT}
     else:
