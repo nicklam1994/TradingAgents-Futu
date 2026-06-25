@@ -384,8 +384,66 @@ def _init_bot_manager() -> BotManager:
         _log("Telegram bot registered.")
 
     # Create the command handler with disambiguation support
+    async def _bot_function_call_fn(text: str, user_id: str) -> dict:
+        """Wrapper for function calling from bot."""
+        from api.services.function_calling_service import (
+            TOOLS, SYSTEM_PROMPT, HELP_TEXT,
+            create_handler_from_runtime_config,
+        )
+
+        handler = create_handler_from_runtime_config(user_id)
+        if not handler:
+            return {"ok": False, "error": "LLM not configured"}
+
+        full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        full_messages.append({"role": "user", "content": text})
+
+        response = await handler.chat(full_messages, tools=TOOLS)
+        choice = response.choices[0]
+        message = choice.message
+
+        if message.tool_calls:
+            tool_call = message.tool_calls[0]
+            func_name = tool_call.function.name
+            func_args = json.loads(tool_call.function.arguments)
+
+            # Execute tool
+            from api.database import SessionLocal, UserDB
+            db = SessionLocal()
+            try:
+                user = db.query(UserDB).filter(UserDB.id == user_id).first()
+                tool_result = await _execute_tool(func_name, func_args, user)
+            finally:
+                db.close()
+
+            full_messages.append({
+                "role": "assistant", "content": None,
+                "tool_calls": [tc.model_dump() for tc in message.tool_calls]
+            })
+            full_messages.append({
+                "role": "tool", "tool_call_id": tool_call.id,
+                "content": json.dumps(tool_result, ensure_ascii=False)
+            })
+
+            response2 = await handler.chat(full_messages)
+            final_message = response2.choices[0].message.content or ""
+
+            return {
+                "ok": True,
+                "data": {
+                    "response": final_message,
+                    "tool_call": {"name": func_name, "args": func_args, "result": tool_result},
+                }
+            }
+        else:
+            return {
+                "ok": True,
+                "data": {"response": message.content or "", "tool_call": None},
+            }
+
     handler = BotCommandHandler(
         analyze_fn=_bot_analyze_fn_factory(telegram_bot=telegram_bot),
+        function_call_fn=_bot_function_call_fn,
     )
     manager.on_message(handler.handle)
 

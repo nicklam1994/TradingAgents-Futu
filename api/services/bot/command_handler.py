@@ -44,6 +44,8 @@ class BotCommandHandler:
                     Signature: ``async def quote(symbol: str) -> str``
         status_fn:  Optional async callable for system status.
                     Signature: ``async def status() -> str``
+        function_call_fn: Optional async callable for LLM function calling.
+                    Signature: ``async def function_call(message: str, user_id: str) -> dict``
     """
 
     def __init__(
@@ -51,27 +53,59 @@ class BotCommandHandler:
         analyze_fn: Optional[AnalyzeFn] = None,
         quote_fn: Optional[Callable[..., Coroutine[Any, Any, str]]] = None,
         status_fn: Optional[Callable[..., Coroutine[Any, Any, str]]] = None,
+        function_call_fn: Optional[Callable[..., Coroutine[Any, Any, dict]]] = None,
     ) -> None:
         self._analyze_fn = analyze_fn
         self._quote_fn = quote_fn
         self._status_fn = status_fn
+        self._function_call_fn = function_call_fn
         # Simple in-memory rate limiter: user_id -> last_command_timestamp
         self._rate_limit: Dict[str, float] = {}
         self._rate_limit_seconds: float = 10.0  # Minimum seconds between commands per user
+        # Per-user chat mode: 'command' or 'function'
+        self._user_mode: Dict[str, str] = {}
 
     async def handle(self, message: BotMessage) -> Optional[BotResponse]:
         """Main entry point: parse the message and dispatch to the right handler.
 
         Returns a BotResponse to send back, or None to silently ignore.
         """
-        parsed = CommandParser.parse(message.text)
-        if parsed is None:
-            # Not a recognized command; optionally respond with help hint
+        text = message.text.strip()
+
+        # ── Mode switch commands ──────────────────────────────────────────
+        if text in ('/command', '/cmd', '命令模式'):
+            self._user_mode[message.user_id] = 'command'
             return BotResponse(
-                text="未识别的指令。发送「帮助」查看可用命令。",
+                text="⚡ 已切换到命令模式\n\n发送「分析 AAPL」或「行情 00700.HK」快速执行。",
+                chat_id=message.chat_id,
+            )
+        if text in ('/chat', '对话模式'):
+            self._user_mode[message.user_id] = 'function'
+            return BotResponse(
+                text="🧠 已切换到对话模式\n\n用自然语言对话，例如「帮我看看腾讯最近怎么样」。",
                 chat_id=message.chat_id,
             )
 
+        # ── Function calling mode ─────────────────────────────────────────
+        if self._user_mode.get(message.user_id) == 'function' and self._function_call_fn:
+            # Still allow explicit slash commands
+            parsed = CommandParser.parse(text)
+            if parsed and parsed.command in ('help', 'status'):
+                return await self._dispatch_command(message, parsed)
+            # Route to LLM function calling
+            return await self._handle_function_call(message)
+
+        # ── Command mode (default) ────────────────────────────────────────
+        parsed = CommandParser.parse(text)
+        if parsed is None:
+            return BotResponse(
+                text="未识别的指令。发送「帮助」查看可用命令。\n\n💡 发送「对话模式」可切换到自然语言对话。",
+                chat_id=message.chat_id,
+            )
+        return await self._dispatch_command(message, parsed)
+
+    async def _dispatch_command(self, message: BotMessage, parsed) -> BotResponse:
+        """Dispatch a parsed command to the appropriate handler."""
         # Rate limiting
         if not self._check_rate_limit(message.user_id):
             return BotResponse(
@@ -80,7 +114,6 @@ class BotCommandHandler:
             )
 
         command = parsed.command
-
         if command == "analyze":
             return await self._handle_analyze(message, parsed)
         elif command == "quote":
@@ -197,6 +230,41 @@ class BotCommandHandler:
             text=f"✅ TradingAgents Bot 运行中\n⏰ 当前时间: {now}",
             chat_id=message.chat_id,
         )
+
+    # ── Function calling handler ────────────────────────────────────────────
+
+    async def _handle_function_call(self, message: BotMessage) -> BotResponse:
+        """Route message through LLM function calling."""
+        if not self._function_call_fn:
+            return BotResponse(
+                text="⚠️ 对话模式未配置。",
+                chat_id=message.chat_id,
+            )
+
+        try:
+            result = await self._function_call_fn(message.text, message.user_id)
+            if result.get("ok") and result.get("data"):
+                data = result["data"]
+                reply = data.get("response", "")
+                tool_call = data.get("tool_call")
+
+                if tool_call and tool_call.get("name") == "analyze_stock":
+                    # Analysis was triggered — reply includes the acknowledgment
+                    return BotResponse(text=reply, chat_id=message.chat_id)
+                else:
+                    return BotResponse(text=reply, chat_id=message.chat_id)
+            else:
+                error = result.get("error", "未知错误")
+                return BotResponse(
+                    text=f"❌ 对话失败: {error}",
+                    chat_id=message.chat_id,
+                )
+        except Exception as exc:
+            logger.error("[bot] Function call failed: %s", exc, exc_info=True)
+            return BotResponse(
+                text=f"❌ 对话出错: {exc}",
+                chat_id=message.chat_id,
+            )
 
     # ── Rate limiting ────────────────────────────────────────────────────────
 

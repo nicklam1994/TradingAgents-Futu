@@ -570,6 +570,45 @@ export default function NotificationSettings() {
                         </div>
                     </div>
                 )}
+
+                {/* ─── Telegram Bot 对话模式 ─── */}
+                <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 px-4 py-3 dark:border-slate-700/80 dark:bg-slate-900/40">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <div className="text-sm font-medium text-slate-700 dark:text-slate-200">Telegram Bot 对话模式</div>
+                            <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
+                                命令模式：快速指令（分析XXX）<br/>
+                                对话模式：自然语言 + Function Calling
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className={`text-xs ${localStorage.getItem('ta-telegram-chat-mode') === 'function' ? 'text-slate-400' : 'text-blue-600 dark:text-blue-400 font-medium'}`}>
+                                ⚡ 命令
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const current = localStorage.getItem('ta-telegram-chat-mode') || 'command'
+                                    const next = current === 'command' ? 'function' : 'command'
+                                    localStorage.setItem('ta-telegram-chat-mode', next)
+                                    // Force re-render
+                                    setRoutesExpanded(!routesExpanded)
+                                    setTimeout(() => setRoutesExpanded(routesExpanded), 0)
+                                }}
+                                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                                    localStorage.getItem('ta-telegram-chat-mode') === 'function' ? 'bg-purple-500' : 'bg-slate-300 dark:bg-slate-600'
+                                }`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    localStorage.getItem('ta-telegram-chat-mode') === 'function' ? 'translate-x-6' : 'translate-x-1'
+                                }`} />
+                            </button>
+                            <span className={`text-xs ${localStorage.getItem('ta-telegram-chat-mode') === 'function' ? 'text-purple-600 dark:text-purple-400 font-medium' : 'text-slate-400'}`}>
+                                🧠 对话
+                            </span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* ─── Diagnostics ─── */}
