@@ -122,6 +122,7 @@ class BotCommandHandler:
         kwargs: Dict[str, Any] = {}
         horizon = parsed.args.get("horizon", "short")
         kwargs["horizon"] = horizon
+        kwargs["chat_id"] = message.chat_id  # For disambiguation keyboard
 
         try:
             # Run the analysis

@@ -61,6 +61,7 @@ class TelegramBot(BotPlatform):
         # Runtime state
         self._session: Optional[aiohttp.ClientSession] = None
         self._offset: int = 0  # Last processed update_id for getUpdates
+        self._callback_handlers: list = []
 
     @property
     def platform_type(self) -> BotPlatformType:
@@ -177,6 +178,12 @@ class TelegramBot(BotPlatform):
 
     async def _process_update(self, update: Dict[str, Any]) -> None:
         """Process a single Telegram Update object."""
+        # Handle callback query (inline keyboard button press)
+        callback_query = update.get("callback_query")
+        if callback_query:
+            await self._handle_callback_query(callback_query)
+            return
+
         message = update.get("message")
         if not message:
             return
@@ -220,6 +227,101 @@ class TelegramBot(BotPlatform):
         Called from a FastAPI endpoint when Telegram POSTs a message.
         """
         await self._process_update(update)
+
+    # ── Callback query handling (inline keyboard) ─────────────────────────
+
+    async def _handle_callback_query(self, callback_query: Dict[str, Any]) -> None:
+        """Handle inline keyboard button press."""
+        query_id = callback_query.get("id", "")
+        data = callback_query.get("data", "")
+        sender = callback_query.get("from", {})
+        user_id = str(sender.get("id", ""))
+        chat = callback_query.get("message", {}).get("chat", {})
+        chat_id = str(chat.get("id", ""))
+        message_id = str(callback_query.get("message", {}).get("message_id", ""))
+
+        logger.info("[telegram] Callback query: data=%s, user=%s, chat=%s", data, user_id, chat_id)
+
+        # Answer the callback query to remove loading indicator
+        await self._answer_callback_query(query_id)
+
+        # Notify registered callback handlers
+        for handler in self._callback_handlers:
+            try:
+                await handler(data, user_id, chat_id, message_id)
+            except Exception as exc:
+                logger.error("[telegram] Callback handler error: %s", exc)
+
+    async def _answer_callback_query(self, query_id: str, text: str = "") -> None:
+        """Answer a callback query to dismiss the loading indicator."""
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+        payload: Dict[str, Any] = {"callback_query_id": query_id}
+        if text:
+            payload["text"] = text
+        try:
+            async with self._session.post(f"{self._api}/answerCallbackQuery", json=payload) as resp:
+                if resp.status != 200:
+                    logger.warning("[telegram] answerCallbackQuery failed: %s", resp.status)
+        except Exception as exc:
+            logger.warning("[telegram] answerCallbackQuery error: %s", exc)
+
+    def on_callback(self, handler: Any) -> None:
+        """Register a callback query handler.
+
+        handler signature: async def(data: str, user_id: str, chat_id: str, message_id: str) -> None
+        """
+        self._callback_handlers.append(handler)
+
+    # ── Send with inline keyboard ────────────────────────────────────────
+
+    async def send_with_keyboard(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[list[Dict[str, str]]],
+        parse_mode: str = "",
+        reply_to_message_id: str = "",
+    ) -> bool:
+        """Send a message with inline keyboard buttons.
+
+        Args:
+            chat_id: Target chat ID
+            text: Message text
+            buttons: 2D list of button dicts, each with 'text' and 'callback_data'
+            parse_mode: 'Markdown' or 'HTML'
+            reply_to_message_id: Message ID to reply to
+        """
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+
+        payload: Dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": {
+                "inline_keyboard": buttons,
+            },
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_to_message_id:
+            payload["reply_to_message_id"] = reply_to_message_id
+
+        try:
+            async with self._session.post(f"{self._api}/sendMessage", json=payload) as resp:
+                if resp.status == 200:
+                    body = await resp.json()
+                    if body.get("ok"):
+                        logger.info("[telegram] Keyboard message sent to chat %s", chat_id)
+                        return True
+                    logger.warning("[telegram] API error: %s", body.get("description", "unknown"))
+                    return False
+                body_text = await resp.text()
+                logger.warning("[telegram] Send failed (%s): %s", resp.status, body_text[:300])
+                return False
+        except Exception as exc:
+            logger.error("[telegram] Send keyboard error: %s", exc)
+            return False
 
     # ── Send response ────────────────────────────────────────────────────────
 

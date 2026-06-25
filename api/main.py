@@ -208,12 +208,33 @@ async def _run_manual_trigger(
 _bot_manager: Optional[BotManager] = None
 
 
-def _bot_analyze_fn_factory():
+def _bot_analyze_fn_factory(telegram_bot=None):
     """Create the analyze coroutine for the bot command handler.
 
     Returns an async function that triggers a TradingAgents analysis job
-    and waits for the result.
+    and waits for the result. If disambiguation is needed and a telegram_bot
+    is provided, sends inline keyboard candidates and waits for user selection.
     """
+    # Pending disambiguation: job_id -> asyncio.Future (resolves with selected symbol)
+    _pending_disambiguation: Dict[str, asyncio.Future] = {}
+
+    async def _on_callback(data: str, user_id: str, chat_id: str, message_id: str):
+        """Handle inline keyboard callback from Telegram."""
+        if not data.startswith("disambig:"):
+            return
+        # Format: disambig:<job_id>:<symbol>
+        parts = data.split(":", 2)
+        if len(parts) != 3:
+            return
+        _, job_id, symbol = parts
+        future = _pending_disambiguation.get(job_id)
+        if future and not future.done():
+            future.set_result(symbol)
+            logger.info("[BotAnalyze] Disambiguation resolved: job=%s, symbol=%s", job_id, symbol)
+
+    if telegram_bot:
+        telegram_bot.on_callback(_on_callback)
+
     async def _analyze(symbol: str, **kwargs: Any) -> str:
         """Trigger a TradingAgents analysis and return the result text."""
         horizon = kwargs.get("horizon", "short")
@@ -239,16 +260,90 @@ def _bot_analyze_fn_factory():
         store = get_job_store()
         store.create(job_id, {"status": "running", "symbol": symbol, "source": "bot"})
 
-        await _run_job(job_id, req, user_id="bot", request_source="bot")
+        # Start the analysis job (non-blocking)
+        asyncio.create_task(_run_job(job_id, req, user_id="bot", request_source="bot"))
 
-        # Wait for job completion (poll)
-        for _ in range(600):  # 5 minutes max
-            state = store.get(job_id)
-            if state and state.get("status") in ("completed", "failed"):
-                break
-            await asyncio.sleep(0.5)
+        # Subscribe to job events for disambiguation + completion
+        disambiguation_symbol = None
+        try:
+            async for event in store.subscribe(job_id, poll_interval=30):
+                event_type = event.get("event", "")
+                event_data = event.get("data", {})
 
-        state = store.get(job_id) or {}
+                if event_type == "job.disambiguation":
+                    candidates = event_data.get("candidates", [])
+                    query = event_data.get("query", symbol)
+                    if candidates and telegram_bot:
+                        # Send inline keyboard with candidates
+                        buttons = []
+                        for c in candidates:
+                            label = f"{c.get('name', '')} {c.get('code', '')}"
+                            callback_data = f"disambig:{job_id}:{c.get('code', '')}"
+                            buttons.append([{"text": label, "callback_data": callback_data}])
+
+                        chat_id = kwargs.get("chat_id", "")
+                        if chat_id:
+                            await telegram_bot.send_with_keyboard(
+                                chat_id=chat_id,
+                                text=f"🔍 「{query}」有多个候选，请选择：",
+                                buttons=buttons,
+                            )
+                            # Wait for user selection (max 60s)
+                            future: asyncio.Future = asyncio.get_event_loop().create_future()
+                            _pending_disambiguation[job_id] = future
+                            try:
+                                disambiguation_symbol = await asyncio.wait_for(future, timeout=60)
+                                # Re-run analysis with resolved symbol
+                                req2 = AnalyzeRequest(
+                                    symbol=disambiguation_symbol,
+                                    trade_date=trade_date,
+                                    horizons=[horizon],
+                                    query=f"Bot analysis {disambiguation_symbol}",
+                                    resolved_symbol=disambiguation_symbol,
+                                    user_intent={
+                                        "ticker": disambiguation_symbol,
+                                        "horizons": [horizon],
+                                        "focus_areas": [],
+                                        "specific_questions": [],
+                                        "user_context": {},
+                                    },
+                                )
+                                job_id2 = f"bot-{uuid4().hex[:8]}"
+                                store.create(job_id2, {"status": "running", "symbol": disambiguation_symbol, "source": "bot"})
+                                await _run_job(job_id2, req2, user_id="bot", request_source="bot")
+                                # Wait for new job completion
+                                for _ in range(600):
+                                    state = store.get(job_id2)
+                                    if state and state.get("status") in ("completed", "failed"):
+                                        break
+                                    await asyncio.sleep(0.5)
+                                state = store.get(job_id2) or {}
+                                break
+                            except asyncio.TimeoutError:
+                                return "⏰ 等待选择超时，请重新发起分析。"
+                            finally:
+                                _pending_disambiguation.pop(job_id, None)
+                    else:
+                        # No candidates or no telegram bot, just continue
+                        pass
+
+                elif event_type == "job.completed":
+                    state = event_data
+                    break
+                elif event_type == "job.failed":
+                    state = event_data
+                    break
+
+        except Exception as exc:
+            logger.error("[BotAnalyze] Event subscription error: %s", exc)
+            # Fallback to polling
+            for _ in range(600):
+                state = store.get(job_id)
+                if state and state.get("status") in ("completed", "failed"):
+                    break
+                await asyncio.sleep(0.5)
+            state = store.get(job_id) or {}
+
         if state.get("status") == "completed":
             report = state.get("report") or state.get("result", {})
             # Extract the key parts of the analysis
@@ -281,13 +376,20 @@ def _init_bot_manager() -> BotManager:
     """Initialize and configure the bot manager with all enabled platforms."""
     manager = BotManager()
 
-    # Create the command handler
+    # Create Telegram bot first (if configured) so we can pass it to analyze_fn
+    telegram_bot = None
+    if os.getenv("TELEGRAM_BOT_TOKEN"):
+        telegram_bot = TelegramBot()
+        manager.register(telegram_bot)
+        _log("Telegram bot registered.")
+
+    # Create the command handler with disambiguation support
     handler = BotCommandHandler(
-        analyze_fn=_bot_analyze_fn_factory(),
+        analyze_fn=_bot_analyze_fn_factory(telegram_bot=telegram_bot),
     )
     manager.on_message(handler.handle)
 
-    # Register platforms based on available credentials
+    # Register other platforms based on available credentials
     if os.getenv("DINGTALK_APP_KEY") and os.getenv("DINGTALK_APP_SECRET"):
         manager.register(DingTalkBot())
         _log("DingTalk bot registered.")
@@ -299,10 +401,6 @@ def _init_bot_manager() -> BotManager:
     if os.getenv("DISCORD_BOT_TOKEN"):
         manager.register(DiscordBot())
         _log("Discord bot registered.")
-
-    if os.getenv("TELEGRAM_BOT_TOKEN"):
-        manager.register(TelegramBot())
-        _log("Telegram bot registered.")
 
     return manager
 
