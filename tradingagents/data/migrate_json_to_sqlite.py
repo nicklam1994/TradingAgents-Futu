@@ -167,6 +167,13 @@ def verify_migration(json_path: Optional[Path] = None) -> Dict:
             "match": False,
             "error": "api.database not available",
         }
+    except Exception as e:
+        return {
+            "json_count": json_count,
+            "db_count": 0,
+            "match": False,
+            "error": str(e),
+        }
 
 
 def sync_json_from_db() -> int:
