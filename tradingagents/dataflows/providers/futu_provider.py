@@ -297,6 +297,8 @@ class FutuProvider(BaseMarketDataProvider):
         DEPRECATED: Use get_bars() for type-safe BarData objects.
         Kept for backward compatibility with DataCollector._parse_csv_to_dataframe().
         """
+        from tradingagents.models import BarData
+
         bars = self.get_bars(symbol, start_date, end_date, autype)
         if not bars:
             return ""

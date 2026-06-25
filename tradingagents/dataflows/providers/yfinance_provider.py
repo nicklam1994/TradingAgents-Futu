@@ -22,6 +22,9 @@ class YFinanceProvider(BaseMarketDataProvider):
         # yfinance uses .SS for Shanghai and .SZ for Shenzhen.
         if s.endswith(".SH"):
             return s[:-3] + ".SS"
+        # yfinance uses bare ticker for US stocks (SPCX not SPCX.US)
+        if s.endswith(".US"):
+            return s[:-3]
         return s
 
     def get_stock_data(self, symbol: str, start_date: str, end_date: str) -> str:
