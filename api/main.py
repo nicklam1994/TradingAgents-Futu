@@ -395,51 +395,52 @@ def _init_bot_manager() -> BotManager:
         if not handler:
             return {"ok": False, "error": "LLM not configured"}
 
+        from api.database import SessionLocal, UserDB
+
         full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         full_messages.append({"role": "user", "content": text})
+        all_tool_calls = []
 
-        response = await handler.chat(full_messages, tools=TOOLS)
-        choice = response.choices[0]
-        message = choice.message
+        # Tool calling loop — can chain multiple tool calls
+        for _ in range(5):
+            response = await handler.chat(full_messages, tools=TOOLS)
+            choice = response.choices[0]
+            message = choice.message
 
-        if message.tool_calls:
-            tool_call = message.tool_calls[0]
-            func_name = tool_call.function.name
-            func_args = json.loads(tool_call.function.arguments)
+            if not message.tool_calls:
+                break
 
-            # Execute tool
-            from api.database import SessionLocal, UserDB
-            db = SessionLocal()
-            try:
-                user = db.query(UserDB).filter(UserDB.id == user_id).first()
-                tool_result = await _execute_tool(func_name, func_args, user)
-            finally:
-                db.close()
+            for tc in message.tool_calls:
+                func_name = tc.function.name
+                func_args = json.loads(tc.function.arguments)
 
-            full_messages.append({
-                "role": "assistant", "content": None,
-                "tool_calls": [tc.model_dump() for tc in message.tool_calls]
-            })
-            full_messages.append({
-                "role": "tool", "tool_call_id": tool_call.id,
-                "content": json.dumps(tool_result, ensure_ascii=False)
-            })
+                db = SessionLocal()
+                try:
+                    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+                    tool_result = await _execute_tool(func_name, func_args, user)
+                finally:
+                    db.close()
 
-            response2 = await handler.chat(full_messages)
-            final_message = response2.choices[0].message.content or ""
+                all_tool_calls.append({"name": func_name, "args": func_args, "result": tool_result})
 
-            return {
-                "ok": True,
-                "data": {
-                    "response": final_message,
-                    "tool_call": {"name": func_name, "args": func_args, "result": tool_result},
-                }
+                full_messages.append({
+                    "role": "assistant", "content": None,
+                    "tool_calls": [tc.model_dump()],
+                })
+                full_messages.append({
+                    "role": "tool", "tool_call_id": tc.id,
+                    "content": json.dumps(tool_result, ensure_ascii=False),
+                })
+
+        final_message = message.content or ""
+        return {
+            "ok": True,
+            "data": {
+                "response": final_message,
+                "tool_calls": all_tool_calls,
+                "tool_call": all_tool_calls[-1] if all_tool_calls else None,
             }
-        else:
-            return {
-                "ok": True,
-                "data": {"response": message.content or "", "tool_call": None},
-            }
+        }
 
     handler = BotCommandHandler(
         analyze_fn=_bot_analyze_fn_factory(telegram_bot=telegram_bot),
@@ -3785,64 +3786,57 @@ async def chat_function_call(
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     full_messages.extend(messages)
 
-    # First call: let LLM decide if it needs to call a tool
-    response = await handler.chat(full_messages, tools=TOOLS)
-    choice = response.choices[0]
-    message = choice.message
+    # Tool calling loop — LLM can chain multiple tool calls (e.g. resolve_stock → analyze_stock)
+    full_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    full_messages.extend(messages)
+    all_tool_calls = []
 
-    # Check if LLM wants to call a tool
-    if message.tool_calls:
-        tool_call = message.tool_calls[0]
-        func_name = tool_call.function.name
-        func_args = json.loads(tool_call.function.arguments)
+    for _ in range(5):  # max 5 tool call rounds
+        response = await handler.chat(full_messages, tools=TOOLS)
+        choice = response.choices[0]
+        message = choice.message
 
-        _log(f"[FC] Tool call: {func_name}({json.dumps(func_args, ensure_ascii=False)[:200]})")
+        if not message.tool_calls:
+            # LLM responded with text — done
+            break
 
-        # Execute the tool
-        tool_result = await _execute_tool(func_name, func_args, current_user)
+        # Process each tool call in this response
+        for tc in message.tool_calls:
+            func_name = tc.function.name
+            func_args = json.loads(tc.function.arguments)
 
-        _log(f"[FC] Tool result: {json.dumps(tool_result, ensure_ascii=False)[:200]}")
+            _log(f"[FC] Tool call: {func_name}({json.dumps(func_args, ensure_ascii=False)[:200]})")
 
-        # Add tool call and result to messages
-        full_messages.append({
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [tc.model_dump() for tc in message.tool_calls]
-        })
-        full_messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call.id,
-            "content": json.dumps(tool_result, ensure_ascii=False)
-        })
+            tool_result = await _execute_tool(func_name, func_args, current_user)
 
-        # Second call: let LLM generate natural language response
-        response2 = await handler.chat(full_messages)
-        final_message = response2.choices[0].message.content or ""
+            _log(f"[FC] Tool result: {json.dumps(tool_result, ensure_ascii=False)[:200]}")
 
-        _log(f"[FC] Response ({len(final_message)} chars): {final_message[:150]}...")
+            all_tool_calls.append({"name": func_name, "args": func_args, "result": tool_result})
 
-        return {
-            "ok": True,
-            "data": {
-                "response": final_message,
-                "tool_call": {
-                    "name": func_name,
-                    "args": func_args,
-                    "result": tool_result,
-                }
-            }
+            # Add to message history
+            full_messages.append({
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [tc.model_dump()],
+            })
+            full_messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(tool_result, ensure_ascii=False),
+            })
+
+    # Final response from LLM
+    final_message = message.content or ""
+    _log(f"[FC] Response ({len(final_message)} chars): {final_message[:150]}...")
+
+    return {
+        "ok": True,
+        "data": {
+            "response": final_message,
+            "tool_calls": all_tool_calls,
+            "tool_call": all_tool_calls[-1] if all_tool_calls else None,
         }
-    else:
-        # LLM responded directly without tool call
-        direct_reply = message.content or ""
-        _log(f"[FC] Direct reply ({len(direct_reply)} chars): {direct_reply[:150]}...")
-        return {
-            "ok": True,
-            "data": {
-                "response": direct_reply,
-                "tool_call": None,
-            }
-        }
+    }
 
 
 async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[str, Any]:
