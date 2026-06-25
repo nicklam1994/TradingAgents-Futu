@@ -776,8 +776,8 @@ class AutonomousLoop:
                 "symbol": decision.get("symbol", ""),
                 "side": decision.get("action", "buy"),
                 "price": result.price if hasattr(result, "price") else 0,
-                "quantity": result.quantity if hasattr(result, "quantity") else 0,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "qty": result.quantity if hasattr(result, "quantity") else 0,
+                "datetime": datetime.now(timezone.utc).isoformat(),
                 "strategy": self._strategy_params.get("display_name", "") if self._strategy_params else "",
                 "reasoning": decision.get("reasoning", ""),
             }
@@ -830,11 +830,18 @@ class AutonomousLoop:
                 )
                 return
 
+            # Normalize column names for backward compatibility with old checkpoints
+            for trade in shadow_trades:
+                if "timestamp" in trade and "datetime" not in trade:
+                    trade["datetime"] = trade.pop("timestamp")
+                if "quantity" in trade and "qty" not in trade:
+                    trade["qty"] = trade.pop("quantity")
+
             # Convert to DataFrame for profile extraction
             trades_df = pd.DataFrame(shadow_trades)
 
             # Ensure required columns exist
-            required_cols = {"symbol", "side", "price", "timestamp"}
+            required_cols = {"symbol", "side", "price", "datetime"}
             if not required_cols.issubset(set(trades_df.columns)):
                 logger.debug(
                     "Task %s: Shadow trades missing columns: %s",
