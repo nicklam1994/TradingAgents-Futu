@@ -313,6 +313,13 @@ export default function Settings() {
             setFutuPort(data.port || 11111)
             setFutuEncrypt(data.host !== '127.0.0.1' && data.host !== 'localhost')
         } catch {}
+        // Auto-test connection on page load
+        try {
+            const status = await api.get<typeof futuStatus>('/v1/futu/status')
+            setFutuStatus(status)
+        } catch (e: any) {
+            setFutuStatus({ connected: false, error: e?.message || '连接失败' })
+        }
     }
 
     async function saveFutuConfig() {
