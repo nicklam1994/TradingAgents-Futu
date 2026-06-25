@@ -76,8 +76,6 @@ export default function Settings() {
     const [saveAllSaving, setSaveAllSaving] = useState(false)
     const [saveAllSaved, setSaveAllSaved] = useState(false)
     const [warmingUp, setWarmingUp] = useState(false)
-    const [saved, setSaved] = useState(false)
-    const [saveMessage, setSaveMessage] = useState('设置已保存')
     const [configError, setConfigError] = useState<string | null>(null)
     const [warmupResults, setWarmupResults] = useState<RuntimeWarmupResult[]>([])
     const [warmupError, setWarmupError] = useState<string | null>(null)
@@ -398,22 +396,16 @@ export default function Settings() {
         default_analysts: defaultAnalysts,
     })
 
-    const showSavedMessage = (message: string) => {
-        setSaveMessage(message)
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
-    }
-
-    const submitConfig = async (options?: { forceWarmup?: boolean; successMessage?: string }) => {
+    const submitConfig = async (options?: { forceWarmup?: boolean }) => {
         persistLocalSettings()
-        const { forceWarmup = false, successMessage = '设置已保存' } = options || {}
+        const { forceWarmup = false } = options || {}
         const response = await api.updateConfig({
             ...buildRuntimeConfigPayload(),
             warmup: true,
             force_warmup: forceWarmup,
         })
         setHasStoredApiKey(!!response.has_api_key)
-        showSavedMessage(response.warmup?.message || successMessage)
+
         return response
     }
 
@@ -447,7 +439,7 @@ export default function Settings() {
         setSaveAllSaving(true)
         try {
             saveProviderConfig()
-            await submitConfig({ successMessage: '全部设置已保存' })
+            await submitConfig()
             setSaveAllSaved(true)
             setTimeout(() => setSaveAllSaved(false), 3000)
         } catch (err) {
@@ -480,8 +472,6 @@ export default function Settings() {
             const response = await api.updateConfig({ clear_api_key: true })
             setHasStoredApiKey(!!response.has_api_key)
             setLlmApiKey('')
-            setSaved(true)
-            setTimeout(() => setSaved(false), 2000)
         } catch (err) {
             alert(err instanceof Error ? err.message : '清除密钥失败')
         } finally {
@@ -1311,13 +1301,8 @@ export default function Settings() {
             {/* ─── Phase 11: 通知系统 ─── */}
             <NotificationSettings />
 
-            <div className="flex items-center gap-4">
-                <button onClick={handleSaveAll} disabled={saveAllSaving} className="btn-primary inline-flex items-center gap-2">
-                    {saveAllSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    保存全部
-                </button>
-                {saved && <span className="text-sm text-green-600 dark:text-green-400">✓ {saveMessage}</span>}
-            </div>
+
+
         </div>
     )
 }
