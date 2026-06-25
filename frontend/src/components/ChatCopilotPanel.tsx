@@ -680,6 +680,8 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                             timestamp: new Date().toISOString(),
                         })
                         // Then trigger the full analysis pipeline
+                        setIsAnalyzing(true)
+                        setAnalysisRunState('running')
                         setTimeout(() => {
                             streamChat(`分析 ${symbol} ${horizon === 'short' ? '今日走势' : horizon === 'medium' ? '本周走势' : '本月走势'}`)
                         }, 500)
