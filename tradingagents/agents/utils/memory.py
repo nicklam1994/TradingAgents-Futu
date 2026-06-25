@@ -9,10 +9,12 @@ Each add_memory() call auto-saves to disk, so a crash never loses data.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import logging
 import os
 import re
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -182,17 +184,29 @@ class FinancialSituationMemory:
         """Persist current state to the JSON file.
 
         Creates the parent directory if it doesn't exist. Uses an atomic
-        write (write-to-temp + rename) to avoid corruption on crash.
+        write (write-to-temp + fsync + rename) to avoid corruption on crash.
+        Uses a unique temp file name via tempfile.mkstemp() and an exclusive
+        file lock (fcntl.flock) to prevent concurrent write collisions.
         """
         self._persist_dir.mkdir(parents=True, exist_ok=True)
 
         payload = _serialize_memories(
             self.documents, self.recommendations, self.calibrations
         )
-        tmp_path = self._file_path.with_suffix(".json.tmp")
+
+        # Use mkstemp for a unique temp file name to avoid concurrent collisions
+        fd, tmp_path_str = tempfile.mkstemp(
+            suffix=".json.tmp",
+            dir=str(self._persist_dir),
+        )
+        tmp_path = Path(tmp_path_str)
         try:
-            with open(tmp_path, "w", encoding="utf-8") as f:
+            # Acquire exclusive lock to prevent concurrent writes
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
             # Atomic rename (POSIX guarantees this is atomic on same filesystem)
             os.replace(str(tmp_path), str(self._file_path))
             logger.debug("Saved memory '%s' (%d entries) to %s", self.name, len(self.documents), self._file_path)
