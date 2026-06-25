@@ -1,9 +1,17 @@
 """Multi-engine backtest for TradingAgents-Futu.
 
-Based on Vibe-Trading agent/backtest/engines/global_equity.py.
-Supports HK and US market-specific rules (commission, stamp tax, lot size, slippage).
-
 Phase 13.4: Multi-engine backtest — 佣金/印花税/滑点
+Phase 13.5: Refactored to use enhanced BaseEngine + GlobalEquityEngine from new modules.
+
+This module provides the API-facing adapter layer:
+  - Simple BaseEngine (4 abstract methods, no execution loop) for lightweight use
+  - CompositeEngine for auto-routing by symbol prefix (HK./US.)
+  - create_engine() factory with auto-detection
+  - get_commission_rate() convenience function
+
+For the full bar-by-bar execution loop, use:
+  - tradingagents.backtest.base_engine.BaseEngine
+  - tradingagents.backtest.global_equity_engine.GlobalEquityEngine
 """
 from __future__ import annotations
 
@@ -14,11 +22,17 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+# ── Simple BaseEngine (API-facing, no execution loop) ────────────────────────
+
 class BaseEngine(ABC):
     """Base class for market-specific backtest engines.
 
     Subclasses must implement the 4 abstract methods that define
-    market-specific trading rules.
+    market-specific trading rules. This is the lightweight interface
+    used by the API layer (strategy_analytics_service.py).
+
+    For the full bar-by-bar execution loop with signal alignment,
+    use tradingagents.backtest.base_engine.BaseEngine instead.
     """
 
     def __init__(self, config: dict):
@@ -79,6 +93,8 @@ class BaseEngine(ABC):
         """
         ...
 
+
+# ── GlobalEquityEngine (delegates to new module for market rules) ────────────
 
 class GlobalEquityEngine(BaseEngine):
     """US / HK equity engine, selected by market parameter.
@@ -187,6 +203,21 @@ class CompositeEngine(BaseEngine):
 
 
 # ── Convenience functions ────────────────────────────────────────────────────
+
+def _detect_market(symbol: str) -> str:
+    """Auto-detect market from symbol prefix.
+
+    Args:
+        symbol: Stock symbol (e.g. 'HK.00700', 'US.AAPL', 'AAPL').
+
+    Returns:
+        'hk' or 'us'.
+    """
+    symbol = symbol.upper().strip()
+    if symbol.startswith("HK."):
+        return "hk"
+    return "us"  # default to US
+
 
 def create_engine(market: str, config: Optional[dict] = None) -> BaseEngine:
     """Create a backtest engine for a specific market.
