@@ -993,6 +993,7 @@ export interface DebateMessage {
 export interface NotificationChannelKeyStatus {
     configured: boolean
     display: string | null
+    value?: string
 }
 
 export interface NotificationChannelInfo {

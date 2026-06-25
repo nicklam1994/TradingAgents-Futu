@@ -279,7 +279,7 @@ def get_notification_config_response(
         ch_cfg = db_config.get("channels", {}).get(channel_name, {})
         is_enabled = ch_cfg.get("enabled", channel_name in detected_names)
 
-        # 构建返回的 key 状态（不暴露实际值）
+        # 构建返回的 key 状态（返回实际值供编辑表单预填）
         # 也用短 key 映射表查找 DB 值
         short_map = _CHANNEL_SHORT_KEY_MAP.get(channel_name, {})
         reverse_short_map = {v: k for k, v in short_map.items()}  # telegram_bot_token -> bot_token
@@ -292,10 +292,14 @@ def get_notification_config_response(
                 short_key = reverse_short_map.get(lower_key)
                 if short_key:
                     db_val = ch_cfg.get(short_key)
-            has_val = bool(db_val) or bool(os.environ.get(key))
+            # 环境变量兜底
+            env_val = os.environ.get(key) if not db_val else None
+            actual_val = db_val or env_val or ""
+            has_val = bool(actual_val)
             key_status[lower_key] = {
                 "configured": has_val,
                 "display": "***" if has_val else None,
+                "value": actual_val,
             }
         for key in _CHANNEL_ADVANCED_KEYS.get(channel_name, []):
             lower_key = key.lower()
@@ -304,10 +308,13 @@ def get_notification_config_response(
                 short_key = reverse_short_map.get(lower_key)
                 if short_key:
                     db_val = ch_cfg.get(short_key)
-            has_val = bool(db_val) or bool(os.environ.get(key))
+            env_val = os.environ.get(key) if not db_val else None
+            actual_val = db_val or env_val or ""
+            has_val = bool(actual_val)
             key_status[lower_key] = {
                 "configured": has_val,
                 "display": "***" if has_val else None,
+                "value": actual_val,
             }
 
         channels[channel_name] = {

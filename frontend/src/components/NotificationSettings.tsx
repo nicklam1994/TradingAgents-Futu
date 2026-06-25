@@ -182,8 +182,18 @@ export default function NotificationSettings() {
 
     const handleEditChannel = (channel: string) => {
         setEditingChannel(channel)
-        setChannelForm({})
         setTestResult(null)
+        // Pre-fill form with saved values
+        if (config?.channels[channel]) {
+            const keys = config.channels[channel].keys
+            const prefill: Record<string, string> = {}
+            for (const [key, status] of Object.entries(keys)) {
+                if (status.value) prefill[key] = status.value
+            }
+            setChannelForm(prefill)
+        } else {
+            setChannelForm({})
+        }
     }
 
     const handleSaveChannel = async () => {
