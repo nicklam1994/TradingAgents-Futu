@@ -64,6 +64,19 @@ _LOWER_IS_BETTER = {
     "max_drawdown",
 }
 
+# Mapping from optimisation target name → key in calc_metrics output.
+# Avoids fragile string replacement (previously target.replace("sharpe_ratio","sharpe")).
+_TARGET_TO_METRIC_KEY: Dict[str, str] = {
+    "sharpe_ratio": "sharpe",
+    "max_drawdown": "max_drawdown",
+    "win_rate": "win_rate",
+    "total_return": "total_return",
+    "annual_return": "annual_return",
+    "calmar": "calmar",
+    "sortino": "sortino",
+    "profit_factor": "profit_factor",
+}
+
 
 # ── Data models ─────────────────────────────────────────────────────────────
 
@@ -231,15 +244,25 @@ def _evaluate_params(
     """Run one backtest with the given parameters and return (params, target_value, metrics).
 
     This is a module-level function so it can be pickled for multiprocessing.
+    Returns (params, -inf, {}) on any exception so that the optimisation loop
+    can continue without crashing the entire run.
     """
-    config = {**base_config, **params}
-    engine = engine_factory(config)
-    signal_map = signal_fn(params, data_map)
-    metrics = engine.run(config, data_map, signal_map, bars_per_year=bars_per_year)
+    try:
+        config = {**base_config, **params}
+        engine = engine_factory(config)
+        signal_map = signal_fn(params, data_map)
+        metrics = engine.run(config, data_map, signal_map, bars_per_year=bars_per_year)
 
-    target_key = target.replace("sharpe_ratio", "sharpe")
-    target_value = float(metrics.get(target_key, 0.0))
-    return params, target_value, metrics
+        # Use dict mapping instead of fragile string replacement
+        target_key = _TARGET_TO_METRIC_KEY.get(target, target)
+        target_value = float(metrics.get(target_key, 0.0))
+        return params, target_value, metrics
+    except Exception as e:
+        logger.warning(
+            "Evaluation failed for params=%s, target=%s: %s",
+            params, target, e,
+        )
+        return params, float("-inf"), {}
 
 
 # ── Brute-force optimisation ────────────────────────────────────────────────
@@ -369,6 +392,7 @@ def run_ga_optimization(
     n_generations: int = 50,
     crossover_rate: float = 0.8,
     mutation_rate: float = 0.1,
+    elitism_count: Optional[int] = None,
     seed: Optional[int] = None,
     progress_callback: Optional[Callable[[int, int, float], None]] = None,
 ) -> List[OptimizationResult]:
@@ -387,6 +411,8 @@ def run_ga_optimization(
         n_generations: Number of generations to evolve.
         crossover_rate: Probability of crossover (vs cloning parent).
         mutation_rate: Probability of mutating each gene.
+        elitism_count: Number of top individuals carried forward unchanged.
+                       None = use default (2).
         seed: Random seed for reproducibility.
         progress_callback: Optional ``(generation, n_generations, best_fitness)`` callback.
 
@@ -395,6 +421,12 @@ def run_ga_optimization(
     """
     if base_config is None:
         base_config = {}
+
+    # Resolve elitism_count: explicit parameter > default
+    effective_elitism = (
+        elitism_count if elitism_count is not None
+        else _GA_DEFAULTS["elitism_count"]
+    )
 
     if not setting.parameters:
         # No parameters to optimise — just run once
@@ -442,7 +474,7 @@ def run_ga_optimization(
             key=lambda i: i.fitness,
             reverse=is_higher_better,
         )
-        for i in range(min(_GA_DEFAULTS["elitism_count"], len(sorted_pop))):
+        for i in range(min(effective_elitism, len(sorted_pop))):
             elite = _GAIndividual(
                 genes=dict(sorted_pop[i].genes),
                 fitness=sorted_pop[i].fitness,
