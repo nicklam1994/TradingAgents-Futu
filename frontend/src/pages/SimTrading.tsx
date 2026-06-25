@@ -243,10 +243,10 @@ export default function SimTrading() {
         setOrderQty(String(o.qty ?? ''))
         setModifyOrderId(o.order_id)
         setOrderMsg(null)
-        // Subscribe to this stock + all positions
+        // Subscribe to this stock + all positions (replace previous extra)
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             const symbols = new Set([o.code, ...positions.map(p => p.code)])
-            wsRef.current.send(JSON.stringify({ type: 'subscribe', source: 'sim', symbols: Array.from(symbols) }))
+            wsRef.current.send(JSON.stringify({ type: 'replace', symbols: Array.from(symbols) }))
         }
         setQuote({ price: 0, change: 0, change_pct: 0, open: 0, high: 0, low: 0, volume: 0, name: o.stock_name || o.code })
         // Fetch quote via HTTP API
