@@ -71,17 +71,21 @@ class ParsedCommand:
 
 # Patterns for common commands across all platforms.
 # Each pattern maps to (command_name, symbol_group_index).
+# Symbol can be: English ticker (AAPL), code (00700.HK), or Chinese name (腾讯)
+_SYMBOL = r"[A-Za-z0-9.\u4e00-\u9fff\uff00-\uffef]+"
 _COMMAND_PATTERNS: List[tuple[re.Pattern, str, int]] = [
-    # "分析 AAPL" / "分析AAPL" / "分析 00700.HK"
-    (re.compile(r"^(?:分析|analyze|ana)\s+([A-Za-z0-9.]+)$", re.IGNORECASE), "analyze", 1),
+    # "分析 AAPL" / "分析AAPL" / "分析腾讯" / "分析 00700.HK" / "分析 腾讯 今日走势"
+    (re.compile(rf"^(?:分析|analyze|ana)\s+({_SYMBOL})(?:\s+.*)?$", re.IGNORECASE), "analyze", 1),
+    # "分析腾讯今日走势" (no space, Chinese command + Chinese symbol)
+    (re.compile(rf"^分析({_SYMBOL})(.*)?$", re.IGNORECASE), "analyze", 1),
     # "/analyze AAPL" (slash command)
-    (re.compile(r"^/analyze\s+([A-Za-z0-9.]+)$", re.IGNORECASE), "analyze", 1),
+    (re.compile(rf"^/analyze\s+({_SYMBOL})(?:\s+.*)?$", re.IGNORECASE), "analyze", 1),
     # "/analyze AAPL short" with horizon
-    (re.compile(r"^/analyze\s+([A-Za-z0-9.]+)\s+(short|medium|long)$", re.IGNORECASE), "analyze_with_horizon", 1),
-    # "行情 AAPL" / "quote AAPL"
-    (re.compile(r"^(?:行情|quote|q)\s+([A-Za-z0-9.]+)$", re.IGNORECASE), "quote", 1),
+    (re.compile(rf"^/analyze\s+({_SYMBOL})\s+(short|medium|long)$", re.IGNORECASE), "analyze_with_horizon", 1),
+    # "行情 AAPL" / "quote AAPL" / "行情腾讯"
+    (re.compile(rf"^(?:行情|quote|q)\s+({_SYMBOL})(?:\s+.*)?$", re.IGNORECASE), "quote", 1),
     # "/quote AAPL"
-    (re.compile(r"^/quote\s+([A-Za-z0-9.]+)$", re.IGNORECASE), "quote", 1),
+    (re.compile(rf"^/quote\s+({_SYMBOL})(?:\s+.*)?$", re.IGNORECASE), "quote", 1),
     # "/help" or "帮助"
     (re.compile(r"^/(?:help|帮助)$", re.IGNORECASE), "help", 0),
     (re.compile(r"^帮助$", re.IGNORECASE), "help", 0),
