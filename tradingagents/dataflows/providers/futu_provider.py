@@ -21,16 +21,16 @@ logger = logging.getLogger(__name__)
 # ── Request Cache for get_panel_data() ──
 
 class _PanelCache:
-    """In-memory cache for get_panel_data() with trading-day TTL.
+    """In-memory cache for get_panel_data() with calendar-day TTL.
 
     Cache key: (frozenset(symbols), start_date, end_date, autype)
-    Cache validity: same trading day (expires at market close ~16:00 ET / 16:00 HK)
+    Cache validity: same calendar day (does not expire on weekends/holidays)
     This avoids redundant API calls when multiple strategies request the same data.
     """
 
-    def __init__(self):
+    def __init__(self, maxsize: int = 128):
         self._cache: Dict[tuple, tuple] = {}  # key -> (panel_dict, cache_date)
-        self._today: Optional[date_type] = None
+        self._maxsize = maxsize
 
     def _get_cache_date(self) -> date_type:
         """Get current date in trading timezone (simplified: use local date)."""
@@ -59,7 +59,13 @@ class _PanelCache:
             autype: Optional[str], panel: Dict[str, pd.DataFrame]) -> None:
         """Store panel data in cache."""
         key = (frozenset(symbols), start_date, end_date, autype)
-        self._cache[key] = (panel, self._get_cache_date())
+        # Evict oldest entry if at capacity (FIFO)
+        if len(self._cache) >= self._maxsize and key not in self._cache:
+            oldest_key = next(iter(self._cache))
+            del self._cache[oldest_key]
+            logger.debug("Panel cache evicted oldest entry (at maxsize=%d)", self._maxsize)
+        # Deep copy DataFrames to prevent cache pollution from external mutations
+        self._cache[key] = ({k: v.copy() for k, v in panel.items()}, self._get_cache_date())
         logger.debug("Panel cache stored for %s", symbols)
 
     def clear(self) -> None:
