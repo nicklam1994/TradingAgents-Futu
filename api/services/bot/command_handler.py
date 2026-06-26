@@ -54,11 +54,13 @@ class BotCommandHandler:
         quote_fn: Optional[Callable[..., Coroutine[Any, Any, str]]] = None,
         status_fn: Optional[Callable[..., Coroutine[Any, Any, str]]] = None,
         function_call_fn: Optional[Callable[..., Coroutine[Any, Any, dict]]] = None,
+        bot: Any = None,
     ) -> None:
         self._analyze_fn = analyze_fn
         self._quote_fn = quote_fn
         self._status_fn = status_fn
         self._function_call_fn = function_call_fn
+        self._bot = bot  # Bot instance for sending multi-message responses
         # Simple in-memory rate limiter: user_id -> last_command_timestamp
         self._rate_limit: Dict[str, float] = {}
         self._rate_limit_seconds: float = 10.0  # Minimum seconds between commands per user
@@ -131,7 +133,7 @@ class BotCommandHandler:
 
     # ── Command handlers ─────────────────────────────────────────────────────
 
-    async def _handle_analyze(self, message: BotMessage, parsed: ParsedCommand) -> BotResponse:
+    async def _handle_analyze(self, message: BotMessage, parsed: ParsedCommand) -> Optional[BotResponse]:
         """Trigger a TradingAgents analysis for the given symbol."""
         symbol = parsed.symbol
         if not symbol:
@@ -162,15 +164,25 @@ class BotCommandHandler:
             # Run the analysis
             result_text = await self._analyze_fn(symbol, **kwargs)
 
-            # Truncate if too long (Telegram limit is 4096, Discord 2000)
-            max_len = 3500
-            if len(result_text) > max_len:
-                result_text = result_text[:max_len] + "\n\n... (结果已截断，请查看完整报告)"
-
-            return BotResponse(
-                text=f"📊 {symbol} 分析结果:\n\n{result_text}",
-                chat_id=message.chat_id,
-            )
+            # Use renderer to split into chunks and send directly
+            if result_text and self._bot:
+                from api.services.bot.telegram_report_renderer import render_report
+                chunks = render_report(result_text)
+                for chunk in chunks:
+                    await self._bot._send_response(BotResponse(
+                        text=chunk,
+                        chat_id=message.chat_id,
+                    ))
+                return None  # Already sent, no need to return response
+            elif result_text:
+                # Fallback: no bot instance, truncate
+                max_len = 3500
+                if len(result_text) > max_len:
+                    result_text = result_text[:max_len] + "\n\n... (结果已截断，请查看完整报告)"
+                return BotResponse(
+                    text=f"📊 {symbol} 分析结果:\n\n{result_text}",
+                    chat_id=message.chat_id,
+                )
         except Exception as exc:
             logger.error("[bot] Analysis failed for %s: %s", symbol, exc, exc_info=True)
             return BotResponse(
@@ -234,7 +246,7 @@ class BotCommandHandler:
 
     # ── Function calling handler ────────────────────────────────────────────
 
-    async def _handle_function_call(self, message: BotMessage) -> BotResponse:
+    async def _handle_function_call(self, message: BotMessage) -> Optional[BotResponse]:
         """Route message through LLM function calling."""
         if not self._function_call_fn:
             return BotResponse(
@@ -252,9 +264,16 @@ class BotCommandHandler:
                 reply = data.get("response", "")
                 tool_call = data.get("tool_call")
 
-                if tool_call and tool_call.get("name") == "analyze_stock":
-                    # Analysis was triggered — reply includes the acknowledgment
-                    return BotResponse(text=reply, chat_id=message.chat_id)
+                # Use renderer for long responses (analysis reports)
+                if reply and len(reply) > 3500 and self._bot:
+                    from api.services.bot.telegram_report_renderer import render_report
+                    chunks = render_report(reply)
+                    for chunk in chunks:
+                        await self._bot._send_response(BotResponse(
+                            text=chunk,
+                            chat_id=message.chat_id,
+                        ))
+                    return None
                 else:
                     return BotResponse(text=reply, chat_id=message.chat_id)
             else:

@@ -568,6 +568,7 @@ def _init_bot_manager() -> BotManager:
     handler = BotCommandHandler(
         analyze_fn=_bot_analyze_fn,
         function_call_fn=_bot_function_call_fn,
+        bot=telegram_bot,
     )
     manager.on_message(handler.handle)
 
