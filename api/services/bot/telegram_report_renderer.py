@@ -1,11 +1,10 @@
 """
-Telegram Report Renderer v3
+Telegram Report Renderer v4
 ============================
-Uses telegramify-markdown's async `telegramify()` API.
-Returns plain text + entity dicts — no parse_mode needed, avoids all escaping issues.
+Uses telegramify-markdown's synchronous `convert()` API.
+Returns plain text + entity dicts — no parse_mode needed, no async issues.
 """
 
-import asyncio
 import logging
 from typing import List, Tuple
 
@@ -14,54 +13,83 @@ logger = logging.getLogger(__name__)
 MAX_LEN = 4096
 
 
-def _run_async(coro):
-    """Run an async coroutine, handling both running and non-running event loops."""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-
-    if loop and loop.is_running():
-        # Already in an async context (e.g. FastAPI) — use nest_asyncio
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(asyncio.run, coro)
-            return future.result(timeout=60)
-    else:
-        return asyncio.run(coro)
-
-
 def render_report(markdown_text: str) -> List[Tuple[str, list]]:
     """Convert Markdown to list of (text, entities) tuples.
 
-    Uses telegramify() async API. Each returned item is (plain_text, entity_dicts).
+    Uses convert() synchronous API. Each returned item is (plain_text, entity_dicts).
     Callers send with BotResponse(text=..., entities=...).
     """
     try:
-        from telegramify_markdown import telegramify, Text
+        from telegramify_markdown.converter import convert
 
-        segments = _run_async(
-            telegramify(markdown_text, max_message_length=MAX_LEN, render_mermaid=False)
-        )
+        text, entities = convert(markdown_text)
+        entity_dicts = [e.to_dict() for e in entities]
 
-        result: List[Tuple[str, list]] = []
-        for seg in segments:
-            if isinstance(seg, Text):
-                entity_dicts = [e.to_dict() for e in seg.entities]
-                result.append((seg.text, entity_dicts))
-            elif hasattr(seg, "text"):
-                result.append((seg.text, []))
-            else:
-                result.append((str(seg), []))
-
-        if result:
-            return result
+        # Split into chunks respecting MAX_LEN
+        return _split_with_entities(text, entity_dicts)
 
     except Exception as exc:
-        logger.warning("[telegram_renderer] telegramify failed: %s", exc)
+        logger.warning("[telegram_renderer] convert failed: %s", exc)
 
     # Fallback: plain text
     return [(chunk, []) for chunk in _chunk_plain(markdown_text)]
+
+
+def _split_with_entities(text: str, entities: list, max_len: int = MAX_LEN) -> List[Tuple[str, list]]:
+    """Split text+entities into chunks ≤ max_len at newline boundaries."""
+    if len(text) <= max_len:
+        return [(text, entities)]
+
+    chunks = []
+    pos = 0
+    while pos < len(text):
+        if pos + max_len >= len(text):
+            # Last chunk
+            chunk_text = text[pos:]
+            chunk_entities = _offset_entities(entities, -pos)
+            chunk_entities = [e for e in chunk_entities if e["offset"] >= 0 and e["offset"] + e["length"] <= len(chunk_text)]
+            chunks.append((chunk_text, chunk_entities))
+            break
+
+        # Find a good split point (newline near max_len)
+        split_at = text.rfind("\n", pos, pos + max_len)
+        if split_at <= pos:
+            split_at = pos + max_len  # No newline found, hard split
+
+        chunk_text = text[pos:split_at]
+        chunk_entities = _slice_entities(entities, pos, split_at)
+        chunks.append((chunk_text, chunk_entities))
+        pos = split_at
+        if pos < len(text) and text[pos] == "\n":
+            pos += 1  # Skip the newline
+
+    return chunks
+
+
+def _slice_entities(entities: list, start: int, end: int) -> list:
+    """Extract entities within [start, end) and adjust offsets."""
+    result = []
+    for e in entities:
+        e_start = e["offset"]
+        e_end = e_start + e["length"]
+        # Entity overlaps with chunk
+        if e_start < end and e_end > start:
+            new_e = dict(e)
+            new_e["offset"] = max(0, e_start - start)
+            new_e["length"] = min(e_end, end) - max(e_start, start)
+            if new_e["length"] > 0:
+                result.append(new_e)
+    return result
+
+
+def _offset_entities(entities: list, offset: int) -> list:
+    """Shift all entity offsets by offset."""
+    result = []
+    for e in entities:
+        new_e = dict(e)
+        new_e["offset"] = e["offset"] + offset
+        result.append(new_e)
+    return result
 
 
 def render_report_plain(markdown_text: str) -> List[Tuple[str, list]]:
