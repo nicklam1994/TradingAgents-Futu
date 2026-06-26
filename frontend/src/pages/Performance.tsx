@@ -158,7 +158,7 @@ function RealPerformancePanel() {
                                             <div className="font-medium text-slate-900 dark:text-slate-100">{p.name || p.code}</div>
                                             <div className="text-xs text-slate-400">{p.code}</div>
                                         </td>
-                                        <td className="py-2 text-right text-slate-700 dark:text-slate-300">{p.lot_size && p.lot_size > 1 ? `${(p.qty / p.lot_size).toLocaleString()} 手` : `${p.qty.toLocaleString()} 股`}</td>
+                                        <td className="py-2 text-right text-slate-700 dark:text-slate-300">{p.qty.toLocaleString()}股{p.lot_size && p.lot_size > 1 ? ` (${(p.qty / p.lot_size).toLocaleString()}手)` : ''}</td>
                                         <td className="py-2 text-right text-slate-700 dark:text-slate-300">{p.cost_price.toFixed(3)}</td>
                                         <td className="py-2 text-right text-slate-700 dark:text-slate-300">{p.current_price.toFixed(3)}</td>
                                         <td className="py-2 text-right text-slate-700 dark:text-slate-300">{p.market_val.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}</td>
