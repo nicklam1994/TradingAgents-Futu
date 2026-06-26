@@ -411,7 +411,18 @@ def _init_bot_manager() -> BotManager:
     # Create analyze function first so _bot_function_call_fn can invoke it
     _bot_analyze_fn = _bot_analyze_fn_factory(telegram_bot=telegram_bot)
 
-    async def _bot_function_call_fn(text: str, user_id: str) -> dict:
+    # Register callback handler for function calling disambiguation buttons
+    if telegram_bot:
+        async def _fc_disambig_callback(data: str, user_id: str, chat_id: str, message_id: str):
+            if not data.startswith("fc_disambig:"):
+                return
+            symbol = data.split(":", 1)[1]
+            if not symbol:
+                return
+            asyncio.create_task(_bot_analyze_fn(symbol, chat_id=chat_id))
+        telegram_bot.on_callback(_fc_disambig_callback)
+
+    async def _bot_function_call_fn(text: str, user_id: str, chat_id: str = "") -> dict:
         """Wrapper for function calling from bot."""
         from api.services.function_calling_service import (
             TOOLS, SYSTEM_PROMPT, HELP_TEXT,
@@ -469,6 +480,22 @@ def _init_bot_manager() -> BotManager:
                 })
 
         final_message = message.content or ""
+
+        # Check if resolve_stock returned multiple candidates → send inline keyboard
+        resolve_tc = next((tc for tc in all_tool_calls if tc["name"] == "resolve_stock"), None)
+        if resolve_tc and resolve_tc["result"].get("disambiguation_required") and telegram_bot:
+            candidates = resolve_tc["result"].get("results", [])
+            if len(candidates) > 1:
+                # Build inline keyboard buttons (2 per row)
+                btn_list = [
+                    {"text": f"{c.get('name', '')} ({c.get('code', '')})", "callback_data": f"fc_disambig:{c.get('code', '')}"}
+                    for c in candidates
+                ]
+                buttons = [btn_list[i:i+2] for i in range(0, len(btn_list), 2)]
+                if chat_id:
+                    await telegram_bot.send_with_keyboard(str(chat_id), final_message, buttons)
+                    return {"ok": True, "data": {"response": "", "tool_calls": all_tool_calls, "disambiguation": True}}
+
         return {
             "ok": True,
             "data": {
