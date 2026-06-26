@@ -418,7 +418,9 @@ def _init_bot_manager() -> BotManager:
             create_handler_from_runtime_config,
         )
 
-        handler = create_handler_from_runtime_config(user_id)
+        # Use bot owner's DB user_id, not Telegram's user_id
+        owner_id = _find_bot_owner_user_id()
+        handler = create_handler_from_runtime_config(owner_id or user_id)
         if not handler:
             return {"ok": False, "error": "LLM not configured"}
 
@@ -443,7 +445,7 @@ def _init_bot_manager() -> BotManager:
 
                 db = SessionLocal()
                 try:
-                    user = db.query(UserDB).filter(UserDB.id == user_id).first()
+                    user = db.query(UserDB).filter(UserDB.id == (owner_id or user_id)).first()
                     # For analyze_stock, invoke the real analysis pipeline
                     if func_name == "analyze_stock":
                         symbol = func_args.get("symbol", "")
