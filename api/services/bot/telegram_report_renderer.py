@@ -14,6 +14,23 @@ logger = logging.getLogger(__name__)
 MAX_LEN = 4096
 
 
+def _run_async(coro):
+    """Run an async coroutine, handling both running and non-running event loops."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # Already in an async context (e.g. FastAPI) — use nest_asyncio
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            future = pool.submit(asyncio.run, coro)
+            return future.result(timeout=60)
+    else:
+        return asyncio.run(coro)
+
+
 def render_report(markdown_text: str) -> List[Tuple[str, list]]:
     """Convert Markdown to list of (text, entities) tuples.
 
@@ -23,7 +40,7 @@ def render_report(markdown_text: str) -> List[Tuple[str, list]]:
     try:
         from telegramify_markdown import telegramify, Text
 
-        segments = asyncio.run(
+        segments = _run_async(
             telegramify(markdown_text, max_message_length=MAX_LEN, render_mermaid=False)
         )
 
