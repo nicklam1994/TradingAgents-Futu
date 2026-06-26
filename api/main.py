@@ -419,6 +419,33 @@ def _init_bot_manager() -> BotManager:
             symbol = data.split(":", 1)[1]
             if not symbol:
                 return
+            # Send immediate feedback: selected stock + real-time quote
+            try:
+                from tradingagents.dataflows.stock_resolver import to_display, to_futu
+                display = to_display(symbol)
+                # Get real-time quote
+                from tradingagents.dataflows.providers.futu_provider import FutuProvider
+                futu_code = to_futu(symbol)
+                provider = FutuProvider()
+                quote_raw = provider.get_realtime_quotes([futu_code])
+                quote_text = ""
+                if quote_raw and isinstance(quote_raw, str):
+                    lines = quote_raw.strip().split("\n")
+                    if len(lines) >= 2:
+                        headers = lines[0].split(",")
+                        values = lines[1].split(",")
+                        d = dict(zip(headers, values))
+                        price = d.get("price", "N/A")
+                        change = d.get("change", "0")
+                        change_pct = d.get("change_pct", "0")
+                        quote_text = f"\n📈 现价: {price}  涨跌: {change} ({change_pct}%)"
+                feedback = f"✅ 已选择: {display} ({symbol}){quote_text}\n\n🔍 多 Agent 协作分析中，报告完成后会自动发送给您。"
+                from api.services.bot.bot_platform import BotResponse
+                await telegram_bot._send_response(BotResponse(text=feedback, chat_id=str(chat_id)))
+            except Exception as e:
+                logger.warning("[FC disambig] Feedback error: %s", e)
+                from api.services.bot.bot_platform import BotResponse
+                await telegram_bot._send_response(BotResponse(text=f"✅ 已选择: {symbol}\n\n🔍 分析中，请稍候...", chat_id=str(chat_id)))
             asyncio.create_task(_bot_analyze_fn(symbol, chat_id=chat_id))
         telegram_bot.on_callback(_fc_disambig_callback)
 
