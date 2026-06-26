@@ -742,6 +742,33 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
         const customPrompt = localStorage.getItem('ta-custom-prompt')?.trim() || ''
         const fullPrompt = customPrompt ? `${prompt}\n\n[分析要求] ${customPrompt}` : prompt
 
+        // Pre-check: use LLM to resolve stock symbol and check for disambiguation
+        try {
+            setStreaming(true)
+            setThinkingPhase('thinking')
+            const preResult = await api.functionCall(prompt)
+            if (preResult.ok && preResult.data?.tool_calls) {
+                const resolveCall = preResult.data.tool_calls.find((tc: { name: string }) => tc.name === 'resolve_stock')
+                const resolveResult = resolveCall?.result as Record<string, unknown> | undefined
+                const resolveArgs = resolveCall?.args as Record<string, string> | undefined
+                if (resolveResult?.disambiguation_required && Array.isArray(resolveResult.results) && resolveResult.results.length > 1) {
+                    const candidates = resolveResult.results as Array<{ code: string; name: string; market: string }>
+                    addChatMessage({
+                        id: `${Date.now()}-${Math.random()}`,
+                        role: 'assistant',
+                        content: preResult.data.response,
+                        timestamp: new Date().toISOString(),
+                    })
+                    setDisambiguation({ query: resolveArgs?.query || '', candidates })
+                    setStreaming(false)
+                    setThinkingPhase(undefined as unknown as 'thinking' | 'analyzing')
+                    return
+                }
+            }
+        } catch {
+            // Pre-check failed, fall through to normal streamChat
+        }
+
         reset()
         streamingReportIds.current.clear()
         pendingAgentMsgIdsRef.current = new Set(); forceUpdate(n => n + 1)
