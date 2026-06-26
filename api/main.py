@@ -3942,10 +3942,12 @@ async def _execute_tool(name: str, args: Dict[str, Any], user: UserDB) -> Dict[s
             # Try name search
             results = search_by_name_multi(query, limit=5)
             if results:
+                disambig = len(results) > 1
                 return {
                     "action": "resolve",
                     "query": query,
                     "found": True,
+                    "disambiguation_required": disambig,
                     "results": [
                         {"code": r.get("code", ""), "name": r.get("name", ""), "market": "HK" if r.get("code", "").endswith(".HK") else "US"}
                         for r in results
