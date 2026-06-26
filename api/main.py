@@ -449,7 +449,23 @@ def _init_bot_manager() -> BotManager:
                     text=f"✅ 已选择: {symbol}\n\n🔍 分析中，请稍候...",
                     chat_id=str(chat_id),
                 ))
-            asyncio.create_task(_bot_analyze_fn(symbol, chat_id=chat_id))
+            async def _run_and_send():
+                try:
+                    result = await _bot_analyze_fn(symbol, chat_id=chat_id)
+                    if result:
+                        from api.services.bot.bot_platform import BotResponse
+                        await telegram_bot._send_response(BotResponse(
+                            text=result,
+                            chat_id=str(chat_id),
+                        ))
+                except Exception as exc:
+                    logger.error("[FC disambig] Analysis failed: %s", exc, exc_info=True)
+                    from api.services.bot.bot_platform import BotResponse
+                    await telegram_bot._send_response(BotResponse(
+                        text=f"❌ 分析 {symbol} 失败: {exc}",
+                        chat_id=str(chat_id),
+                    ))
+            asyncio.create_task(_run_and_send())
         telegram_bot.on_callback(_fc_disambig_callback)
 
     async def _bot_function_call_fn(text: str, user_id: str, chat_id: str = "") -> dict:
