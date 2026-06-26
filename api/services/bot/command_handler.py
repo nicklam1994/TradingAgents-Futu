@@ -246,9 +246,9 @@ class BotCommandHandler:
             result = await self._function_call_fn(message.text, message.user_id, message.chat_id)
             if result.get("ok") and result.get("data"):
                 data = result["data"]
-                # Inline keyboard already sent for disambiguation
+                # Inline keyboard already sent for disambiguation — skip text reply
                 if data.get("disambiguation"):
-                    return BotResponse(text="", chat_id=message.chat_id)
+                    return None
                 reply = data.get("response", "")
                 tool_call = data.get("tool_call")
 
