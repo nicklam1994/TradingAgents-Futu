@@ -3,6 +3,7 @@ Telegram Report Renderer v4
 ============================
 Uses telegramify-markdown's synchronous `convert()` API.
 Returns plain text + entity dicts — no parse_mode needed, no async issues.
+Splits in UTF-16 space to preserve entity boundaries.
 """
 
 import logging
@@ -10,7 +11,7 @@ from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
 
-MAX_LEN = 4096
+MAX_LEN = 4096  # Telegram limit in UTF-16 code units
 
 
 def render_report(markdown_text: str) -> List[Tuple[str, list]]:
@@ -25,8 +26,8 @@ def render_report(markdown_text: str) -> List[Tuple[str, list]]:
         text, entities = convert(markdown_text)
         entity_dicts = [e.to_dict() for e in entities]
 
-        # Split into chunks respecting MAX_LEN
-        return _split_with_entities(text, entity_dicts)
+        # Split in UTF-16 space to preserve entity boundaries
+        return _split_utf16(text, entity_dicts)
 
     except Exception as exc:
         logger.warning("[telegram_renderer] convert failed: %s", exc)
@@ -35,61 +36,57 @@ def render_report(markdown_text: str) -> List[Tuple[str, list]]:
     return [(chunk, []) for chunk in _chunk_plain(markdown_text)]
 
 
-def _split_with_entities(text: str, entities: list, max_len: int = MAX_LEN) -> List[Tuple[str, list]]:
-    """Split text+entities into chunks ≤ max_len at newline boundaries."""
-    if len(text) <= max_len:
+def _split_utf16(text: str, entities: list, max_units: int = MAX_LEN) -> List[Tuple[str, list]]:
+    """Split text+entities in UTF-16 code-unit space.
+
+    Telegram measures entity offset/length in UTF-16 code units.
+    We encode to UTF-16LE (no BOM), split the bytes, then decode back.
+    """
+    # Encode entire text to UTF-16LE (2 bytes per code unit, no BOM)
+    encoded = text.encode("utf-16-le")
+    total_units = len(encoded) // 2
+
+    if total_units <= max_units:
         return [(text, entities)]
 
     chunks = []
-    pos = 0
-    while pos < len(text):
-        if pos + max_len >= len(text):
-            # Last chunk
-            chunk_text = text[pos:]
-            chunk_entities = _offset_entities(entities, -pos)
-            chunk_entities = [e for e in chunk_entities if e["offset"] >= 0 and e["offset"] + e["length"] <= len(chunk_text)]
-            chunks.append((chunk_text, chunk_entities))
-            break
+    unit_pos = 0
 
-        # Find a good split point (newline near max_len)
-        split_at = text.rfind("\n", pos, pos + max_len)
-        if split_at <= pos:
-            split_at = pos + max_len  # No newline found, hard split
+    while unit_pos < total_units:
+        end_unit = min(unit_pos + max_units, total_units)
 
-        chunk_text = text[pos:split_at]
-        chunk_entities = _slice_entities(entities, pos, split_at)
+        if end_unit < total_units:
+            # Try to split at a newline (UTF-16 code unit for \n = 0x000A)
+            # Search backwards for \n in the UTF-16 bytes
+            best_split = end_unit
+            for probe in range(end_unit - 1, unit_pos, -1):
+                byte_offset = probe * 2
+                if encoded[byte_offset] == 0x0A and encoded[byte_offset + 1] == 0x00:
+                    best_split = probe + 1  # include the newline
+                    break
+            end_unit = best_split
+
+        # Extract chunk bytes and decode
+        chunk_bytes = encoded[unit_pos * 2 : end_unit * 2]
+        chunk_text = chunk_bytes.decode("utf-16-le")
+
+        # Extract entities that fall within this chunk
+        chunk_entities = []
+        for e in entities:
+            e_start = e["offset"]
+            e_end = e_start + e["length"]
+            # Entity overlaps with [unit_pos, end_unit)
+            if e_start < end_unit and e_end > unit_pos:
+                new_e = dict(e)
+                new_e["offset"] = max(0, e_start - unit_pos)
+                new_e["length"] = min(e_end, end_unit) - max(e_start, unit_pos)
+                if new_e["length"] > 0:
+                    chunk_entities.append(new_e)
+
         chunks.append((chunk_text, chunk_entities))
-        pos = split_at
-        if pos < len(text) and text[pos] == "\n":
-            pos += 1  # Skip the newline
+        unit_pos = end_unit
 
     return chunks
-
-
-def _slice_entities(entities: list, start: int, end: int) -> list:
-    """Extract entities within [start, end) and adjust offsets."""
-    result = []
-    for e in entities:
-        e_start = e["offset"]
-        e_end = e_start + e["length"]
-        # Entity overlaps with chunk
-        if e_start < end and e_end > start:
-            new_e = dict(e)
-            new_e["offset"] = max(0, e_start - start)
-            new_e["length"] = min(e_end, end) - max(e_start, start)
-            if new_e["length"] > 0:
-                result.append(new_e)
-    return result
-
-
-def _offset_entities(entities: list, offset: int) -> list:
-    """Shift all entity offsets by offset."""
-    result = []
-    for e in entities:
-        new_e = dict(e)
-        new_e["offset"] = e["offset"] + offset
-        result.append(new_e)
-    return result
 
 
 def render_report_plain(markdown_text: str) -> List[Tuple[str, list]]:
