@@ -464,14 +464,14 @@ def _init_bot_manager() -> BotManager:
                 try:
                     result = await _bot_analyze_fn(symbol, chat_id=chat_id)
                     if result:
-                        from api.services.bot.telegram_report_renderer import render_report, render_report_plain
+                        from api.services.bot.telegram_report_renderer import render_report
                         from api.services.bot.bot_platform import BotResponse
                         chunks = render_report(result)
-                        for chunk in chunks:
+                        for text, entities in chunks:
                             await telegram_bot._send_response(BotResponse(
-                                text=chunk,
+                                text=text,
                                 chat_id=str(chat_id),
-                                parse_mode="MarkdownV2",
+                                entities=entities,
                             ))
                 except Exception as exc:
                     logger.error("[FC disambig] Analysis failed: %s", exc, exc_info=True)

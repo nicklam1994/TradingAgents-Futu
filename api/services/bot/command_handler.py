@@ -168,11 +168,11 @@ class BotCommandHandler:
             if result_text and self._bot:
                 from api.services.bot.telegram_report_renderer import render_report
                 chunks = render_report(result_text)
-                for chunk in chunks:
+                for text, entities in chunks:
                     await self._bot._send_response(BotResponse(
-                        text=chunk,
+                        text=text,
                         chat_id=message.chat_id,
-                        parse_mode="MarkdownV2",
+                        entities=entities,
                     ))
                 return None  # Already sent, no need to return response
             elif result_text:
@@ -269,11 +269,11 @@ class BotCommandHandler:
                 if reply and len(reply) > 3500 and self._bot:
                     from api.services.bot.telegram_report_renderer import render_report
                     chunks = render_report(reply)
-                    for chunk in chunks:
+                    for text, entities in chunks:
                         await self._bot._send_response(BotResponse(
-                            text=chunk,
+                            text=text,
                             chat_id=message.chat_id,
-                            parse_mode="MarkdownV2",
+                            entities=entities,
                         ))
                     return None
                 else:

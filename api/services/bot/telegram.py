@@ -350,6 +350,11 @@ class TelegramBot(BotPlatform):
         if parse_mode:
             payload["parse_mode"] = parse_mode
 
+        # Set entities if specified (overrides parse_mode)
+        if response.entities:
+            payload["entities"] = response.entities
+            payload.pop("parse_mode", None)  # entities and parse_mode are mutually exclusive
+
         # Reply to original message if we have one
         if response.message_id:
             payload["reply_to_message_id"] = response.message_id

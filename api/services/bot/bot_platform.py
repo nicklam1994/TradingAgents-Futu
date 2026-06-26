@@ -55,6 +55,7 @@ class BotResponse:
     chat_id: str = ""                   # Target chat/channel
     message_id: str = ""                # Reply-to message ID (if supported)
     parse_mode: str = ""                # "markdown", "html", etc.
+    entities: list = field(default_factory=list)  # Telegram MessageEntity dicts
     extra: Dict[str, Any] = field(default_factory=dict)
 
 
