@@ -346,8 +346,9 @@ class TelegramBot(BotPlatform):
         }
 
         # Set parse mode if specified
-        if response.parse_mode:
-            payload["parse_mode"] = response.parse_mode
+        parse_mode = response.parse_mode or ""
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
 
         # Reply to original message if we have one
         if response.message_id:
@@ -360,7 +361,19 @@ class TelegramBot(BotPlatform):
                     if body.get("ok"):
                         logger.info("[telegram] Message sent to chat %s", chat_id)
                         return True
-                    logger.warning("[telegram] API error: %s", body.get("description", "unknown"))
+                    # MarkdownV2 parse error → retry without parse_mode
+                    desc = body.get("description", "")
+                    if parse_mode and "parse" in desc.lower():
+                        logger.info("[telegram] Retrying without parse_mode")
+                        payload.pop("parse_mode", None)
+                        async with self._session.post(f"{self._api}/sendMessage", json=payload) as resp2:
+                            body2 = await resp2.json()
+                            if body2.get("ok"):
+                                logger.info("[telegram] Fallback plain sent to chat %s", chat_id)
+                                return True
+                            logger.warning("[telegram] Fallback also failed: %s", body2.get("description"))
+                    else:
+                        logger.warning("[telegram] API error: %s", desc)
                     return False
                 body_text = await resp.text()
                 logger.warning("[telegram] Send failed (%s): %s", resp.status, body_text[:300])

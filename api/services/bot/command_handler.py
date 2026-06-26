@@ -172,6 +172,7 @@ class BotCommandHandler:
                     await self._bot._send_response(BotResponse(
                         text=chunk,
                         chat_id=message.chat_id,
+                        parse_mode="MarkdownV2",
                     ))
                 return None  # Already sent, no need to return response
             elif result_text:
@@ -272,6 +273,7 @@ class BotCommandHandler:
                         await self._bot._send_response(BotResponse(
                             text=chunk,
                             chat_id=message.chat_id,
+                            parse_mode="MarkdownV2",
                         ))
                     return None
                 else:
