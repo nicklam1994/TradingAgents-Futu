@@ -144,7 +144,7 @@ class TelegramBot(BotPlatform):
                 params = {
                     "offset": self._offset,
                     "timeout": _POLL_TIMEOUT,
-                    "allowed_updates": json.dumps(["message"]),
+                    "allowed_updates": json.dumps(["message", "callback_query"]),
                 }
                 async with self._session.get(
                     f"{self._api}/getUpdates", params=params, timeout=aiohttp.ClientTimeout(total=_POLL_TIMEOUT + 10)
