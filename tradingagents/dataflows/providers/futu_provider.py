@@ -941,6 +941,7 @@ class FutuProvider(BaseMarketDataProvider):
                 return []
 
             positions = []
+            codes_for_snapshot = []
             for _, row in data.iterrows():
                 qty = row.get("qty", 0)
                 if qty <= 0:
@@ -948,6 +949,7 @@ class FutuProvider(BaseMarketDataProvider):
                 # Convert Futu code (HK.00700) to canonical (00700.HK)
                 futu_code = row.get("code", "")
                 canonical = _futu_code_to_canonical(futu_code)
+                codes_for_snapshot.append(futu_code)
                 positions.append({
                     "symbol": canonical,
                     "futu_code": futu_code,
@@ -965,7 +967,30 @@ class FutuProvider(BaseMarketDataProvider):
                     "realized_pl": float(row.get("realized_pl", 0)),
                     "currency": row.get("currency", ""),
                     "position_side": row.get("position_side", "LONG"),
+                    "lot_size": 0,
                 })
+
+            # Fetch lot_size from quote snapshot
+            if codes_for_snapshot:
+                try:
+                    from futu import OpenQuoteContext
+                    qctx = OpenQuoteContext(
+                        host=_opend_host(), port=_opend_port(),
+                        security_firm=SecurityFirm.FUTUSECURITIES,
+                    )
+                    try:
+                        ret2, snap = qctx.get_market_snapshot(codes_for_snapshot)
+                        if ret2 == 0 and snap is not None and not snap.empty:
+                            lot_map = {}
+                            for _, sr in snap.iterrows():
+                                lot_map[str(sr.get("code", ""))] = int(sr.get("lot_size", 0) or 0)
+                            for p in positions:
+                                p["lot_size"] = lot_map.get(p["futu_code"], 0)
+                    finally:
+                        qctx.close()
+                except Exception:
+                    pass
+
             return positions
         except Exception as exc:
             logger.warning("[futu] get_positions failed: %s", exc)

@@ -415,4 +415,24 @@ def _get_positions() -> list[dict]:
             if ctx:
                 ctx.close()
 
+    # Fetch lot_size from quote snapshot
+    if positions:
+        try:
+            from futu import OpenQuoteContext
+            all_futu_codes = [p["code"] for p in positions]
+            qctx = OpenQuoteContext(host="127.0.0.1", port=11111, security_firm=SecurityFirm.FUTUSECURITIES)
+            try:
+                ret2, snap = qctx.get_market_snapshot(all_futu_codes)
+                if ret2 == RET_OK and snap is not None and not snap.empty:
+                    lot_map = {}
+                    for _, sr in snap.iterrows():
+                        lot_map[str(sr.get("code", ""))] = int(sr.get("lot_size", 0) or 0)
+                    for p in positions:
+                        p["lot_size"] = lot_map.get(p["code"], 0)
+            finally:
+                qctx.close()
+        except Exception:
+            for p in positions:
+                p.setdefault("lot_size", 0)
+
     return positions

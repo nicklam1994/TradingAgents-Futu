@@ -760,6 +760,7 @@ export interface SimPosition {
     today_pnl: number
     currency: string
     market_state?: string
+    lot_size?: number
 }
 
 export interface SimOrder {
@@ -811,6 +812,7 @@ export interface RealPositionMetric {
     pl_val: number
     pl_ratio: number
     is_profitable: boolean
+    lot_size?: number
 }
 
 export interface RealPerformance {

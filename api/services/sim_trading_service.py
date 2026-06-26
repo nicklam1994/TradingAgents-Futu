@@ -356,6 +356,7 @@ def get_positions(
 
         # Fetch prev_close via quote snapshot
         prev_close_map: dict[str, float] = {}
+        lot_size_map: dict[str, int] = {}
         if codes_for_snapshot:
             try:
                 from futu import OpenQuoteContext
@@ -368,11 +369,13 @@ def get_positions(
                     ret2, snap = qctx.get_market_snapshot(codes_for_snapshot)
                     if ret2 == RET_OK and snap is not None and not snap.empty:
                         for _, sr in snap.iterrows():
-                            prev_close_map[str(sr.get("code", ""))] = float(sr.get("prev_close_price", 0) or 0)
+                            c = str(sr.get("code", ""))
+                            prev_close_map[c] = float(sr.get("prev_close_price", 0) or 0)
+                            lot_size_map[c] = int(sr.get("lot_size", 0) or 0)
                 finally:
                     qctx.close()
             except Exception:
-                pass  # prev_close stays 0
+                pass  # prev_close / lot_size stays 0
 
         positions = []
         codes_for_state = []
@@ -401,6 +404,7 @@ def get_positions(
                 unrealized_pnl_pct=round(pl_ratio, 2) if pl_ratio else 0.0,
                 today_pnl=round((current_price - prev_close) * qty, 2) if prev_close else 0.0,
                 currency=str(row.get("currency", "HKD")),
+                lot_size=lot_size_map.get(code, 0),
             ))
 
         # Fetch market states for all position codes
@@ -1238,6 +1242,7 @@ def position_to_dict(p: Position) -> Dict[str, Any]:
         "today_pnl": p.today_pnl,
         "currency": p.currency,
         "market_state": p.market_state,
+        "lot_size": p.lot_size,
     }
 
 

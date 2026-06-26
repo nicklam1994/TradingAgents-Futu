@@ -46,6 +46,7 @@ class Position:
     today_pnl: float = 0.0          # 今日盈亏
     currency: str = "HKD"
     market_state: str = ""          # 市场状态 (TRADING, CLOSED, etc.)
+    lot_size: int = 0               # 每手股数 (HK: 100/1000/2000, US: 1)
 
 
 # ── Order & Trade ────────────────────────────────────────────────────────────
