@@ -371,25 +371,36 @@ def _bot_analyze_fn_factory(telegram_bot=None):
 
         if state.get("status") == "completed":
             report = state.get("report") or state.get("result", {})
-            # Extract the key parts of the analysis
-            parts = []
             if isinstance(report, dict):
-                if report.get("decision"):
-                    parts.append(f"决策: {report['decision']}")
-                if report.get("direction"):
-                    parts.append(f"方向: {report['direction']}")
-                if report.get("confidence") is not None:
-                    parts.append(f"置信度: {report['confidence']}%")
-                summary = (
-                    report.get("final_trade_decision")
-                    or report.get("trader_investment_plan")
-                    or report.get("investment_plan")
-                    or ""
-                )
-                if summary:
-                    # Clip to reasonable length
-                    parts.append(f"\n{summary[:1500]}")
-            return "\n".join(parts) if parts else f"分析完成，但未生成摘要。Job ID: {job_id}"
+                # Build full report with all sections
+                lines = []
+                sym = report.get("symbol", symbol)
+                decision = report.get("decision", "")
+                confidence = report.get("confidence", 0)
+                lines.append(f"📊 *{sym} 分析报告*")
+                lines.append(f"🎯 结论: {decision} | 置信度: {confidence}%")
+                lines.append("━" * 20)
+                lines.append("")
+                section_map = [
+                    ("fundamentals_report", "📋 基本面分析师"),
+                    ("market_report", "📈 市场技术分析师"),
+                    ("smart_money_report", "💰 机构资金分析师"),
+                    ("volume_price_report", "📊 量价分析师"),
+                    ("sentiment_report", "🗣️ 社交舆情分析师"),
+                    ("news_report", "📰 新闻分析师"),
+                    ("macro_report", "🌍 宏观分析师"),
+                    ("final_trade_decision", "🎯 风控委员会最终决策"),
+                    ("investment_plan", "📋 投资方案"),
+                ]
+                for key, title in section_map:
+                    content = report.get(key, "")
+                    if content:
+                        lines.append(f"{title}")
+                        lines.append(content)
+                        lines.append("")
+                return "\n".join(lines)
+            else:
+                return str(report) if report else f"分析完成。Job ID: {job_id}"
         else:
             error = state.get("error", "unknown error")
             return f"❌ 分析失败: {error}"
@@ -453,11 +464,14 @@ def _init_bot_manager() -> BotManager:
                 try:
                     result = await _bot_analyze_fn(symbol, chat_id=chat_id)
                     if result:
+                        from api.services.bot.telegram_report_renderer import render_report
                         from api.services.bot.bot_platform import BotResponse
-                        await telegram_bot._send_response(BotResponse(
-                            text=result,
-                            chat_id=str(chat_id),
-                        ))
+                        chunks = render_report(result)
+                        for chunk in chunks:
+                            await telegram_bot._send_response(BotResponse(
+                                text=chunk,
+                                chat_id=str(chat_id),
+                            ))
                 except Exception as exc:
                     logger.error("[FC disambig] Analysis failed: %s", exc, exc_info=True)
                     from api.services.bot.bot_platform import BotResponse
