@@ -666,6 +666,24 @@ export default function ChatCopilotPanel({ onSymbolDetected, onShowReport, initi
                 if (result.ok && result.data) {
                     const { response: reply, tool_call, tool_calls } = result.data
 
+                    // Check if resolve_stock returned multiple candidates (disambiguation)
+                    const resolveCall = (tool_calls || []).find((tc: { name: string }) => tc.name === 'resolve_stock')
+                    const resolveResult = resolveCall?.result as Record<string, unknown> | undefined
+                    const resolveArgs = resolveCall?.args as Record<string, string> | undefined
+                    if (resolveResult?.disambiguation_required && Array.isArray(resolveResult.results) && resolveResult.results.length > 1) {
+                        const candidates = resolveResult.results as Array<{ code: string; name: string; market: string }>
+                        addChatMessage({
+                            id: `${Date.now()}-${Math.random()}`,
+                            role: 'assistant',
+                            content: reply,
+                            timestamp: new Date().toISOString(),
+                        })
+                        setDisambiguation({ query: resolveArgs?.query || '', candidates })
+                        setStreaming(false)
+                        setThinkingPhase(undefined as unknown as 'thinking' | 'analyzing')
+                        return
+                    }
+
                     // Check if analyze_stock was called in the tool chain
                     const analyzeCall = (tool_calls || []).find((tc: { name: string }) => tc.name === 'analyze_stock')
                         || (tool_call?.name === 'analyze_stock' ? tool_call : null)
