@@ -598,7 +598,14 @@ class AutonomousLoop:
                     if sym not in _all_symbols:
                         _all_symbols.append(sym)
                 elif action == "sell" and qty > 0:
-                    _agg[sym]["total_qty"] = max(0, _agg[sym]["total_qty"] - qty)
+                    # Reduce qty and cost proportionally (average cost method)
+                    old_qty = _agg[sym]["total_qty"]
+                    if old_qty <= 0:
+                        continue
+                    sold = min(qty, old_qty)
+                    avg_cost = _agg[sym]["total_cost"] / old_qty
+                    _agg[sym]["total_qty"] = old_qty - sold
+                    _agg[sym]["total_cost"] -= avg_cost * sold
                     if _agg[sym]["total_qty"] <= 0:
                         _agg[sym]["total_cost"] = 0.0
 
