@@ -82,6 +82,20 @@ class OODAState:
         ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         self.logs.append(f"[{ts}] {msg}")
 
+    def log_rationale(self, action: str, reason: str, data: dict | None = None) -> None:
+        """Log a decision with its rationale and data sources.
+
+        Args:
+            action: What was done (e.g. "止损卖出 AAPL")
+            reason: Why it was done (e.g. "PnL -8.35% 触发 -8% 止损线")
+            data: Optional dict of key data points (e.g. {"entry":151.67, "current":139, "pnl_pct":-0.0835})
+        """
+        parts = [f"{action} — {reason}"]
+        if data:
+            kv = ", ".join(f"{k}={v}" for k, v in data.items())
+            parts.append(f"│ 数据: {kv}")
+        self.log("\n".join(parts))
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "phase": self.phase.value,
@@ -675,8 +689,16 @@ class AutonomousLoop:
                         "entry_price": entry,
                         "current_price": pos["current_price"],
                     })
-                    state.log(
-                        f"🔴 {pos['symbol']} 止损触发: PnL {pnl_pct:.2%} <= {config.stop_loss_pct:.0%}"
+                    state.log_rationale(
+                        f"🔴 {pos['symbol']} 止损触发",
+                        f"亏损 {pnl_pct:.2%} 超过止损线 {config.stop_loss_pct:.0%}，触发强制卖出",
+                        {
+                            "入场价": f"{entry:.3f}",
+                            "现价": f"{pos['current_price']:.3f}",
+                            "跌幅": f"{pnl_pct:.2%}",
+                            "止损线": f"{config.stop_loss_pct:.0%}",
+                            "持仓量": str(pos['quantity']),
+                        },
                     )
                     logger.warning(
                         "Task %s: %s stop-loss triggered (PnL %.2f%%)",
@@ -691,8 +713,16 @@ class AutonomousLoop:
                         "entry_price": entry,
                         "current_price": pos["current_price"],
                     })
-                    state.log(
-                        f"🟢 {pos['symbol']} 止盈触发: PnL {pnl_pct:.2%} >= {config.take_profit_pct:.0%}"
+                    state.log_rationale(
+                        f"🟢 {pos['symbol']} 止盈触发",
+                        f"盈利 {pnl_pct:.2%} 达到止盈线 {config.take_profit_pct:.0%}，触发获利卖出",
+                        {
+                            "入场价": f"{entry:.3f}",
+                            "现价": f"{pos['current_price']:.3f}",
+                            "涨幅": f"{pnl_pct:.2%}",
+                            "止盈线": f"{config.take_profit_pct:.0%}",
+                            "持仓量": str(pos['quantity']),
+                        },
                     )
                     logger.info(
                         "Task %s: %s take-profit triggered (PnL %.2f%%)",
@@ -2036,8 +2066,14 @@ class AutonomousLoop:
                     "reason": f"{alert.get('type', 'risk')}: PnL {alert.get('pnl_pct', 0):.2%}",
                 })
                 sell_symbols.add(sym)
-                state.log(
-                    f"🔴 {sym} 风控卖出 {held_qty}股 ({alert.get('type', 'risk')})"
+                state.log_rationale(
+                    f"🔴 {sym} 风控卖出 {held_qty}股",
+                    f"{alert.get('type', 'risk')} 告警自动触发清仓",
+                    {
+                        "告警类型": alert.get('type', '?'),
+                        "盈亏": f"{alert.get('pnl_pct', 0):.2%}",
+                        "来源": "Observe阶段风控检查",
+                    },
                 )
                 logger.info(
                     "Task %s: %s risk-control sell %d shares (%s)",
@@ -2060,8 +2096,14 @@ class AutonomousLoop:
                         "reason": f"TG verdict=SELL, confidence={c.get('tg_confidence', 0):.2f}",
                     })
                     sell_symbols.add(sym)
-                    state.log(
-                        f"📉 {sym} TradingGraph卖出 {held_qty}股"
+                    state.log_rationale(
+                        f"📉 {sym} TradingGraph卖出 {held_qty}股",
+                        f"7 分析师裁决为 SELL，无争议",
+                        {
+                            "裁决来源": "TradingGraph",
+                            "置信度": f"{c.get('tg_confidence', 0):.2f}",
+                            "持仓量": str(held_qty),
+                        },
                     )
                     logger.info(
                         "Task %s: %s TradingGraph SELL — selling %d shares",
@@ -2230,11 +2272,27 @@ class AutonomousLoop:
                         "reason": result.reason,
                     })
 
-                    # Log execution result
+                    # Log execution result with rationale
                     if result.action_taken in ("buy", "sell"):
-                        state.log(f"  ✅ {decision['symbol']} {decision['action']} {result.quantity}股 @ {result.price}")
+                        side_cn = "买入" if result.action_taken == "buy" else "卖出"
+                        source_cn = {
+                            "risk_control": "风控止损/止盈",
+                            "trading_graph": "7分析师裁决",
+                            "portfolio": "组合再平衡",
+                        }.get(decision.get("source", ""), decision.get("source", "?"))
+                        state.log_rationale(
+                            f"✅ {decision['symbol']} {side_cn} {result.quantity}股 @ {result.price}",
+                            f"执行来源: {source_cn}，置信度 {confidence:.0%}",
+                            {
+                                "决策来源": decision.get("source", "?"),
+                                "理由": decision.get("reason", "?"),
+                            },
+                        )
                     else:
-                        state.log(f"  ⏭️ {decision['symbol']} 跳过: {result.reason}")
+                        state.log_rationale(
+                            f"⏭️ {decision['symbol']} {decision['action']} 跳过",
+                            result.reason or "未知原因",
+                        )
 
                     # ── L7: Auto-reflect on each executed trade ──
                     if result.action_taken in ("buy", "sell"):
