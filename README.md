@@ -21,9 +21,11 @@
 | 6 | 量化绩效指标（max_drawdown/sharpe/sortino/win_rate/calmar） | ✅ 完成 | `f55a989` |
 | 7 | 模拟交易 Agent & 反思（SimExecutor + SimTradeReflector） | ✅ 完成 | `7df1e64` |
 | 8 | 自主 Orchestrator（OODA） | ✅ 完成 | `39ba5c1` |
-| 9 | 前端 5 新页面 | ⏳ 待开始 | — |
-| 10 | 止损/策略插件 | ✅ 完成 | `fa34454` |
-| 11 | 通知系统移植（7 渠道 + Bot 平台） | ⏳ 待开始 | — |
+|| 9 | 前端 5 新页面（模拟交易/自主运营/绩效/策略/反思） | ✅ 完成 | `1968960` |
+|| 10 | 止损/策略插件 | ✅ 完成 | `fa34454` |
+|| 11 | 通知系统移植（7 渠道 + Bot 平台） | ✅ 完成 | `d43b9c4` |
+|| 12 | Vibe-Trading 集成（Alpha Zoo 456因子 + Backtest + Shadow Account） | 🔄 部分完成 | — |
+|| 13 | vnpy 集成（EventEngine + AlphaModel + AlphaLab + BarGenerator） | 📋 待开始 | — |
 
 ---
 
