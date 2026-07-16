@@ -576,21 +576,48 @@ class AutonomousLoop:
         prev_executions = prev_state.get("executions", [])
 
         if prev_executions:
-            # Collect executed positions from previous iterations
-            positions = []
-            executed_symbols = []
+            # ── Aggregate positions by symbol ──
+            # Multiple buy/sell executions per symbol → net qty + weighted avg cost
+            from collections import defaultdict
+            _agg: dict[str, dict] = defaultdict(
+                lambda: {"total_qty": 0, "total_cost": 0.0}
+            )
+            _all_symbols: list[str] = []
+
             for ex in prev_executions:
-                if ex.get("action_taken") in ("buy", "sell"):
-                    sym = ex.get("symbol")
-                    positions.append({
-                        "symbol": sym,
-                        "entry_price": ex.get("price", 0),
-                        "current_price": ex.get("price", 0),  # fallback
-                        "quantity": ex.get("quantity", 0),
-                        "side": "long",
-                    })
-                    if sym:
-                        executed_symbols.append(sym)
+                sym = ex.get("symbol")
+                if not sym:
+                    continue
+                action = ex.get("action_taken", "")
+                qty = int(ex.get("quantity", 0) or 0)
+                price = float(ex.get("price", 0) or 0)
+
+                if action == "buy" and qty > 0 and price > 0:
+                    _agg[sym]["total_qty"] += qty
+                    _agg[sym]["total_cost"] += price * qty
+                    if sym not in _all_symbols:
+                        _all_symbols.append(sym)
+                elif action == "sell" and qty > 0:
+                    _agg[sym]["total_qty"] = max(0, _agg[sym]["total_qty"] - qty)
+                    if _agg[sym]["total_qty"] <= 0:
+                        _agg[sym]["total_cost"] = 0.0
+
+            # Build aggregated position list
+            positions = []
+            for sym in _all_symbols:
+                a = _agg[sym]
+                if a["total_qty"] <= 0:
+                    continue
+                entry_price = a["total_cost"] / a["total_qty"] if a["total_qty"] > 0 else 0.0
+                positions.append({
+                    "symbol": sym,
+                    "entry_price": round(entry_price, 4),
+                    "current_price": entry_price,  # fallback
+                    "quantity": a["total_qty"],
+                    "side": "long",
+                })
+
+            executed_symbols = [p["symbol"] for p in positions]
 
             # ── A1: Fetch real-time prices via provider ──
             if executed_symbols:
